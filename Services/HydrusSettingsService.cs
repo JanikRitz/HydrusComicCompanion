@@ -33,6 +33,7 @@ public sealed class HydrusSettingsService(
 
         settings.ApiUrl = stored.ApiUrl;
         settings.PrimaryTagService = stored.PrimaryTagService;
+        settings.TagServiceKey = stored.TagServiceKey;
         settings.TargetFileDomain = stored.TargetFileDomain;
         settings.SeriesNamespace = stored.SeriesNamespace;
         settings.VolumeNamespace = stored.VolumeNamespace;
@@ -65,6 +66,7 @@ public sealed class HydrusSettingsService(
         stored.ApiUrl = normalized.ApiUrl;
         stored.ProtectedApiAccessKey = ProtectApiAccessKey(normalized.ApiAccessKey);
         stored.PrimaryTagService = normalized.PrimaryTagService;
+        stored.TagServiceKey = normalized.TagServiceKey;
         stored.TargetFileDomain = normalized.TargetFileDomain;
         stored.SeriesNamespace = normalized.SeriesNamespace;
         stored.VolumeNamespace = normalized.VolumeNamespace;
@@ -124,6 +126,7 @@ public sealed class HydrusSettingsService(
         normalized.ApiUrl = NormalizeUrl(normalized.ApiUrl);
         normalized.ApiAccessKey = normalized.ApiAccessKey.Trim();
         normalized.PrimaryTagService = normalized.PrimaryTagService.Trim();
+        normalized.TagServiceKey = normalized.TagServiceKey.Trim();
         normalized.TargetFileDomain = normalized.TargetFileDomain.Trim();
         normalized.SeriesNamespace = NormalizeNamespace(normalized.SeriesNamespace, "series:");
         normalized.VolumeNamespace = NormalizeNamespace(normalized.VolumeNamespace, "volume:");

@@ -12,10 +12,11 @@ public sealed class HydrusSettingsRecord
 
     public string PrimaryTagService { get; set; } = string.Empty;
 
+    public string TagServiceKey { get; set; } = string.Empty;
+
     public string TargetFileDomain { get; set; } = string.Empty;
 
     public string SeriesNamespace { get; set; } = string.Empty;
-
     public string VolumeNamespace { get; set; } = string.Empty;
 
     public string ChapterNamespace { get; set; } = string.Empty;

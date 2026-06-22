@@ -16,8 +16,8 @@ public class TagSearchResponse
 /// </summary>
 public class TagInfo
 {
-    [JsonPropertyName("display_name")]
-    public string DisplayName { get; set; } = string.Empty;
+    [JsonPropertyName("value")]
+    public string Value { get; set; } = string.Empty;
 
     [JsonPropertyName("count")]
     public int Count { get; set; }

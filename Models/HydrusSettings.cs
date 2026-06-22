@@ -8,6 +8,8 @@ public sealed class HydrusSettings
 
     public string PrimaryTagService { get; set; } = "my tags";
 
+    public string TagServiceKey { get; set; } = string.Empty;
+
     public string TargetFileDomain { get; set; } = "all local files";
 
     public string SeriesNamespace { get; set; } = "series:";
@@ -27,6 +29,7 @@ public sealed class HydrusSettings
             ApiUrl = ApiUrl,
             ApiAccessKey = ApiAccessKey,
             PrimaryTagService = PrimaryTagService,
+            TagServiceKey = TagServiceKey,
             TargetFileDomain = TargetFileDomain,
             SeriesNamespace = SeriesNamespace,
             VolumeNamespace = VolumeNamespace,

@@ -53,6 +53,30 @@ await using (var scope = app.Services.CreateAsyncScope())
     var dbContextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<SettingsDbContext>>();
     await using var dbContext = await dbContextFactory.CreateDbContextAsync();
     await dbContext.Database.MigrateAsync();
+
+    var settingsService = scope.ServiceProvider.GetRequiredService<IHydrusSettingsService>();
+    var settings = await settingsService.GetSettingsAsync();
+
+    if (string.IsNullOrWhiteSpace(settings.TagServiceKey) && !string.IsNullOrWhiteSpace(settings.PrimaryTagService))
+    {
+        try
+        {
+            var catalog = await settingsService.GetServicesAsync(settings);
+            var tagService = catalog.TagServices.FirstOrDefault(service =>
+                string.Equals(service.Name, settings.PrimaryTagService, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(tagService?.Key))
+            {
+                settings.TagServiceKey = tagService.Key;
+                await settingsService.SaveSettingsAsync(settings);
+                app.Logger.LogInformation("Resolved Hydrus tag service key for {TagServiceName}.", settings.PrimaryTagService);
+            }
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogWarning(ex, "Failed to resolve Hydrus tag service key during startup.");
+        }
+    }
 }
 
 // Configure the HTTP request pipeline.

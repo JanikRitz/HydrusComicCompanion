@@ -1,18 +1,62 @@
 ﻿@page "/"
 @using HydrusComicCompanion.Data
+@using HydrusComicCompanion.Services
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
+@inject IHydrusSyncService SyncService
 
 <PageTitle>Library</PageTitle>
 
 <MudStack Spacing="3">
     <div>
-        <MudText Typo="Typo.h4" GutterBottom="true">Library</MudText>
-        <MudText Typo="Typo.body1" Color="Color.Secondary">
-            Browse your cached Hydrus comic series.
-        </MudText>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <div>
+                <MudText Typo="Typo.h4" GutterBottom="true">Library</MudText>
+                <MudText Typo="Typo.body1" Color="Color.Secondary">
+                    Browse your cached Hydrus comic series.
+                </MudText>
+            </div>
+            <MudButton 
+                Variant="Variant.Filled" 
+                Color="Color.Primary" 
+                OnClick="SyncNow"
+                Disabled="@_isSyncing"
+                StartIcon="@Icons.Material.Filled.Refresh">
+                @if (_isSyncing)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <span style="margin-left: 8px;">Syncing...</span>
+                }
+                else
+                {
+                    <span>Sync Library</span>
+                }
+            </MudButton>
+        </MudStack>
     </div>
+
+    @if (!string.IsNullOrEmpty(_syncError))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+            @_syncError
+        </MudAlert>
+    }
+
+    @if (_syncedSeriesCount.HasValue)
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+            <MudStack Spacing="1">
+                <div>Sync completed successfully! Synced <strong>@_syncedSeriesCount</strong> series.</div>
+                @if (_lastSyncTime.HasValue)
+                {
+                    <div style="font-size: 0.9em; color: var(--mud-palette-text-secondary);">
+                        Last sync: @_lastSyncTime.Value.ToString("yyyy-MM-dd HH:mm:ss")
+                    </div>
+                }
+            </MudStack>
+        </MudAlert>
+    }
 
     @if (_isLoading)
     {
@@ -55,17 +99,57 @@
 @code {
     private List<SeriesRecord> _series = [];
     private bool _isLoading = true;
+    private bool _isSyncing = false;
+    private string? _syncError = null;
+    private int? _syncedSeriesCount = null;
+    private DateTime? _lastSyncTime = null;
 
     protected override async Task OnInitializedAsync()
     {
-        await using var context = await DbContextFactory.CreateDbContextAsync();
-        _series = await context.Series
-            .AsNoTracking()
-            .Include(x => x.Chapters)
-            .Include(x => x.Metadata)
-            .OrderBy(x => x.Title)
-            .ToListAsync();
-        _isLoading = false;
+        await LoadSeriesAsync();
+    }
+
+    private async Task LoadSeriesAsync()
+    {
+        try
+        {
+            _isLoading = true;
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+            _series = await context.Series
+                .AsNoTracking()
+                .Include(x => x.Chapters)
+                .Include(x => x.Metadata)
+                .OrderBy(x => x.Title)
+                .ToListAsync();
+            _isLoading = false;
+        }
+        catch (Exception ex)
+        {
+            _isLoading = false;
+            _syncError = $"Error loading series: {ex.Message}";
+        }
+    }
+
+    private async Task SyncNow()
+    {
+        _isSyncing = true;
+        _syncError = null;
+        _syncedSeriesCount = null;
+
+        try
+        {
+            _syncedSeriesCount = await SyncService.SyncLibraryAsync();
+            _lastSyncTime = DateTime.Now;
+            await LoadSeriesAsync();
+        }
+        catch (Exception ex)
+        {
+            _syncError = $"Sync failed: {ex.Message}";
+        }
+        finally
+        {
+            _isSyncing = false;
+        }
     }
 
     private void OpenSeries(int seriesId)

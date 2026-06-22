@@ -39,10 +39,10 @@
                         </MudButton>
                     </MudStack>
 
-                    <MudSelect T="string" @bind-Value="_settings.PrimaryTagService" Label="Primary Tag Service" Clearable="false">
+                    <MudSelect T="string" Value="_settings.PrimaryTagService" ValueChanged="@OnTagServiceChanged" Label="Primary Tag Service" Clearable="false">
                         @foreach (var option in _tagServices)
                         {
-                            <MudSelectItem Value="@option">@option</MudSelectItem>
+                            <MudSelectItem Value="@option.Name">@option.Name</MudSelectItem>
                         }
                     </MudSelect>
 
@@ -82,7 +82,7 @@
     private bool _isDiscoveringServices;
     private string _statusMessage = string.Empty;
     private Severity _statusSeverity = Severity.Info;
-    private List<string> _tagServices = ["my tags"];
+    private List<HydrusServiceOption> _tagServices = [new HydrusServiceOption { Name = "my tags" }];
     private List<string> _fileServices = ["all local files"];
 
     protected override async Task OnInitializedAsync()
@@ -138,12 +138,14 @@
         {
             var catalog = await SettingsService.GetServicesAsync(_settings);
 
-            _tagServices = catalog.TagServices.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            _tagServices = catalog.TagServices
+                .DistinctBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
             _fileServices = catalog.FileServices.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
             if (_tagServices.Count == 0)
             {
-                _tagServices = ["my tags"];
+                _tagServices = [new HydrusServiceOption { Name = "my tags" }];
             }
 
             if (_fileServices.Count == 0)
@@ -169,14 +171,20 @@
 
     private void EnsureSelectedOptions()
     {
-        if (!_tagServices.Contains(_settings.PrimaryTagService, StringComparer.OrdinalIgnoreCase))
+        if (!_tagServices.Any(x => x.Name.Equals(_settings.PrimaryTagService, StringComparison.OrdinalIgnoreCase)))
         {
-            _tagServices.Insert(0, _settings.PrimaryTagService);
+            _tagServices.Insert(0, new HydrusServiceOption { Name = _settings.PrimaryTagService, Key = _settings.TagServiceKey });
         }
 
         if (!_fileServices.Contains(_settings.TargetFileDomain, StringComparer.OrdinalIgnoreCase))
         {
             _fileServices.Insert(0, _settings.TargetFileDomain);
         }
+    }
+
+    private void OnTagServiceChanged(string name)
+    {
+        _settings.PrimaryTagService = name;
+        _settings.TagServiceKey = _tagServices.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase))?.Key ?? string.Empty;
     }
 }

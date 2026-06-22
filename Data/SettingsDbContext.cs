@@ -26,6 +26,7 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.ApiUrl).IsRequired();
             entity.Property(x => x.ProtectedApiAccessKey).IsRequired();
             entity.Property(x => x.PrimaryTagService).IsRequired();
+            entity.Property(x => x.TagServiceKey).IsRequired();
             entity.Property(x => x.TargetFileDomain).IsRequired();
             entity.Property(x => x.SeriesNamespace).IsRequired();
             entity.Property(x => x.VolumeNamespace).IsRequired();

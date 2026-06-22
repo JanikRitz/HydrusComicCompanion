@@ -1,22 +1,21 @@
 using System.Text.Json;
 using HydrusComicCompanion.Models;
-using Microsoft.Extensions.Options;
 
 namespace HydrusComicCompanion.Services;
 
 public class HydrusApiService : IHydrusApiService
 {
     private readonly HttpClient _httpClient;
-    private readonly HydrusSettings _settings;
+    private readonly IHydrusSettingsService _settingsService;
     private readonly ILogger<HydrusApiService> _logger;
 
     public HydrusApiService(
         HttpClient httpClient,
-        IOptions<HydrusSettings> settings,
+        IHydrusSettingsService settingsService,
         ILogger<HydrusApiService> logger)
     {
         _httpClient = httpClient;
-        _settings = settings.Value;
+        _settingsService = settingsService;
         _logger = logger;
     }
 
@@ -29,13 +28,19 @@ public class HydrusApiService : IHydrusApiService
 
         try
         {
-            // Search for all tags starting with the series namespace
-            var searchPrefix = _settings.SeriesNamespace;
-            var encodedSearch = Uri.EscapeDataString($"search={searchPrefix}*");
-            var url = $"{_settings.ApiUrl}/add_tags/search_tags?{encodedSearch}";
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+
+            // Search for all tags starting with the series namespace (strip trailing colon for the search query)
+            var searchPrefix = settings.SeriesNamespace.TrimEnd(':');
+            var queryString = $"search={Uri.EscapeDataString(searchPrefix)}";
+            if (!string.IsNullOrWhiteSpace(settings.TagServiceKey))
+            {
+                queryString += $"&tag_service_key={Uri.EscapeDataString(settings.TagServiceKey)}";
+            }
+            var url = $"{settings.ApiUrl}/add_tags/search_tags?{queryString}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
-            AddApiKeyHeader(request);
+            AddApiKeyHeader(request, settings);
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -48,7 +53,7 @@ public class HydrusApiService : IHydrusApiService
                 foreach (var tag in tagResponse.Tags)
                 {
                     // Extract series name from tag (e.g., "series:the sandman" -> "the sandman")
-                    var seriesName = ExtractNamespaceValue(tag.DisplayName, _settings.SeriesNamespace);
+                    var seriesName = ExtractNamespaceValue(tag.Value, settings.SeriesNamespace);
                     if (!string.IsNullOrEmpty(seriesName))
                     {
                         seriesNames.Add(seriesName);
@@ -79,7 +84,8 @@ public class HydrusApiService : IHydrusApiService
 
         try
         {
-            var url = $"{_settings.ApiUrl}/get_files/search_files";
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/get_files/search_files";
 
             // Build query parameters
             var queryParams = new Dictionary<string, string>
@@ -98,7 +104,7 @@ public class HydrusApiService : IHydrusApiService
             var fullUrl = $"{url}?{queryString}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
-            AddApiKeyHeader(request);
+            AddApiKeyHeader(request, settings);
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -136,14 +142,15 @@ public class HydrusApiService : IHydrusApiService
 
         try
         {
-            var url = $"{_settings.ApiUrl}/get_files/file_metadata";
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/get_files/file_metadata";
 
             var queryParams = JsonSerializer.Serialize(hashes);
             var queryString = $"hashes={Uri.EscapeDataString(queryParams)}";
             var fullUrl = $"{url}?{queryString}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
-            AddApiKeyHeader(request);
+            AddApiKeyHeader(request, settings);
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -174,10 +181,11 @@ public class HydrusApiService : IHydrusApiService
     {
         try
         {
-            var url = $"{_settings.ApiUrl}/get_files/file?hash={Uri.EscapeDataString(hash)}";
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/get_files/file?hash={Uri.EscapeDataString(hash)}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
-            AddApiKeyHeader(request);
+            AddApiKeyHeader(request, settings);
 
             var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -198,10 +206,11 @@ public class HydrusApiService : IHydrusApiService
     {
         try
         {
-            var url = $"{_settings.ApiUrl}/get_services";
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/get_services";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
-            AddApiKeyHeader(request);
+            AddApiKeyHeader(request, settings);
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -229,7 +238,8 @@ public class HydrusApiService : IHydrusApiService
     {
         try
         {
-            var url = $"{_settings.ApiUrl}/add_tags/add_tags";
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/add_tags/add_tags";
 
             var request = new AddTagsRequest
             {
@@ -247,7 +257,7 @@ public class HydrusApiService : IHydrusApiService
             {
                 Content = httpContent
             };
-            AddApiKeyHeader(httpRequest);
+            AddApiKeyHeader(httpRequest, settings);
 
             var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -269,10 +279,11 @@ public class HydrusApiService : IHydrusApiService
     {
         try
         {
-            var url = $"{_settings.ApiUrl}/get_services";
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/get_services";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
-            AddApiKeyHeader(request);
+            AddApiKeyHeader(request, settings);
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
 
@@ -308,11 +319,11 @@ public class HydrusApiService : IHydrusApiService
     /// <summary>
     /// Adds the API key header to the request
     /// </summary>
-    private void AddApiKeyHeader(HttpRequestMessage request)
+    private static void AddApiKeyHeader(HttpRequestMessage request, HydrusSettings settings)
     {
-        if (!string.IsNullOrEmpty(_settings.ApiAccessKey))
+        if (!string.IsNullOrWhiteSpace(settings.ApiAccessKey))
         {
-            request.Headers.Add("Hydrus-Client-API-Access-Key", _settings.ApiAccessKey);
+            request.Headers.Add("Hydrus-Client-API-Access-Key", settings.ApiAccessKey);
         }
     }
 }
