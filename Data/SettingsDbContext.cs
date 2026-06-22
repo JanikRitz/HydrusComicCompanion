@@ -6,6 +6,14 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
 {
     public DbSet<HydrusSettingsRecord> HydrusSettings => Set<HydrusSettingsRecord>();
 
+    public DbSet<SeriesRecord> Series => Set<SeriesRecord>();
+
+    public DbSet<ChapterRecord> Chapters => Set<ChapterRecord>();
+
+    public DbSet<PageRecord> Pages => Set<PageRecord>();
+
+    public DbSet<MetadataRecord> Metadata => Set<MetadataRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -23,6 +31,66 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.VolumeNamespace).IsRequired();
             entity.Property(x => x.ChapterNamespace).IsRequired();
             entity.Property(x => x.PageNamespace).IsRequired();
+        });
+
+        modelBuilder.Entity<SeriesRecord>(entity =>
+        {
+            entity.ToTable("Series");
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Title).IsRequired();
+            entity.Property(x => x.CoverFileHash);
+            entity.Property(x => x.LastSyncedAt);
+
+            entity.HasMany(x => x.Chapters)
+                .WithOne(x => x.Series)
+                .HasForeignKey(x => x.SeriesId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(x => x.Metadata)
+                .WithOne(x => x.Series)
+                .HasForeignKey(x => x.SeriesId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChapterRecord>(entity =>
+        {
+            entity.ToTable("Chapters");
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.VolumeNumber).IsRequired();
+            entity.Property(x => x.ChapterNumber).IsRequired();
+            entity.Property(x => x.Title);
+
+            entity.HasIndex(x => x.SeriesId);
+
+            entity.HasMany(x => x.Pages)
+                .WithOne(x => x.Chapter)
+                .HasForeignKey(x => x.ChapterId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PageRecord>(entity =>
+        {
+            entity.ToTable("Pages");
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.FileHash).IsRequired();
+            entity.Property(x => x.PageNumber).IsRequired();
+            entity.Property(x => x.MimeType);
+
+            entity.HasIndex(x => x.ChapterId);
+        });
+
+        modelBuilder.Entity<MetadataRecord>(entity =>
+        {
+            entity.ToTable("Metadata");
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Key).IsRequired();
+            entity.Property(x => x.Value).IsRequired();
+
+            entity.HasIndex(x => x.SeriesId);
         });
     }
 }

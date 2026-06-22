@@ -1,14 +1,13 @@
 # Data Handling (SQLite + EF Core)
 
-This document describes the current data storage setup and the EF Core workflow for future schema changes.
+This document describes the current SQLite-backed persistence model and the EF Core workflow for schema changes.
 
 ## Current Storage Scope
 
-The project currently persists **application settings** in SQLite through EF Core.
+The app now persists both **application settings** and the first **comic library cache** tables in SQLite through EF Core.
 
 - Database file: `App_Data/settings.db`
 - DbContext: `Data/SettingsDbContext.cs`
-- Entity: `Data/HydrusSettingsRecord.cs`
 - Migrations: `Data/Migrations/`
 
 ## Runtime Behavior
@@ -39,6 +38,17 @@ Columns:
 
 `HydrusSettingsService` handles normalization and encryption/decryption of the API access key using ASP.NET Core Data Protection.
 
+## Comic Cache Model
+
+The local cache currently includes these tables:
+
+- `Series` — `Title`, `CoverFileHash`, `LastSyncedAt`
+- `Chapters` — `SeriesId`, `VolumeNumber`, `ChapterNumber`, `Title`
+- `Pages` — `ChapterId`, `FileHash`, `PageNumber`, `MimeType`
+- `Metadata` — `SeriesId`, `Key`, `Value`
+
+These entities back the library and series detail screens and are ready for later Hydrus sync work.
+
 ## Design-Time EF Tooling
 
 A design-time factory is configured for tooling:
@@ -63,9 +73,8 @@ From repository root (`C:\ProgrammingProjects\HydrusComicCompanion`):
 
 ## Notes for Future Data Expansion
 
-When adding comic cache/index entities (Series, Chapter, Page, Metadata):
+When adding Hydrus sync and media endpoints:
 
-- Add entities under `Data/` (or a dedicated domain/data folder)
-- Add `DbSet<>` mappings in `SettingsDbContext` (or split into a broader app DbContext if preferred)
-- Generate a migration immediately after model changes
+- Keep the cache entities under `Data/` unless the domain grows enough to justify splitting the DbContext
+- Generate a migration immediately after each model change
 - Keep startup migration application enabled to avoid schema drift across development environments
