@@ -1,0 +1,182 @@
+@page "/settings"
+@using HydrusComicCompanion.Models
+@using HydrusComicCompanion.Services
+@inject IHydrusSettingsService SettingsService
+
+<PageTitle>Settings</PageTitle>
+
+<MudStack Spacing="3">
+    <div>
+        <MudText Typo="Typo.h4" GutterBottom="true">Settings</MudText>
+        <MudText Typo="Typo.body1" Color="Color.Secondary">
+            Manage Hydrus connection details, service mappings, and taxonomy defaults directly from the app.
+        </MudText>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <MudAlert Severity="@_statusSeverity" Variant="Variant.Outlined" Dense="true">@_statusMessage</MudAlert>
+    }
+
+    @if (_isLoading)
+    {
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+    }
+    else
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudForm>
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.h6">Connection</MudText>
+                    <MudTextField @bind-Value="_settings.ApiUrl" Label="Hydrus API URL" Immediate="true" Required="true" />
+                    <MudTextField @bind-Value="_settings.ApiAccessKey" Label="API Access Key" InputType="InputType.Password" Immediate="true" />
+
+                    <MudDivider />
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Spacing="2">
+                        <MudText Typo="Typo.h6">Target Services</MudText>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Disabled="@_isDiscoveringServices" OnClick="LoadServicesAsync">
+                            @(_isDiscoveringServices ? "Loading..." : "Load Services")
+                        </MudButton>
+                    </MudStack>
+
+                    <MudSelect T="string" @bind-Value="_settings.PrimaryTagService" Label="Primary Tag Service" Clearable="false">
+                        @foreach (var option in _tagServices)
+                        {
+                            <MudSelectItem Value="@option">@option</MudSelectItem>
+                        }
+                    </MudSelect>
+
+                    <MudSelect T="string" @bind-Value="_settings.TargetFileDomain" Label="Target File Domain" Clearable="false">
+                        @foreach (var option in _fileServices)
+                        {
+                            <MudSelectItem Value="@option">@option</MudSelectItem>
+                        }
+                    </MudSelect>
+
+                    <MudDivider />
+                    <MudText Typo="Typo.h6">Taxonomy Mappings</MudText>
+                    <MudTextField @bind-Value="_settings.SeriesNamespace" Label="Series Namespace" Immediate="true" />
+                    <MudTextField @bind-Value="_settings.VolumeNamespace" Label="Volume Namespace" Immediate="true" />
+                    <MudTextField @bind-Value="_settings.ChapterNamespace" Label="Chapter Namespace" Immediate="true" />
+                    <MudTextField @bind-Value="_settings.PageNamespace" Label="Page Namespace" Immediate="true" />
+
+                    <MudDivider />
+                    <MudText Typo="Typo.h6">Sync</MudText>
+                    <MudNumericField T="int" @bind-Value="_settings.BackgroundSyncIntervalMinutes" Label="Background Sync Interval (minutes)" Min="0" />
+
+                    <MudStack Row="true" Justify="Justify.FlexEnd">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isSaving" OnClick="SaveAsync">
+                            @(_isSaving ? "Saving..." : "Save Settings")
+                        </MudButton>
+                    </MudStack>
+                </MudStack>
+            </MudForm>
+        </MudPaper>
+    }
+</MudStack>
+
+@code {
+    private HydrusSettings _settings = new();
+    private bool _isLoading = true;
+    private bool _isSaving;
+    private bool _isDiscoveringServices;
+    private string _statusMessage = string.Empty;
+    private Severity _statusSeverity = Severity.Info;
+    private List<string> _tagServices = ["my tags"];
+    private List<string> _fileServices = ["all local files"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettingsAsync();
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        try
+        {
+            _settings = await SettingsService.GetSettingsAsync();
+            EnsureSelectedOptions();
+            _statusMessage = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _statusSeverity = Severity.Error;
+            _statusMessage = $"Failed to load settings: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _isSaving = true;
+        try
+        {
+            await SettingsService.SaveSettingsAsync(_settings);
+            _settings = await SettingsService.GetSettingsAsync();
+            EnsureSelectedOptions();
+            _statusSeverity = Severity.Success;
+            _statusMessage = "Settings saved.";
+        }
+        catch (Exception ex)
+        {
+            _statusSeverity = Severity.Error;
+            _statusMessage = $"Failed to save settings: {ex.Message}";
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task LoadServicesAsync()
+    {
+        _isDiscoveringServices = true;
+        try
+        {
+            var catalog = await SettingsService.GetServicesAsync(_settings);
+
+            _tagServices = catalog.TagServices.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            _fileServices = catalog.FileServices.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            if (_tagServices.Count == 0)
+            {
+                _tagServices = ["my tags"];
+            }
+
+            if (_fileServices.Count == 0)
+            {
+                _fileServices = ["all local files"];
+            }
+
+            EnsureSelectedOptions();
+
+            _statusSeverity = Severity.Success;
+            _statusMessage = "Service options loaded from Hydrus.";
+        }
+        catch (Exception ex)
+        {
+            _statusSeverity = Severity.Warning;
+            _statusMessage = $"Could not load services: {ex.Message}";
+        }
+        finally
+        {
+            _isDiscoveringServices = false;
+        }
+    }
+
+    private void EnsureSelectedOptions()
+    {
+        if (!_tagServices.Contains(_settings.PrimaryTagService, StringComparer.OrdinalIgnoreCase))
+        {
+            _tagServices.Insert(0, _settings.PrimaryTagService);
+        }
+
+        if (!_fileServices.Contains(_settings.TargetFileDomain, StringComparer.OrdinalIgnoreCase))
+        {
+            _fileServices.Insert(0, _settings.TargetFileDomain);
+        }
+    }
+}
