@@ -38,6 +38,10 @@ builder.Services.Configure<HydrusSettings>(builder.Configuration.GetSection("Hyd
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IHydrusSettingsService, HydrusSettingsService>();
 
+// Add Hydrus API and sync services
+builder.Services.AddScoped<IHydrusApiService, HydrusApiService>();
+builder.Services.AddScoped<IHydrusSyncService, HydrusSyncService>();
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -66,6 +70,59 @@ app.UseHttpsRedirection();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+
+// Add API endpoints for Hydrus sync operations
+app.MapPost("/api/sync/test-connection", async (IHydrusApiService apiService) =>
+{
+    var success = await apiService.TestConnectionAsync();
+    return Results.Ok(new { success, message = success ? "Connected to Hydrus API" : "Failed to connect to Hydrus API" });
+})
+.WithName("TestHydrusConnection")
+.Produces(200);
+
+app.MapPost("/api/sync/library", async (IHydrusSyncService syncService) =>
+{
+    try
+    {
+        var count = await syncService.SyncLibraryAsync();
+        return Results.Ok(new { success = true, seriesSynced = count });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+})
+.WithName("SyncLibrary")
+.Produces(200)
+.Produces(400);
+
+app.MapPost("/api/sync/series/{seriesName}", async (string seriesName, IHydrusSyncService syncService) =>
+{
+    try
+    {
+        var seriesId = await syncService.SyncSeriesAsync(seriesName);
+        return seriesId.HasValue
+            ? Results.Ok(new { success = true, seriesId = seriesId.Value })
+            : Results.NotFound(new { success = false, error = "Series not found" });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+})
+.WithName("SyncSeries")
+.Produces(200)
+.Produces(400)
+.Produces(404);
+
+app.MapGet("/api/sync/unsynced-count", async (IHydrusSyncService syncService) =>
+{
+    var count = await syncService.GetUnsyncedSeriesCountAsync();
+    return Results.Ok(new { unsyncedCount = count });
+})
+.WithName("GetUnsyncedCount")
+.Produces(200);
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

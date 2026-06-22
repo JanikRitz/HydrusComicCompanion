@@ -16,14 +16,12 @@ public sealed class HydrusSettingsService(
     private const string ApiAccessKeyProtectorPurpose = "HydrusComicCompanion.Settings.ApiAccessKey.v1";
 
     private readonly HydrusSettings _defaults = defaults.Value.Clone();
-    private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
     private readonly IDataProtector _apiAccessKeyProtector = dataProtectionProvider.CreateProtector(ApiAccessKeyProtectorPurpose);
-    private readonly IDbContextFactory<SettingsDbContext> _dbContextFactory = dbContextFactory;
 
     public async Task<HydrusSettings> GetSettingsAsync(CancellationToken cancellationToken = default)
     {
         var settings = _defaults.Clone();
-        await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
         var stored = await context.HydrusSettings
             .AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == HydrusSettingsRecord.SingletonId, cancellationToken);
@@ -53,7 +51,7 @@ public sealed class HydrusSettingsService(
     public async Task SaveSettingsAsync(HydrusSettings settings, CancellationToken cancellationToken = default)
     {
         var normalized = Normalize(settings);
-        await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        await using var context = await dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var stored = await context.HydrusSettings
             .SingleOrDefaultAsync(x => x.Id == HydrusSettingsRecord.SingletonId, cancellationToken);
@@ -87,7 +85,7 @@ public sealed class HydrusSettingsService(
             request.Headers.Add("Hydrus-Client-API-Access-Key", normalized.ApiAccessKey);
         }
 
-        using var client = _httpClientFactory.CreateClient();
+        using var client = httpClientFactory.CreateClient();
         using var response = await client.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 

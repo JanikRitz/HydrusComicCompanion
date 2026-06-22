@@ -1,5 +1,15 @@
 # Hydrus Comic Web Reader - Architecture Plan
 
+## Current Implementation Status
+- [x] Blazor Server app shell is in place and MudBlazor is wired up.
+- [x] EF Core + SQLite settings/cache database exists with migrations.
+- [x] Hydrus settings are persisted locally and API service discovery is implemented.
+- [x] Library and series detail pages are implemented against cached EF data.
+- [?] Hydrus file discovery, metadata parsing, and sync pipeline.
+- [ ] Media endpoint for streamed page images.
+- [ ] CBZ export pipeline.
+- [ ] Full reader view with URL-synced page navigation.
+
 ## Technology Stack
 
 Framework: Blazor Server (.NET) + MudBlazor component library.
