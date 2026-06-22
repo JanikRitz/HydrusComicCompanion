@@ -1,69 +1,50 @@
-using System.Globalization;
 using System.Text.Json.Nodes;
+using HydrusComicCompanion.Data;
 using HydrusComicCompanion.Models;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace HydrusComicCompanion.Services;
 
 public sealed class HydrusSettingsService(
     IOptions<HydrusSettings> defaults,
-    IWebHostEnvironment environment,
     IHttpClientFactory httpClientFactory,
-    IDataProtectionProvider dataProtectionProvider) : IHydrusSettingsService
+    IDataProtectionProvider dataProtectionProvider,
+    IDbContextFactory<SettingsDbContext> dbContextFactory) : IHydrusSettingsService
 {
-    private const string TableName = "AppSettings";
-    private const string ProtectedApiAccessKeySettingName = "ApiAccessKeyProtected";
     private const string ApiAccessKeyProtectorPurpose = "HydrusComicCompanion.Settings.ApiAccessKey.v1";
 
     private readonly HydrusSettings _defaults = defaults.Value.Clone();
-    private readonly string _connectionString = BuildConnectionString(environment.ContentRootPath);
     private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
     private readonly IDataProtector _apiAccessKeyProtector = dataProtectionProvider.CreateProtector(ApiAccessKeyProtectorPurpose);
+    private readonly IDbContextFactory<SettingsDbContext> _dbContextFactory = dbContextFactory;
 
     public async Task<HydrusSettings> GetSettingsAsync(CancellationToken cancellationToken = default)
     {
-        await EnsureSchemaAsync(cancellationToken);
-
         var settings = _defaults.Clone();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var stored = await context.HydrusSettings
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == HydrusSettingsRecord.SingletonId, cancellationToken);
 
-        await using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"SELECT Key, Value FROM {TableName}";
-
-        var protectedApiKeyLoaded = false;
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
+        if (stored is null)
         {
-            var key = reader.GetString(0);
-            var value = reader.GetString(1);
+            return settings;
+        }
 
-            if (string.Equals(key, ProtectedApiAccessKeySettingName, StringComparison.Ordinal))
-            {
-                if (TryUnprotectApiAccessKey(value, out var apiAccessKey))
-                {
-                    settings.ApiAccessKey = apiAccessKey;
-                    protectedApiKeyLoaded = true;
-                }
+        settings.ApiUrl = stored.ApiUrl;
+        settings.PrimaryTagService = stored.PrimaryTagService;
+        settings.TargetFileDomain = stored.TargetFileDomain;
+        settings.SeriesNamespace = stored.SeriesNamespace;
+        settings.VolumeNamespace = stored.VolumeNamespace;
+        settings.ChapterNamespace = stored.ChapterNamespace;
+        settings.PageNamespace = stored.PageNamespace;
+        settings.BackgroundSyncIntervalMinutes = stored.BackgroundSyncIntervalMinutes;
 
-                continue;
-            }
-
-            if (string.Equals(key, nameof(HydrusSettings.ApiAccessKey), StringComparison.Ordinal))
-            {
-                if (!protectedApiKeyLoaded)
-                {
-                    settings.ApiAccessKey = value;
-                }
-
-                continue;
-            }
-
-            ApplySetting(settings, key, value);
+        if (TryUnprotectApiAccessKey(stored.ProtectedApiAccessKey, out var apiAccessKey))
+        {
+            settings.ApiAccessKey = apiAccessKey;
         }
 
         return settings;
@@ -71,51 +52,29 @@ public sealed class HydrusSettingsService(
 
     public async Task SaveSettingsAsync(HydrusSettings settings, CancellationToken cancellationToken = default)
     {
-        await EnsureSchemaAsync(cancellationToken);
-
         var normalized = Normalize(settings);
-        var values = new Dictionary<string, string>
+        await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var stored = await context.HydrusSettings
+            .SingleOrDefaultAsync(x => x.Id == HydrusSettingsRecord.SingletonId, cancellationToken);
+
+        if (stored is null)
         {
-            [nameof(HydrusSettings.ApiUrl)] = normalized.ApiUrl,
-            [ProtectedApiAccessKeySettingName] = ProtectApiAccessKey(normalized.ApiAccessKey),
-            [nameof(HydrusSettings.PrimaryTagService)] = normalized.PrimaryTagService,
-            [nameof(HydrusSettings.TargetFileDomain)] = normalized.TargetFileDomain,
-            [nameof(HydrusSettings.SeriesNamespace)] = normalized.SeriesNamespace,
-            [nameof(HydrusSettings.VolumeNamespace)] = normalized.VolumeNamespace,
-            [nameof(HydrusSettings.ChapterNamespace)] = normalized.ChapterNamespace,
-            [nameof(HydrusSettings.PageNamespace)] = normalized.PageNamespace,
-            [nameof(HydrusSettings.BackgroundSyncIntervalMinutes)] = normalized.BackgroundSyncIntervalMinutes.ToString(CultureInfo.InvariantCulture)
-        };
-
-        await using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-        var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
-
-        await using (transaction)
-        {
-            foreach (var pair in values)
-            {
-                await using var command = connection.CreateCommand();
-                command.Transaction = transaction;
-                command.CommandText = $"""
-                    INSERT INTO {TableName}(Key, Value)
-                    VALUES(@key, @value)
-                    ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;
-                    """;
-                command.Parameters.AddWithValue("@key", pair.Key);
-                command.Parameters.AddWithValue("@value", pair.Value);
-
-                await command.ExecuteNonQueryAsync(cancellationToken);
-            }
-
-            await using var deleteLegacyCommand = connection.CreateCommand();
-            deleteLegacyCommand.Transaction = transaction;
-            deleteLegacyCommand.CommandText = $"DELETE FROM {TableName} WHERE Key = @legacyKey";
-            deleteLegacyCommand.Parameters.AddWithValue("@legacyKey", nameof(HydrusSettings.ApiAccessKey));
-            await deleteLegacyCommand.ExecuteNonQueryAsync(cancellationToken);
-
-            await transaction.CommitAsync(cancellationToken);
+            stored = new HydrusSettingsRecord { Id = HydrusSettingsRecord.SingletonId };
+            context.HydrusSettings.Add(stored);
         }
+
+        stored.ApiUrl = normalized.ApiUrl;
+        stored.ProtectedApiAccessKey = ProtectApiAccessKey(normalized.ApiAccessKey);
+        stored.PrimaryTagService = normalized.PrimaryTagService;
+        stored.TargetFileDomain = normalized.TargetFileDomain;
+        stored.SeriesNamespace = normalized.SeriesNamespace;
+        stored.VolumeNamespace = normalized.VolumeNamespace;
+        stored.ChapterNamespace = normalized.ChapterNamespace;
+        stored.PageNamespace = normalized.PageNamespace;
+        stored.BackgroundSyncIntervalMinutes = normalized.BackgroundSyncIntervalMinutes;
+
+        await context.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<HydrusServiceCatalog> GetServicesAsync(HydrusSettings settings, CancellationToken cancellationToken = default)
@@ -139,56 +98,6 @@ public sealed class HydrusSettingsService(
         }
 
         return ParseServiceCatalog(rootNode);
-    }
-
-    private async Task EnsureSchemaAsync(CancellationToken cancellationToken)
-    {
-        await using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"""
-            CREATE TABLE IF NOT EXISTS {TableName} (
-                Key TEXT PRIMARY KEY,
-                Value TEXT NOT NULL
-            );
-            """;
-
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
-
-    private static void ApplySetting(HydrusSettings settings, string key, string value)
-    {
-        switch (key)
-        {
-            case nameof(HydrusSettings.ApiUrl):
-                settings.ApiUrl = value;
-                break;
-            case nameof(HydrusSettings.PrimaryTagService):
-                settings.PrimaryTagService = value;
-                break;
-            case nameof(HydrusSettings.TargetFileDomain):
-                settings.TargetFileDomain = value;
-                break;
-            case nameof(HydrusSettings.SeriesNamespace):
-                settings.SeriesNamespace = value;
-                break;
-            case nameof(HydrusSettings.VolumeNamespace):
-                settings.VolumeNamespace = value;
-                break;
-            case nameof(HydrusSettings.ChapterNamespace):
-                settings.ChapterNamespace = value;
-                break;
-            case nameof(HydrusSettings.PageNamespace):
-                settings.PageNamespace = value;
-                break;
-            case nameof(HydrusSettings.BackgroundSyncIntervalMinutes):
-                if (int.TryParse(value, out var minutes))
-                {
-                    settings.BackgroundSyncIntervalMinutes = minutes;
-                }
-                break;
-        }
     }
 
     private string ProtectApiAccessKey(string value)
@@ -302,18 +211,5 @@ public sealed class HydrusSettingsService(
             TagServices = tagServices.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToArray(),
             FileServices = fileServices.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToArray()
         };
-    }
-
-    private static string BuildConnectionString(string contentRootPath)
-    {
-        var dataDirectory = Path.Combine(contentRootPath, "App_Data");
-        Directory.CreateDirectory(dataDirectory);
-
-        var databasePath = Path.Combine(dataDirectory, "settings.db");
-        return new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-            Mode = SqliteOpenMode.ReadWriteCreate
-        }.ToString();
     }
 }

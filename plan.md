@@ -8,6 +8,8 @@ Why Blazor Server? Provides a unified, single-project architecture perfect for l
 
 Database (Cache): Entity Framework Core (EF Core) using SQLite. SQLite is perfect for a local cache, requiring no separate server setup.
 
+For implementation details and migration workflow, see `data-handling.md`.
+
 Source of Truth: Hydrus Network Client (via local REST API).
 
 ## Robust Hydrus Tagging Taxonomy
