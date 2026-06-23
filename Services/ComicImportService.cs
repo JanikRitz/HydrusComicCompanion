@@ -306,27 +306,18 @@ public sealed class ComicImportService : IComicImportService
             db.Series.Add(series);
         }
 
-        series.Chapters.Clear();
-
-        // Build chapter records. The chapter clear + re-add below is safe because EF Core wraps
-        // SaveChangesAsync in a single transaction, so either all changes persist or none do.
+        // Merge chapters into existing series and reject conflicting overlaps.
         for (var ci = 0; ci < chapterStarts.Count; ci++)
         {
             var chapterStartIdx = chapterStarts[ci];
             var nextChapterStartIdx = ci + 1 < chapterStarts.Count ? chapterStarts[ci + 1] : request.Pages.Count;
             var chapterNumber = ci + 1;
 
-            var chapter = new ChapterRecord
-            {
-                VolumeNumber = request.VolumeNumber,
-                ChapterNumber = chapterNumber,
-                Title = $"Ch. {chapterNumber}"
-            };
-
+            var incomingPages = new List<PageRecord>();
             var pageNumber = 1;
             for (var pi = chapterStartIdx; pi < nextChapterStartIdx; pi++)
             {
-                chapter.Pages.Add(new PageRecord
+                incomingPages.Add(new PageRecord
                 {
                     FileHash = pageHashes[pi],
                     PageNumber = pageNumber++,
@@ -334,14 +325,43 @@ public sealed class ComicImportService : IComicImportService
                 });
             }
 
-            series.Chapters.Add(chapter);
+            var existingChapter = series.Chapters.FirstOrDefault(ch =>
+                ch.VolumeNumber == request.VolumeNumber &&
+                ch.ChapterNumber == chapterNumber);
+
+            if (existingChapter == null)
+            {
+                var chapter = new ChapterRecord
+                {
+                    VolumeNumber = request.VolumeNumber,
+                    ChapterNumber = chapterNumber,
+                    Title = $"Ch. {chapterNumber}",
+                    Pages = incomingPages
+                };
+
+                series.Chapters.Add(chapter);
+                continue;
+            }
+
+            if (!HasSamePages(existingChapter, incomingPages))
+            {
+                throw new InvalidOperationException(
+                    $"Cannot merge import for series '{request.SeriesName}': conflicting content for volume {request.VolumeNumber}, chapter {chapterNumber}.");
+            }
         }
 
-        // Rebuild metadata
-        series.Metadata.Clear();
+        // Merge metadata without deleting existing values.
         if (!string.IsNullOrWhiteSpace(request.Creator))
         {
-            series.Metadata.Add(new MetadataRecord { Key = "creator", Value = request.Creator.Trim() });
+            var creator = request.Creator.Trim();
+            var hasCreator = series.Metadata.Any(m =>
+                string.Equals(m.Key, "creator", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(m.Value, creator, StringComparison.OrdinalIgnoreCase));
+
+            if (!hasCreator)
+            {
+                series.Metadata.Add(new MetadataRecord { Key = "creator", Value = creator });
+            }
         }
 
         if (string.IsNullOrEmpty(series.CoverFileHash) && pageHashes.Length > 0)
@@ -376,6 +396,41 @@ public sealed class ComicImportService : IComicImportService
 
         var pageNumber = pageIndex - chapterStart + 1;
         return (chapterNumber, pageNumber);
+    }
+
+    private static bool HasSamePages(ChapterRecord existingChapter, List<PageRecord> incomingPages)
+    {
+        var existingPages = existingChapter.Pages
+            .OrderBy(p => p.PageNumber)
+            .ToList();
+
+        if (existingPages.Count != incomingPages.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < existingPages.Count; i++)
+        {
+            var existing = existingPages[i];
+            var incoming = incomingPages[i];
+
+            if (existing.PageNumber != incoming.PageNumber)
+            {
+                return false;
+            }
+
+            if (!string.Equals(existing.FileHash, incoming.FileHash, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!string.Equals(existing.MimeType, incoming.MimeType, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static string BuildTag(string @namespace, string value)
