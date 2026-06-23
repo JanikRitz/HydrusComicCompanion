@@ -331,7 +331,7 @@ public class HydrusApiService : IHydrusApiService
     /// <summary>
     /// Adds tags to a file in Hydrus
     /// </summary>
-    public async Task AddTagsAsync(string hash, string serviceName, List<string> tags, CancellationToken cancellationToken = default)
+    public async Task AddTagsAsync(string hash, string serviceKey, List<string> tags, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -341,9 +341,9 @@ public class HydrusApiService : IHydrusApiService
             var request = new AddTagsRequest
             {
                 Hash = hash,
-                ServiceNamesTags = new Dictionary<string, List<string>>
+                ServiceKeysToTags = new Dictionary<string, List<string>>
                 {
-                    { serviceName, tags }
+                    { serviceKey, tags }
                 }
             };
 
@@ -360,7 +360,7 @@ public class HydrusApiService : IHydrusApiService
             response.EnsureSuccessStatusCode();
 
             _logger.LogInformation("Added {Count} tags to file {Hash} in service {Service}",
-                tags.Count, hash, serviceName);
+                tags.Count, hash, serviceKey);
         }
         catch (Exception ex)
         {

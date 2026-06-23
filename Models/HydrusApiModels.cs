@@ -162,8 +162,8 @@ public class AddTagsRequest
     [JsonPropertyName("hash")]
     public string Hash { get; set; } = string.Empty;
 
-    [JsonPropertyName("service_names_to_tags")]
-    public Dictionary<string, List<string>> ServiceNamesTags { get; set; } = new();
+    [JsonPropertyName("service_keys_to_tags")]
+    public Dictionary<string, List<string>> ServiceKeysToTags { get; set; } = new();
 }
 
 /// <summary>

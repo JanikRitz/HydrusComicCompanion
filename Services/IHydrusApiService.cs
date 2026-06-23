@@ -79,9 +79,9 @@ public interface IHydrusApiService
     /// Adds tags to a file in Hydrus
     /// </summary>
     /// <param name="hash">File hash</param>
-    /// <param name="serviceName">Service name to add tags to (e.g., "my tags")</param>
+    /// <param name="serviceKey">Service name to add tags to (e.g., "my tags")</param>
     /// <param name="tags">List of tags to add</param>
-    Task AddTagsAsync(string hash, string serviceName, List<string> tags, CancellationToken cancellationToken = default);
+    Task AddTagsAsync(string hash, string serviceKey, List<string> tags, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Uploads raw file bytes to Hydrus via POST /add_files/add_file.

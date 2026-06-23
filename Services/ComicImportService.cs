@@ -1,12 +1,10 @@
-using System.IO.Compression;
-using System.Security.Cryptography;
-using System.Xml.Linq;
 using HydrusComicCompanion.Data;
 using HydrusComicCompanion.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
-using SharpCompress.Archives;
 using SharpCompress.Archives.Rar;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Xml.Linq;
 
 namespace HydrusComicCompanion.Services;
 
@@ -16,19 +14,19 @@ public sealed class ComicImportService : IComicImportService
         new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tiff", ".tif", ".avif" };
 
     private readonly IHydrusApiService _apiService;
+    private readonly IHydrusSettingsService _settingsService;
     private readonly IDbContextFactory<SettingsDbContext> _dbContextFactory;
-    private readonly HydrusSettings _settings;
     private readonly ILogger<ComicImportService> _logger;
 
     public ComicImportService(
         IHydrusApiService apiService,
         IDbContextFactory<SettingsDbContext> dbContextFactory,
-        IOptions<HydrusSettings> settings,
+        IHydrusSettingsService settingsService,
         ILogger<ComicImportService> logger)
     {
         _apiService = apiService;
         _dbContextFactory = dbContextFactory;
-        _settings = settings.Value;
+        _settingsService = settingsService;
         _logger = logger;
     }
 
@@ -77,7 +75,8 @@ public sealed class ComicImportService : IComicImportService
         }
 
         var total = request.Pages.Count;
-        var seriesTag = BuildTag(_settings.SeriesNamespace, request.SeriesName);
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        var seriesTag = BuildTag(settings.SeriesNamespace, request.SeriesName);
 
         // Step 1: Upload all pages to Hydrus (or confirm they already exist)
         var pageHashes = new string[total];
@@ -111,8 +110,6 @@ public sealed class ComicImportService : IComicImportService
         }
 
         // Step 2: Tag all pages in Hydrus
-        var tagServiceName = _settings.PrimaryTagService;
-
         progress?.Report(new ImportProgressUpdate
         {
             Current = total,
@@ -129,9 +126,9 @@ public sealed class ComicImportService : IComicImportService
             var tags = new List<string>
             {
                 seriesTag,
-                BuildTag(_settings.VolumeNamespace, request.VolumeNumber.ToString()),
-                BuildTag(_settings.ChapterNamespace, chapterNumber.ToString()),
-                BuildTag(_settings.PageNamespace, pageNumber.ToString())
+                BuildTag(settings.VolumeNamespace, request.VolumeNumber.ToString()),
+                BuildTag(settings.ChapterNamespace, chapterNumber.ToString()),
+                BuildTag(settings.PageNamespace, pageNumber.ToString())
             };
 
             if (!string.IsNullOrWhiteSpace(request.Creator))
@@ -139,7 +136,7 @@ public sealed class ComicImportService : IComicImportService
                 tags.Add($"creator:{request.Creator.Trim()}");
             }
 
-            await _apiService.AddTagsAsync(pageHashes[i], tagServiceName, tags, cancellationToken);
+            await _apiService.AddTagsAsync(pageHashes[i], settings.TagServiceKey, tags, cancellationToken);
         }
 
         // Step 3: Persist to local cache
