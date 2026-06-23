@@ -20,10 +20,21 @@
                 </div>
             }
 
-            <div class="comic-series-card__info-icon">
-                <MudTooltip Text="@LastSyncedLabel">
-                    <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Inherit" Variant="Variant.Text" Size="Size.Small" />
-                </MudTooltip>
+            <div class="comic-series-card__actions" @onclick:stopPropagation="true">
+                <div class="comic-series-card__info-icon">
+                    <MudTooltip Text="@LastSyncedLabel">
+                        <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Inherit" Variant="Variant.Text" Size="Size.Small" />
+                    </MudTooltip>
+                </div>
+
+                @if (HasDeleteAction)
+                {
+                    <div class="comic-series-card__delete-icon">
+                        <MudTooltip Text="Delete from cache">
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Inherit" Variant="Variant.Text" Size="Size.Small" OnClick="HandleDelete" />
+                        </MudTooltip>
+                    </div>
+                }
             </div>
 
             <div class="comic-series-card__overlay">
@@ -66,7 +77,12 @@
     [Parameter]
     public EventCallback OnClick { get; set; }
 
+    [Parameter]
+    public EventCallback OnDelete { get; set; }
+
     private bool IsClickable => OnClick.HasDelegate;
+
+    private bool HasDeleteAction => OnDelete.HasDelegate;
 
     private string LastSyncedLabel => LastSyncedAt is null
         ? "Not synced yet"
@@ -80,5 +96,15 @@
         }
 
         return OnClick.InvokeAsync();
+    }
+
+    private Task HandleDelete()
+    {
+        if (!HasDeleteAction)
+        {
+            return Task.CompletedTask;
+        }
+
+        return OnDelete.InvokeAsync();
     }
 }

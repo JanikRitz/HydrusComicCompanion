@@ -33,4 +33,12 @@ public interface IHydrusSyncService
     /// Gets the count of unsynced series
     /// </summary>
     Task<int> GetUnsyncedSeriesCountAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a cached series and all related cached data.
+    /// </summary>
+    /// <param name="seriesId">The local cached series identifier.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>True when the series existed and was deleted; otherwise false.</returns>
+    Task<bool> DeleteSeriesAsync(int seriesId, CancellationToken cancellationToken = default);
 }

@@ -5,6 +5,8 @@
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
 @inject IHydrusSyncService SyncService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
 
 <PageTitle>Library</PageTitle>
 
@@ -82,7 +84,8 @@
                             ChapterCount="@series.ChapterCount"
                             MetadataCount="@series.MetadataCount"
                             TotalPageCount="@series.TotalPageCount"
-                            OnClick="() => OpenSeries(series.Id)" />
+                            OnClick="() => OpenSeries(series.Id)"
+                            OnDelete="() => DeleteSeriesAsync(series.Id, series.Title)" />
                     </MudItem>
                 }
             </MudGrid>
@@ -115,6 +118,7 @@
     }
 
     private const int PageSize = 12;
+    private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
 
     private List<SeriesCardItem> _series = [];
     private bool _isLoading = true;
@@ -222,6 +226,33 @@
         }
 
         _currentPage = page;
+        await LoadSeriesAsync();
+    }
+
+    private async Task DeleteSeriesAsync(int seriesId, string title)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(DeleteSeriesDialog.SeriesTitle)] = title
+        };
+
+        var dialog = await DialogService.ShowAsync<DeleteSeriesDialog>("Delete series", parameters, _topCenter);
+        var result = await dialog.Result;
+
+        if (result.Canceled || result.Data is not bool confirmed || !confirmed)
+        {
+            return;
+        }
+
+        var deleted = await SyncService.DeleteSeriesAsync(seriesId);
+        if (!deleted)
+        {
+            Snackbar.Add("Series was already removed.", Severity.Warning);
+            await LoadSeriesAsync();
+            return;
+        }
+
+        Snackbar.Add($"Deleted '{title}' from cache.", Severity.Success);
         await LoadSeriesAsync();
     }
 

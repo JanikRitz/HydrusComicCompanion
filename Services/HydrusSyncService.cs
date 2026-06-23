@@ -193,6 +193,33 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
+    /// Deletes a cached series and all of its related cached records.
+    /// </summary>
+    public async Task<bool> DeleteSeriesAsync(int seriesId, CancellationToken cancellationToken = default)
+    {
+        if (seriesId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(seriesId));
+        }
+
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+
+        var series = await dbContext.Series
+            .SingleOrDefaultAsync(x => x.Id == seriesId, cancellationToken);
+
+        if (series is null)
+        {
+            return false;
+        }
+
+        dbContext.Series.Remove(series);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Deleted cached series {SeriesId} ({Title})", seriesId, series.Title);
+        return true;
+    }
+
+    /// <summary>
     /// Parses files into a chapter/volume/page structure based on tags
     /// </summary>
     private Dictionary<(int Volume, decimal Chapter), List<(int PageNumber, FileMetadata Metadata)>> ParseFilesIntoChapters(

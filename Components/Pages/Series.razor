@@ -3,6 +3,9 @@
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
 @inject IHydrusMediaService MediaService
+@inject IHydrusSyncService SyncService
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
 
 <PageTitle>Series</PageTitle>
 
@@ -30,7 +33,8 @@ else
                     MetadataCount="@_series.Metadata.Count"
                     TotalPageCount="@GetTotalPageCount(_series)"
                     RenderWidth="840"
-                    RenderHeight="1260" />
+                    RenderHeight="1260"
+                    OnDelete="DeleteSeriesAsync" />
             </MudItem>
             <MudItem xs="12" sm="12" md="6" lg="6" xl="3">
                 <MudPaper Class="pa-4" Outlined="true">
@@ -116,6 +120,7 @@ else
 
     private SeriesRecord? _series;
     private bool _isLoading = true;
+    private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
 
     protected override async Task OnInitializedAsync()
     {
@@ -132,6 +137,39 @@ else
     private static int GetTotalPageCount(SeriesRecord series)
     {
         return series.Chapters.Sum(chapter => chapter.Pages.Count);
+    }
+
+    private async Task DeleteSeriesAsync()
+    {
+        if (_series is null)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters
+        {
+            [nameof(DeleteSeriesDialog.SeriesTitle)] = _series.Title
+        };
+
+        var dialog = await DialogService.ShowAsync<DeleteSeriesDialog>("Delete series", parameters, _topCenter);
+        var result = await dialog.Result;
+
+        if (result.Canceled || result.Data is not bool confirmed || !confirmed)
+        {
+            return;
+        }
+
+        var deleted = await SyncService.DeleteSeriesAsync(_series.Id);
+        if (!deleted)
+        {
+            Snackbar.Add("Series was already removed.", Severity.Warning);
+        }
+        else
+        {
+            Snackbar.Add($"Deleted '{_series.Title}' from cache.", Severity.Success);
+        }
+
+        NavigationManager.NavigateTo("/");
     }
 
     private void GoHome()
