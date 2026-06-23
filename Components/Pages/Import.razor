@@ -60,11 +60,11 @@
             <MudStack Spacing="2">
                 <MudText Typo="Typo.h6">Step 2 — Metadata</MudText>
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Review and edit the series information. Fields pre-filled from <code>ComicInfo.xml</code> where available.
+                    Review and edit the title information. Fields pre-filled from <code>ComicInfo.xml</code> where available.
                 </MudText>
 
-                <MudTextField @bind-Value="_seriesName"
-                              Label="Series Name"
+                <MudTextField @bind-Value="_titleName"
+                              Label="Title Name"
                               Required="true"
                               Immediate="true"
                               HelperText="e.g. The Sandman" />
@@ -74,16 +74,18 @@
                               Immediate="true"
                               HelperText="e.g. Neil Gaiman (optional)" />
 
-                <MudNumericField T="int" @bind-Value="_volumeNumber"
+                <MudSwitch @bind-Value="_useChapterTags" Color="Color.Primary" Label="Use chapter tags" />
+
+                <MudNumericField T="int?" @bind-Value="_volumeNumber"
                                  Label="Volume Number"
-                                 Min="1"
-                                 HelperText="Default: 1" />
+                                 Clearable="true"
+                                 HelperText="Optional" />
 
                 <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
                     <MudButton Variant="Variant.Outlined" OnClick="ResetToUpload">Back</MudButton>
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Primary"
-                               Disabled="@string.IsNullOrWhiteSpace(_seriesName)"
+                               Disabled="@string.IsNullOrWhiteSpace(_titleName)"
                                OnClick="GoToChapterStep">
                         Next: Place Chapters
                     </MudButton>
@@ -99,12 +101,11 @@
             <MudStack Spacing="2" Style="height: 100%; min-height: 0;">
                 <MudText Typo="Typo.h6">Step 3 — Chapter Placement</MudText>
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Page 1 always starts Chapter 1. Click <strong>New Chapter</strong> on any page to begin a new chapter
-                    there. Click again (or <strong>Remove</strong>) to undo.
+                    @_chapterPlacementHint
                 </MudText>
 
                 <MudText Typo="Typo.caption" Color="Color.Secondary">
-                    @_pages.Count pages · @_chapterStartIndices.Count chapter(s)
+                    @_pages.Count pages · @_chapterSummary
                 </MudText>
 
                 <MudTable Items="@_pages" Dense="true" Hover="true" FixedHeader="true" Height="100%" Style="flex: 1 1 auto; min-height: 0;">
@@ -135,15 +136,28 @@
                             @System.IO.Path.GetFileName(context.ArchiveFileName)
                         </MudTd>
                         <MudTd>
-                            <MudChip T="string"
-                                     Color="@(IsChapterStart(context.Index) ? Color.Primary : Color.Default)"
-                                     Size="Size.Small"
-                                     Variant="Variant.Outlined">
-                                Ch. @GetChapterNumber(context.Index)
-                            </MudChip>
+                            @if (_useChapterTags)
+                            {
+                                <MudChip T="string"
+                                         Color="@(IsChapterStart(context.Index) ? Color.Primary : Color.Default)"
+                                         Size="Size.Small"
+                                         Variant="Variant.Outlined">
+                                    Ch. @GetChapterNumber(context.Index)
+                                </MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Color="Color.Default" Size="Size.Small" Variant="Variant.Outlined">
+                                    Flat
+                                </MudChip>
+                            }
                         </MudTd>
                         <MudTd>
-                            @if (context.Index == 0)
+                            @if (!_useChapterTags)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">No chapter tags</MudText>
+                            }
+                            else if (context.Index == 0)
                             {
                                 <MudText Typo="Typo.caption" Color="Color.Tertiary">Start</MudText>
                             }
@@ -214,13 +228,13 @@
     @if (_step == ImportStep.Done)
     {
         <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
-            Import complete! Series imported successfully.
+            Import complete! Title imported successfully.
         </MudAlert>
         <MudStack Row="true" Spacing="2">
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
                        OnClick="@(() => NavigationManager.NavigateTo($"/series/{_importedSeriesId}"))">
-                View Series
+                View Title
             </MudButton>
             <MudButton Variant="Variant.Outlined" OnClick="ResetToUpload">Import Another</MudButton>
         </MudStack>
@@ -240,11 +254,12 @@
     private Dictionary<int, string> _pageThumbnailDataUrls = [];
     private bool _thumbnailPreloadQueued;
     private bool _isPreloadingThumbnails;
+    private bool _useChapterTags = true;
 
     // Metadata fields
-    private string _seriesName = string.Empty;
+    private string _titleName = string.Empty;
     private string _creator = string.Empty;
-    private int _volumeNumber = 1;
+    private int? _volumeNumber;
 
     // Progress
     private int _progressCurrent;
@@ -279,6 +294,7 @@
             }
 
             _pages = pages;
+            _useChapterTags = true;
             _chapterStartIndices = [0];
             _pageThumbnailDataUrls = [];
             _thumbnailPreloadQueued = false;
@@ -287,15 +303,15 @@
             // Pre-fill metadata from ComicInfo.xml if available
             if (metadata != null)
             {
-                _seriesName = metadata.Series;
+                _titleName = metadata.Series;
                 _creator = metadata.Creator;
-                _volumeNumber = metadata.VolumeNumber > 0 ? metadata.VolumeNumber : 1;
+                _volumeNumber = metadata.VolumeNumber;
             }
             else
             {
-                _seriesName = string.Empty;
+                _titleName = string.Empty;
                 _creator = string.Empty;
-                _volumeNumber = 1;
+                _volumeNumber = null;
             }
 
             _step = ImportStep.Metadata;
@@ -314,6 +330,18 @@
 
     private void GoToChapterStep()
     {
+        if (_useChapterTags)
+        {
+            if (!_chapterStartIndices.Contains(0))
+            {
+                _chapterStartIndices.Add(0);
+            }
+        }
+        else
+        {
+            _chapterStartIndices.Clear();
+        }
+
         _step = ImportStep.Chapters;
         _thumbnailPreloadQueued = true;
     }
@@ -410,11 +438,11 @@
 
         var request = new ComicImportRequest
         {
-            SeriesName = _seriesName.Trim(),
+            SeriesName = _titleName.Trim(),
             Creator = string.IsNullOrWhiteSpace(_creator) ? null : _creator.Trim(),
             VolumeNumber = _volumeNumber,
             Pages = _pages,
-            ChapterStartPageIndices = _chapterStartIndices.OrderBy(i => i).ToList()
+            ChapterStartPageIndices = _useChapterTags ? _chapterStartIndices.OrderBy(i => i).ToList() : []
         };
 
         var progress = new Progress<ImportProgressUpdate>(update =>
@@ -444,18 +472,27 @@
     {
         _step = ImportStep.Upload;
         _pages = [];
+        _useChapterTags = true;
         _chapterStartIndices = [0];
         _pageThumbnailDataUrls = [];
         _thumbnailPreloadQueued = false;
         _isPreloadingThumbnails = false;
-        _seriesName = string.Empty;
+        _titleName = string.Empty;
         _creator = string.Empty;
-        _volumeNumber = 1;
+        _volumeNumber = null;
         _errorMessage = string.Empty;
         _progressCurrent = 0;
         _progressTotal = 0;
         _progressMessage = string.Empty;
         _importedSeriesId = 0;
     }
+
+    private string _chapterPlacementHint => _useChapterTags
+        ? "Page 1 always starts Chapter 1. Click New Chapter on any page to begin a new chapter there. Click again (or Remove) to undo."
+        : "Chapter tags are disabled. Pages will be imported as one flat section without chapter tags.";
+
+    private string _chapterSummary => _useChapterTags
+        ? $"{_chapterStartIndices.Count} chapter(s)"
+        : "flat pages";
 }
 

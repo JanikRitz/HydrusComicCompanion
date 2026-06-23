@@ -21,12 +21,12 @@ public interface IComicImportService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Uploads any pages not already in Hydrus, tags all pages, and writes the series to the local cache.
+    /// Uploads any pages not already in Hydrus, tags all pages, and writes the title to the local cache.
     /// </summary>
     /// <param name="request">Import configuration including pages, chapter boundaries, and metadata.</param>
     /// <param name="progress">Optional progress callback.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The local database ID of the imported/updated series.</returns>
+    /// <returns>The local database ID of the imported/updated title.</returns>
     Task<int> ImportComicAsync(
         ComicImportRequest request,
         IProgress<ImportProgressUpdate>? progress = null,

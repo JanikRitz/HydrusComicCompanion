@@ -28,7 +28,7 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.PrimaryTagService).IsRequired();
             entity.Property(x => x.TagServiceKey).IsRequired();
             entity.Property(x => x.TargetFileDomain).IsRequired();
-            entity.Property(x => x.SeriesNamespace).IsRequired();
+            entity.Property(x => x.TitleNamespace).IsRequired();
             entity.Property(x => x.VolumeNamespace).IsRequired();
             entity.Property(x => x.ChapterNamespace).IsRequired();
             entity.Property(x => x.PageNamespace).IsRequired();
@@ -59,8 +59,8 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.ToTable("Chapters");
             entity.HasKey(x => x.Id);
 
-            entity.Property(x => x.VolumeNumber).IsRequired();
-            entity.Property(x => x.ChapterNumber).IsRequired();
+            entity.Property(x => x.VolumeNumber);
+            entity.Property(x => x.ChapterNumber);
             entity.Property(x => x.Title);
 
             entity.HasIndex(x => x.SeriesId);

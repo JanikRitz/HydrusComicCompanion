@@ -1,9 +1,9 @@
 <MudDialog>
     <TitleContent>
-        Delete series
+        Delete title
     </TitleContent>
     <DialogContent>
-        Delete '@SeriesTitle' from local cache? This will remove chapters, pages, and metadata.
+        Delete '@TitleName' from local cache? This will remove chapters, pages, and metadata.
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="Cancel">Cancel</MudButton>
@@ -13,7 +13,7 @@
 
 @code {
     [Parameter]
-    public string SeriesTitle { get; set; } = string.Empty;
+    public string TitleName { get; set; } = string.Empty;
 
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = null!;

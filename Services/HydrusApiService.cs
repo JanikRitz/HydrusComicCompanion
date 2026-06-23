@@ -20,18 +20,24 @@ public class HydrusApiService : IHydrusApiService
     }
 
     /// <summary>
-    /// Discovers all series tags in Hydrus using the tag search endpoint
+    /// Discovers all title tags in Hydrus using the tag search endpoint
     /// </summary>
-    public async Task<List<string>> DiscoverSeriesAsync(CancellationToken cancellationToken = default)
+    public Task<List<string>> DiscoverSeriesAsync(CancellationToken cancellationToken = default)
+        => DiscoverTitlesAsync(cancellationToken);
+
+    /// <summary>
+    /// Discovers all title tags in Hydrus using the tag search endpoint
+    /// </summary>
+    public async Task<List<string>> DiscoverTitlesAsync(CancellationToken cancellationToken = default)
     {
-        var seriesNames = new List<string>();
+        var titleNames = new List<string>();
 
         try
         {
             var settings = await _settingsService.GetSettingsAsync(cancellationToken);
 
-            // Search for all tags starting with the series namespace (strip trailing colon for the search query)
-            var searchPrefix = settings.SeriesNamespace.TrimEnd(':');
+            // Search for all tags starting with the title namespace (strip trailing colon for the search query)
+            var searchPrefix = settings.TitleNamespace.TrimEnd(':');
             var queryString = $"search={Uri.EscapeDataString(searchPrefix)}";
             if (!string.IsNullOrWhiteSpace(settings.TagServiceKey))
             {
@@ -55,24 +61,26 @@ public class HydrusApiService : IHydrusApiService
             {
                 foreach (var tag in tagResponse.Tags)
                 {
-                    // Extract series name from tag (e.g., "series:the sandman" -> "the sandman")
-                    var seriesName = ExtractNamespaceValue(tag.Value, settings.SeriesNamespace);
-                    if (!string.IsNullOrEmpty(seriesName))
+                    // Extract title name from tag (e.g., "title:the sandman" -> "the sandman")
+                    var titleName = ExtractNamespaceValue(tag.Value, settings.TitleNamespace);
+                    if (!string.IsNullOrEmpty(titleName))
                     {
-                        seriesNames.Add(seriesName);
+                        titleNames.Add(titleName);
                     }
                 }
             }
 
-            _logger.LogInformation("Discovered {Count} series from Hydrus", seriesNames.Count);
+            titleNames = titleNames.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+
+            _logger.LogInformation("Discovered {Count} titles from Hydrus", titleNames.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error discovering series from Hydrus");
+            _logger.LogError(ex, "Error discovering titles from Hydrus");
             throw;
         }
 
-        return seriesNames;
+        return titleNames;
     }
 
     /// <summary>

@@ -16,7 +16,7 @@
             <div>
                 <MudText Typo="Typo.h4" GutterBottom="true">Library</MudText>
                 <MudText Typo="Typo.body1" Color="Color.Secondary">
-                    Browse your cached Hydrus comic series.
+                    Browse your cached Hydrus comics.
                 </MudText>
             </div>
             <MudButton 
@@ -28,11 +28,11 @@
                 @if (_isSyncing)
                 {
                     <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                    <span style="margin-left: 8px;">Syncing Existing...</span>
+                    <span style="margin-left: 8px;">Syncing Existing Titles...</span>
                 }
                 else
                 {
-                    <span>Sync Existing</span>
+                    <span>Sync Existing Titles</span>
                 }
             </MudButton>
         </MudStack>
@@ -49,7 +49,7 @@
     {
         <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
             <MudStack Spacing="1">
-                <div>Sync completed successfully! Synced <strong>@_syncedSeriesCount</strong> series.</div>
+                <div>Sync completed successfully! Synced <strong>@_syncedSeriesCount</strong> titles.</div>
                 @if (_lastSyncTime.HasValue)
                 {
                     <div style="font-size: 0.9em; color: var(--mud-palette-text-secondary);">
@@ -67,7 +67,7 @@
     else if (_series.Count == 0)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            No series are cached yet. Use the settings page to connect Hydrus, then add the discovery and sync flow.
+            No titles are cached yet. Use the settings page to connect Hydrus, then add the discovery and sync flow.
         </MudAlert>
     }
     else
@@ -94,7 +94,7 @@
             {
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="gap: 12px;">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        Showing @StartItemIndex-@EndItemIndex of @_totalSeriesCount series
+                        Showing @StartItemIndex-@EndItemIndex of @_totalSeriesCount titles
                     </MudText>
                     <MudPagination Count="@TotalPages"
                                    Selected="@_currentPage"
@@ -191,7 +191,7 @@
         catch (Exception ex)
         {
             _isLoading = false;
-            _syncError = $"Error loading series: {ex.Message}";
+            _syncError = $"Error loading titles: {ex.Message}";
         }
     }
 
@@ -233,10 +233,10 @@
     {
         var parameters = new DialogParameters
         {
-            [nameof(DeleteSeriesDialog.SeriesTitle)] = title
+            [nameof(DeleteSeriesDialog.TitleName)] = title
         };
 
-        var dialog = await DialogService.ShowAsync<DeleteSeriesDialog>("Delete series", parameters, _topCenter);
+        var dialog = await DialogService.ShowAsync<DeleteSeriesDialog>("Delete title", parameters, _topCenter);
         var result = await dialog.Result;
 
         if (result.Canceled || result.Data is not bool confirmed || !confirmed)
@@ -247,7 +247,7 @@
         var deleted = await SyncService.DeleteSeriesAsync(seriesId);
         if (!deleted)
         {
-            Snackbar.Add("Series was already removed.", Severity.Warning);
+            Snackbar.Add("Title was already removed.", Severity.Warning);
             await LoadSeriesAsync();
             return;
         }

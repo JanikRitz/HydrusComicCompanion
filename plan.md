@@ -4,7 +4,7 @@
 - [x] Blazor Server app shell is in place and MudBlazor is wired up.
 - [x] EF Core + SQLite settings/cache database exists with migrations.
 - [x] Hydrus settings are persisted locally and API service discovery is implemented.
-- [x] Library and series detail pages are implemented against cached EF data.
+- [x] Library and title detail pages are implemented against cached EF data.
 - [?] Hydrus file discovery, metadata parsing, and sync pipeline.
 - [X] Media endpoint for streamed page images.
 - [ ] CBZ export pipeline.
@@ -26,18 +26,27 @@ Source of Truth: Hydrus Network Client (via local REST API).
 
 To reliably parse flat files into a hierarchical comic structure, the Hydrus tagging must be strictly defined and adhered to.
 
-Use the configured structural tag service key for `series/volume/chapter/page` hierarchy tags. Treat tags from other tag services as informational metadata sources (e.g., creator/genre/character), not as structure-defining input.
+Use the configured structural tag service key for `title/volume/chapter/page` hierarchy tags. Treat tags from other tag services as informational metadata sources.
 
 Core Hierarchy Tags
 
-- `series:[Series Name]` (e.g., `series:the sandman`)
-- `volume:[Number]` (e.g., `volume:1` - Optional, defaults to 1 if missing)
-- `chapter:[Number]` (e.g., `chapter:1` or `chapter:1.5` for sub-chapters)
-- `page:[Number]` (e.g., `page:1` )
+- `title:[Canonical Title]` (e.g., `title:batman`) **Required**
+- `volume:[Number]` (e.g., `volume:1`) **Optional**
+- `chapter:[Number]` (e.g., `chapter:1` or `chapter:1.5`) **Optional**
+- `page:[Number]` (e.g., `page:1`) **Required**
+
+Accepted structure combinations:
+
+- `title + page` (single flat work with no chapter/volume tags)
+- `title + chapter + page` (chaptered work without volumes)
+- `title + volume + chapter + page` (fully structured work)
+
+`creator:*` and `series:*` are informational/disambiguation metadata only and must not define structural grouping.
 
 Metadata Tags (Syncable)
 
-- `creator:[Name]`
+- `creator:[Name]` (used to distinguish same-title comics)
+- `series:[Name]` (used to distinguish same-title comics)
 - `genre:[Name]`
 - `character:[Name]`
 - `meta:cover page` (Used to query the library thumbnail, fallbacks to lowest page)
@@ -48,20 +57,20 @@ We do not want to query Hydrus for the library structure on every page load. The
 
 Entity Models
 
-- Series: `Id`, `Title`, `CoverFileId` (Hash), `LastSynced`, `[Navigation] Chapters`, `[Navigation] Metadata`
-- Chapter: `Id`, `SeriesId`, `VolumeNumber`, `ChapterNumber`, `Title`
+- Title/Work: `Id`, `CanonicalTitle`, `DisambiguationSeries`, `DisambiguationCreator`, `CoverFileId` (Hash), `LastSynced`, `[Navigation] Chapters`, `[Navigation] Metadata`
+- Chapter: `Id`, `TitleId`, `VolumeNumber?`, `ChapterNumber?`, `Title`
 - Page: `Id`, `ChapterId`, `FileHash` (Hydrus SHA256), `PageNumber`, `MimeType`
-- Metadata: Key-Value mappings (e.g., Type: "Creator", Value: "Neil Gaiman") linked to Series.
+- Metadata: Key-Value mappings linked to Title/Work.
 
 Sync Logic (The "Discovery" Process)
 
 The sync process is divided into two highly efficient steps utilizing the Hydrus Tag API:
 
-1. Series Discovery (Lightweight): * The server queries Hydrus using GET /add_tags/search_tags?search=series:
-  - Hydrus returns an array of all known series. The server cross-references this with the SQLite DB to identify new or missing series.
+1. Title Discovery (Lightweight): The server queries Hydrus using `GET /add_tags/search_tags?search=title:`.
+  - Hydrus returns an array of all known canonical titles. The server cross-references this with the SQLite DB to identify new or missing titles.
 2. Deep Structure Sync (On-Demand or Background):
-  - For a newly discovered series, the server queries `GET /get_files/search_files?tags=["series:the sandman"]`.
-  - It takes those file IDs, fetches metadata in batches (typically 256 IDs per request), and maps files into the `Volume -> Chapter -> Page` hierarchy in SQLite.
+  - For a newly discovered title, the server queries `GET /get_files/search_files?tags=["title:batman"]`.
+  - It takes those file IDs, fetches metadata in batches (typically 256 IDs per request), and maps files into a flexible hierarchy where `volume` and `chapter` are independently optional before `page`.
 
 ## Hydrus API Integration
 
@@ -70,14 +79,14 @@ The Blazor Server app will use a registered HttpClient service to interact with 
 Required Endpoints
 
 1. Tag Search: `GET /add_tags/search_tags`  
-  - Payload: `search=series:` (URL Encoded)
-  - Use: Instantly retrieves a list of all series tags without querying file metadata.
+  - Payload: `search=title:` (URL Encoded)
+  - Use: Instantly retrieves a list of all canonical title tags without querying file metadata.
 2. File Discovery: `GET /get_files/search_files`
-  - Payload: `tags=["series:the sandman"]` (JSON & URL Encoded), `file_service_key=[SelectedFileService]`
-  - Use: Returns a list of File IDs/Hashes belonging to a specific series.
+  - Payload: `tags=["title:batman"]` (JSON & URL Encoded), `file_service_key=[SelectedFileService]`
+  - Use: Returns a list of File IDs/Hashes belonging to a specific canonical title.
 3. Metadata Parsing: `GET /get_files/file_metadata`
   - Payload: `file_ids=[Array of FileIds]` plus flags (e.g., `include_milliseconds=true`, `include_services_object=false`).
-  - Use: Retrieves tag dictionaries keyed by service key (`storage_tags`/`display_tags`). The C# logic parses hierarchy namespaces from the configured structural service and stores additional namespaces from other services as metadata.
+  - Use: Retrieves tag dictionaries keyed by service key (`storage_tags`/`display_tags`). The C# logic parses structural namespaces from the configured structural service (`title`, optional `volume`, optional `chapter`, `page`) and stores additional namespaces (including `creator` and `series`) as metadata/disambiguation.
 4. Thumbnail Retrieval: `GET /get_files/thumbnail`
   - Payload: `hash=[FileHash]`
   - Use: Primary endpoint for library/series preview images and chapter/page thumbnails.
@@ -96,18 +105,18 @@ Required Endpoints
 
 ## UI & Presentation (MudBlazor)
 
-Note: the reader state should be encoded in the URL to make bookmarking easier (e.g., `/read/{SeriesId}/{ChapterId}/{PageNumber}`).
+Note: the reader state should be encoded in the URL to make bookmarking easier (e.g., `/read/{TitleId}/{ChapterId}/{PageNumber}`).
 
 ### Library View (Home)
 
 - Layout: A responsive `MudGrid` of `MudCard` components.
-- Content: Each card represents a `Series`.
+- Content: Each card represents a `Title`.
 - Image: The card image is loaded via a local media endpoint (e.g., `<img src="/media/image/{CoverFileHash}?thumb=true" />`).
-- Interaction: Clicking a card routes to the Series/Chapter list.
+- Interaction: Clicking a card routes to the title details list.
 
-### Series Details View
+### Title Details View
 
-- Layout: Top section with Series metadata (Creators, Genres using `MudChip`). Bottom section is a `MudTable` or `MudList` of Chapters.
+- Layout: Top section with title metadata (Creators, Series, Genres using `MudChip`). Bottom section is a `MudTable` or `MudList` of chapters.
 - Actions: * "Sync External Metadata" button (triggers scraping agent and pushes to Hydrus).
 - "Download CBZ" button on individual chapters (triggers the archive generation process).
 
@@ -157,9 +166,9 @@ To ensure the application is flexible and decoupled from hardcoded values, a ded
 
 Allows users to override the default namespaces if their Hydrus library uses different conventions:
 
-- Series Namespace: Default `series:`
-- Volume Namespace: Default `volume:`
-- Chapter Namespace: Default `chapter:`
+- Title Namespace: Default `title:`
+- Volume Namespace: Default `volume:` (optional in content)
+- Chapter Namespace: Default `chapter:` (optional in content)
 - Page Namespace: Default `page:`
 
 ### Sync Settings

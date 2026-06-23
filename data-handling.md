@@ -30,7 +30,7 @@ Columns:
 - `ProtectedApiAccessKey`
 - `PrimaryTagService`
 - `TargetFileDomain`
-- `SeriesNamespace`
+- `TitleNamespace`
 - `VolumeNamespace`
 - `ChapterNamespace`
 - `PageNamespace`
@@ -42,12 +42,12 @@ Columns:
 
 The local cache currently includes these tables:
 
-- `Series` — `Title`, `CoverFileHash`, `LastSyncedAt`
-- `Chapters` — `SeriesId`, `VolumeNumber`, `ChapterNumber`, `Title`
+- `Series` — title/work cache root (`Title`, `CoverFileHash`, `LastSyncedAt`)
+- `Chapters` — `SeriesId`, `VolumeNumber?`, `ChapterNumber?`, `Title`
 - `Pages` — `ChapterId`, `FileHash`, `PageNumber`, `MimeType`
 - `Metadata` — `SeriesId`, `Key`, `Value`
 
-These entities back the library and series detail screens and are ready for later Hydrus sync work.
+These entities back the library and title detail screens and are ready for later Hydrus sync work.
 
 ## Design-Time EF Tooling
 

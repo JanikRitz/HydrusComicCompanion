@@ -6,9 +6,9 @@ public sealed class ChapterRecord
 
     public int SeriesId { get; set; }
 
-    public int VolumeNumber { get; set; } = 1;
+    public int? VolumeNumber { get; set; }
 
-    public decimal ChapterNumber { get; set; }
+    public decimal? ChapterNumber { get; set; }
 
     public string? Title { get; set; }
 

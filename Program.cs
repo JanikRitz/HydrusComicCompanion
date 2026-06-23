@@ -111,7 +111,7 @@ app.MapPost("/api/sync/library", async (IHydrusSyncService syncService) =>
     try
     {
         var count = await syncService.SyncLibraryAsync();
-        return Results.Ok(new { success = true, seriesSynced = count });
+        return Results.Ok(new { success = true, titlesSynced = count });
     }
     catch (Exception ex)
     {
@@ -127,7 +127,7 @@ app.MapPost("/api/sync/existing-libraries", async (IHydrusSyncService syncServic
     try
     {
         var count = await syncService.SyncExistingLibrariesAsync();
-        return Results.Ok(new { success = true, seriesSynced = count });
+        return Results.Ok(new { success = true, titlesSynced = count });
     }
     catch (Exception ex)
     {

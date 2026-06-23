@@ -19,7 +19,7 @@ else if (!string.IsNullOrWhiteSpace(_errorMessage))
             @_errorMessage
         </MudAlert>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GoBackToSeries">
-            Back to series
+            Back to title
         </MudButton>
     </div>
 }
@@ -40,11 +40,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             <div class="reader-topbar__title">
                 <MudText Typo="Typo.subtitle1">@_series.Title</MudText>
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Volume @_chapter.VolumeNumber · Chapter @_chapter.ChapterNumber.ToString("0.##")
-                    @if (!string.IsNullOrWhiteSpace(_chapter.Title))
-                    {
-                        <span>· @_chapter.Title</span>
-                    }
+                    @GetChapterSummary(_chapter)
                 </MudText>
             </div>
 
@@ -65,7 +61,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 <MudText Typo="Typo.body2">Page @_currentPageNumber of @_pages.Count</MudText>
                 <MudDivider Vertical="true" FlexItem="true" />
                 <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.MenuBook" OnClick="GoBackToSeries">
-                    Series
+                    Title
                 </MudButton>
             </MudStack>
         </MudPaper>
@@ -159,13 +155,13 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
             if (_series is null)
             {
-                _errorMessage = "This series is not in the local cache yet.";
+                _errorMessage = "This title is not in the local cache yet.";
                 return;
             }
 
             var orderedChapters = _series.Chapters
-                .OrderBy(x => x.VolumeNumber)
-                .ThenBy(x => x.ChapterNumber)
+                .OrderBy(x => x.VolumeNumber ?? int.MinValue)
+                .ThenBy(x => x.ChapterNumber ?? decimal.MinValue)
                 .ThenBy(x => x.Id)
                 .ToList();
 
@@ -174,7 +170,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
             if (_chapter is null)
             {
-                _errorMessage = "This series does not contain any cached chapters yet.";
+                _errorMessage = "This title does not contain any cached chapters yet.";
                 return;
             }
 
@@ -316,8 +312,8 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         return _series is null
             ? []
             : _series.Chapters
-                .OrderBy(x => x.VolumeNumber)
-                .ThenBy(x => x.ChapterNumber)
+                .OrderBy(x => x.VolumeNumber ?? int.MinValue)
+                .ThenBy(x => x.ChapterNumber ?? decimal.MinValue)
                 .ThenBy(x => x.Id)
                 .ToList();
     }
@@ -344,7 +340,16 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             return "Comic page";
         }
 
-        return $"{_series.Title} - Volume {_chapter.VolumeNumber} Chapter {_chapter.ChapterNumber.ToString("0.##")} Page {_currentPageNumber}";
+        return $"{_series.Title} - {GetChapterSummary(_chapter)} Page {_currentPageNumber}";
+    }
+
+    private static string GetChapterSummary(ChapterRecord chapter)
+    {
+        var volume = chapter.VolumeNumber.HasValue ? $"Volume {chapter.VolumeNumber.Value}" : "No volume";
+        var chapterNumber = chapter.ChapterNumber.HasValue ? $"Chapter {chapter.ChapterNumber.Value:0.##}" : "Flat pages";
+        var title = string.IsNullOrWhiteSpace(chapter.Title) ? string.Empty : $" · {chapter.Title}";
+
+        return $"{volume} · {chapterNumber}{title}";
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs args)

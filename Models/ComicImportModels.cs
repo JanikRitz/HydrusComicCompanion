@@ -30,7 +30,7 @@ public sealed class ComicMetadata
 {
     public string Series { get; set; } = string.Empty;
     public string Creator { get; set; } = string.Empty;
-    public int VolumeNumber { get; set; } = 1;
+    public int? VolumeNumber { get; set; }
 }
 
 /// <summary>
@@ -40,14 +40,14 @@ public sealed class ComicImportRequest
 {
     public string SeriesName { get; set; } = string.Empty;
     public string? Creator { get; set; }
-    public int VolumeNumber { get; set; } = 1;
+    public int? VolumeNumber { get; set; }
     public List<ImportPage> Pages { get; set; } = [];
 
     /// <summary>
     /// 0-based page indices that start a new chapter.
-    /// Index 0 (page 1) is always a chapter start and must be included.
+    /// Leave empty for chapterless imports.
     /// </summary>
-    public List<int> ChapterStartPageIndices { get; set; } = [0];
+    public List<int> ChapterStartPageIndices { get; set; } = [];
 }
 
 /// <summary>

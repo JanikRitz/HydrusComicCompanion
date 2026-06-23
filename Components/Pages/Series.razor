@@ -7,7 +7,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
-<PageTitle>Series</PageTitle>
+<PageTitle>Title</PageTitle>
 
 @if (_isLoading)
 {
@@ -16,7 +16,7 @@
 else if (_series is null)
 {
     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-        This series is not in the local cache yet.
+        This title is not in the local cache yet.
     </MudAlert>
     <MudButton Variant="Variant.Text" OnClick="GoHome">Back to Library</MudButton>
 }
@@ -66,7 +66,7 @@ else
                         }
                         else
                         {
-                            <MudTable Items="_series.Chapters.OrderBy(x => x.VolumeNumber).ThenBy(x => x.ChapterNumber)" Dense="true">
+                            <MudTable Items="_series.Chapters.OrderBy(x => x.VolumeNumber ?? int.MinValue).ThenBy(x => x.ChapterNumber ?? decimal.MinValue)" Dense="true">
                                 <HeaderContent>
                                     <MudTh>Preview</MudTh>
                                     <MudTh>Volume</MudTh>
@@ -86,13 +86,13 @@ else
                                         @if (!string.IsNullOrWhiteSpace(previewHash))
                                         {
                                             <img src="@MediaService.BuildRenderUrl(previewHash, width: 200, height: 200)"
-                                                 alt="@($"Preview for chapter {chapter.ChapterNumber}")"
+                                                 alt="@($"Preview for {GetChapterLabel(chapter)}")"
                                                  style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; display:block;" />
                                         }
                                     </MudTd>
-                                    <MudTd DataLabel="Volume">@chapter.VolumeNumber</MudTd>
-                                    <MudTd DataLabel="Chapter">@chapter.ChapterNumber</MudTd>
-                                    <MudTd DataLabel="Title">@(chapter.Title ?? "-")</MudTd>
+                                    <MudTd DataLabel="Volume">@(chapter.VolumeNumber?.ToString() ?? "-")</MudTd>
+                                    <MudTd DataLabel="Chapter">@(chapter.ChapterNumber?.ToString("0.##") ?? "Flat")</MudTd>
+                                    <MudTd DataLabel="Title">@(chapter.Title ?? "Flat pages")</MudTd>
                                     <MudTd DataLabel="Pages">@chapter.Pages.Count</MudTd>
                                     <MudTd DataLabel="Read">
                                         <MudButton Variant="Variant.Outlined"
@@ -139,6 +139,14 @@ else
         return series.Chapters.Sum(chapter => chapter.Pages.Count);
     }
 
+    private static string GetChapterLabel(ChapterRecord chapter)
+    {
+        var volume = chapter.VolumeNumber.HasValue ? $"Volume {chapter.VolumeNumber.Value}" : "Volumeless";
+        var chapterNumber = chapter.ChapterNumber.HasValue ? $"Chapter {chapter.ChapterNumber.Value:0.##}" : "Flat pages";
+
+        return $"{volume} · {chapterNumber}";
+    }
+
     private async Task DeleteSeriesAsync()
     {
         if (_series is null)
@@ -148,10 +156,10 @@ else
 
         var parameters = new DialogParameters
         {
-            [nameof(DeleteSeriesDialog.SeriesTitle)] = _series.Title
+            [nameof(DeleteSeriesDialog.TitleName)] = _series.Title
         };
 
-        var dialog = await DialogService.ShowAsync<DeleteSeriesDialog>("Delete series", parameters, _topCenter);
+        var dialog = await DialogService.ShowAsync<DeleteSeriesDialog>("Delete title", parameters, _topCenter);
         var result = await dialog.Result;
 
         if (result.Canceled || result.Data is not bool confirmed || !confirmed)
@@ -162,7 +170,7 @@ else
         var deleted = await SyncService.DeleteSeriesAsync(_series.Id);
         if (!deleted)
         {
-            Snackbar.Add("Series was already removed.", Severity.Warning);
+            Snackbar.Add("Title was already removed.", Severity.Warning);
         }
         else
         {

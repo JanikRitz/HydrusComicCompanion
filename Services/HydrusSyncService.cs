@@ -26,7 +26,7 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
-    /// Performs a full library sync: discovers series and syncs their chapter/page structure
+    /// Performs a full library sync: discovers titles and syncs their chapter/page structure
     /// </summary>
     public async Task<int> SyncLibraryAsync(CancellationToken cancellationToken = default)
     {
@@ -36,16 +36,16 @@ public class HydrusSyncService : IHydrusSyncService
         {
             _logger.LogInformation("Starting library sync");
 
-            // Step 1: Discover all series
-            var seriesNames = await _apiService.DiscoverSeriesAsync(cancellationToken);
-            _logger.LogInformation("Discovered {Count} series", seriesNames.Count);
+            // Step 1: Discover all titles
+            var titleNames = await _apiService.DiscoverTitlesAsync(cancellationToken);
+            _logger.LogInformation("Discovered {Count} titles", titleNames.Count);
 
-            // Step 2: Sync each series
-            foreach (var seriesName in seriesNames)
+            // Step 2: Sync each title
+            foreach (var seriesName in titleNames)
             {
                 try
                 {
-                    var seriesId = await SyncSeriesAsync(seriesName, cancellationToken);
+                    var seriesId = await SyncTitleAsync(seriesName, cancellationToken);
                     if (seriesId.HasValue)
                     {
                         syncedCount++;
@@ -53,11 +53,11 @@ public class HydrusSyncService : IHydrusSyncService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error syncing series: {SeriesName}", seriesName);
+                    _logger.LogError(ex, "Error syncing title: {TitleName}", seriesName);
                 }
             }
 
-            _logger.LogInformation("Completed library sync: {SyncedCount} series synchronized", syncedCount);
+            _logger.LogInformation("Completed library sync: {SyncedCount} titles synchronized", syncedCount);
         }
         catch (Exception ex)
         {
@@ -69,7 +69,7 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
-    /// Syncs only series that already exist in the local cache database.
+    /// Syncs only titles that already exist in the local cache database.
     /// </summary>
     public async Task<int> SyncExistingLibrariesAsync(CancellationToken cancellationToken = default)
     {
@@ -87,13 +87,13 @@ public class HydrusSyncService : IHydrusSyncService
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
-            _logger.LogInformation("Found {Count} existing series in local cache", existingSeriesNames.Count);
+            _logger.LogInformation("Found {Count} existing titles in local cache", existingSeriesNames.Count);
 
             foreach (var seriesName in existingSeriesNames)
             {
                 try
                 {
-                    var seriesId = await SyncSeriesAsync(seriesName, cancellationToken);
+                    var seriesId = await SyncTitleAsync(seriesName, cancellationToken);
                     if (seriesId.HasValue)
                     {
                         syncedCount++;
@@ -101,11 +101,11 @@ public class HydrusSyncService : IHydrusSyncService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error syncing existing series: {SeriesName}", seriesName);
+                    _logger.LogError(ex, "Error syncing existing title: {TitleName}", seriesName);
                 }
             }
 
-            _logger.LogInformation("Completed existing libraries sync: {SyncedCount} series synchronized", syncedCount);
+            _logger.LogInformation("Completed existing libraries sync: {SyncedCount} titles synchronized", syncedCount);
         }
         catch (Exception ex)
         {
@@ -117,23 +117,23 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
-    /// Syncs a specific series: fetches all files tagged with the series and structures them
+    /// Syncs a specific title: fetches all files tagged with the title and structures them.
     /// </summary>
-    public async Task<int?> SyncSeriesAsync(string seriesName, CancellationToken cancellationToken = default)
+    public async Task<int?> SyncTitleAsync(string seriesName, CancellationToken cancellationToken = default)
     {
-        var normalizedSeriesName = NormalizeSeriesName(seriesName);
+        var normalizedSeriesName = NormalizeTitleName(seriesName);
 
         if (string.IsNullOrWhiteSpace(normalizedSeriesName))
         {
-            throw new ArgumentException("Series name cannot be empty.", nameof(seriesName));
+            throw new ArgumentException("Title name cannot be empty.", nameof(seriesName));
         }
 
         try
         {
-            _logger.LogInformation("Syncing series: {SeriesName}", normalizedSeriesName);
+            _logger.LogInformation("Syncing title: {TitleName}", normalizedSeriesName);
 
-            // Build the series search tag
-            var seriesTag = BuildSeriesTag(normalizedSeriesName);
+            // Build the title search tag
+            var seriesTag = BuildTitleTag(normalizedSeriesName);
 
             // Step 1: Search for files with this series tag
             var fileIds = await _apiService.SearchFilesAsync(
@@ -142,11 +142,11 @@ public class HydrusSyncService : IHydrusSyncService
 
             if (fileIds.Count == 0)
             {
-                _logger.LogWarning("No files found for series: {SeriesName}", normalizedSeriesName);
+                _logger.LogWarning("No files found for title: {TitleName}", normalizedSeriesName);
                 return null;
             }
 
-            _logger.LogInformation("Found {Count} files for series {SeriesName}", fileIds.Count, normalizedSeriesName);
+            _logger.LogInformation("Found {Count} files for title {TitleName}", fileIds.Count, normalizedSeriesName);
 
             // Step 2: Get metadata for all files
             var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken);
@@ -157,24 +157,27 @@ public class HydrusSyncService : IHydrusSyncService
             // Step 4: Store in database
             var seriesId = await StoreSeriesInDatabaseAsync(normalizedSeriesName, chapters, fileMetadata, cancellationToken);
 
-            _logger.LogInformation("Successfully synced series {SeriesName} with ID {SeriesId}", normalizedSeriesName, seriesId);
+            _logger.LogInformation("Successfully synced title {TitleName} with ID {SeriesId}", normalizedSeriesName, seriesId);
             return seriesId;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error syncing series: {SeriesName}", normalizedSeriesName);
+            _logger.LogError(ex, "Error syncing title: {TitleName}", normalizedSeriesName);
             throw;
         }
     }
 
+    public Task<int?> SyncSeriesAsync(string seriesName, CancellationToken cancellationToken = default)
+        => SyncTitleAsync(seriesName, cancellationToken);
+
     /// <summary>
-    /// Gets the count of unsynced series
+    /// Gets the count of unsynced titles
     /// </summary>
-    public async Task<int> GetUnsyncedSeriesCountAsync(CancellationToken cancellationToken = default)
+    public async Task<int> GetUnsyncedTitlesCountAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var discoveredSeries = await _apiService.DiscoverSeriesAsync(cancellationToken);
+            var discoveredSeries = await _apiService.DiscoverTitlesAsync(cancellationToken);
 
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
             var syncedSeries = await dbContext.Series
@@ -187,10 +190,13 @@ public class HydrusSyncService : IHydrusSyncService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting unsynced series count");
+            _logger.LogError(ex, "Error getting unsynced titles count");
             return 0;
         }
     }
+
+    public Task<int> GetUnsyncedSeriesCountAsync(CancellationToken cancellationToken = default)
+        => GetUnsyncedTitlesCountAsync(cancellationToken);
 
     /// <summary>
     /// Deletes a cached series and all of its related cached records.
@@ -222,10 +228,10 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Parses files into a chapter/volume/page structure based on tags
     /// </summary>
-    private Dictionary<(int Volume, decimal Chapter), List<(int PageNumber, FileMetadata Metadata)>> ParseFilesIntoChapters(
+    private Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>> ParseFilesIntoChapters(
         List<FileMetadata> fileMetadata)
     {
-        var chapters = new Dictionary<(int Volume, decimal Chapter), List<(int PageNumber, FileMetadata Metadata)>>();
+        var chapters = new Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>>();
 
         foreach (var file in fileMetadata)
         {
@@ -235,16 +241,22 @@ public class HydrusSyncService : IHydrusSyncService
                 continue;
             }
 
-            var seriesTag = ExtractNamespaceValue(structuralTags, _settings.SeriesNamespace);
-            if (string.IsNullOrWhiteSpace(seriesTag))
+            var titleTag = ExtractNamespaceValue(structuralTags, _settings.TitleNamespace);
+            if (string.IsNullOrWhiteSpace(titleTag))
             {
-                _logger.LogWarning("File {Hash} is missing a series tag in the structural tag service and will be skipped.", file.Hash);
+                _logger.LogWarning("File {Hash} is missing a title tag in the structural tag service and will be skipped.", file.Hash);
                 continue;
             }
 
-            var volumeNumber = ExtractNumberFromTag(structuralTags, _settings.VolumeNamespace) ?? 1;
-            var chapterNumber = ExtractDecimalFromTag(structuralTags, _settings.ChapterNamespace) ?? 1m;
-            var pageNumber = ExtractNumberFromTag(structuralTags, _settings.PageNamespace) ?? 1;
+            var pageNumber = ExtractNumberFromTag(structuralTags, _settings.PageNamespace);
+            if (!pageNumber.HasValue)
+            {
+                _logger.LogWarning("File {Hash} is missing a page tag in the structural tag service and will be skipped.", file.Hash);
+                continue;
+            }
+
+            var volumeNumber = ExtractNumberFromTag(structuralTags, _settings.VolumeNamespace);
+            var chapterNumber = ExtractDecimalFromTag(structuralTags, _settings.ChapterNamespace);
 
             var key = (volumeNumber, chapterNumber);
 
@@ -253,7 +265,7 @@ public class HydrusSyncService : IHydrusSyncService
                 chapters[key] = new List<(int, FileMetadata)>();
             }
 
-            chapters[key].Add((pageNumber, file));
+            chapters[key].Add((pageNumber.Value, file));
         }
 
         return chapters;
@@ -264,7 +276,7 @@ public class HydrusSyncService : IHydrusSyncService
     /// </summary>
     private async Task<int> StoreSeriesInDatabaseAsync(
         string seriesName,
-        Dictionary<(int Volume, decimal Chapter), List<(int PageNumber, FileMetadata Metadata)>> chapters,
+        Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>> chapters,
         List<FileMetadata> allFileMetadata,
         CancellationToken cancellationToken)
     {
@@ -287,13 +299,15 @@ public class HydrusSyncService : IHydrusSyncService
         series.Chapters.Clear();
 
         // Add chapters from parsed data
-        foreach (var ((volumeNumber, chapterNumber), pages) in chapters.OrderBy(c => c.Key.Volume).ThenBy(c => c.Key.Chapter))
+        foreach (var ((volumeNumber, chapterNumber), pages) in chapters
+                     .OrderBy(c => c.Key.Volume ?? 0)
+                     .ThenBy(c => c.Key.Chapter ?? 0m))
         {
             var chapter = new ChapterRecord
             {
                 VolumeNumber = volumeNumber,
                 ChapterNumber = chapterNumber,
-                Title = $"Ch. {chapterNumber}"
+                Title = chapterNumber.HasValue ? $"Ch. {chapterNumber.Value}" : null
             };
 
             // Add pages sorted by page number
@@ -317,7 +331,12 @@ public class HydrusSyncService : IHydrusSyncService
         // Set cover image to the first page of the first chapter if not already set
         if (string.IsNullOrEmpty(series.CoverFileHash) && chapters.Count > 0)
         {
-            var firstChapterPages = chapters.Values.First().OrderBy(p => p.PageNumber).First();
+            var firstChapterPages = chapters
+                .OrderBy(c => c.Key.Volume ?? 0)
+                .ThenBy(c => c.Key.Chapter ?? 0m)
+                .SelectMany(c => c.Value)
+                .OrderBy(p => p.PageNumber)
+                .First();
             series.CoverFileHash = firstChapterPages.Metadata.Hash;
         }
 
@@ -378,29 +397,29 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
-    /// Checks if a namespace is a structural namespace (volume, chapter, page, series)
+    /// Checks if a namespace is a structural namespace (title, volume, chapter, page)
     /// </summary>
     private bool IsStructuralNamespace(string ns)
     {
         var normalized = ns.ToLowerInvariant();
-        return normalized == _settings.SeriesNamespace.TrimEnd(':').ToLowerInvariant() ||
+        return normalized == _settings.TitleNamespace.TrimEnd(':').ToLowerInvariant() ||
                normalized == _settings.VolumeNamespace.TrimEnd(':').ToLowerInvariant() ||
                normalized == _settings.ChapterNamespace.TrimEnd(':').ToLowerInvariant() ||
                normalized == _settings.PageNamespace.TrimEnd(':').ToLowerInvariant();
     }
 
-    private string BuildSeriesTag(string seriesName)
+    private string BuildTitleTag(string seriesName)
     {
-        var namespacePrefix = _settings.SeriesNamespace.Trim().TrimEnd(':');
+        var namespacePrefix = _settings.TitleNamespace.Trim().TrimEnd(':');
         return string.IsNullOrWhiteSpace(namespacePrefix)
             ? seriesName
             : $"{namespacePrefix}:{seriesName}";
     }
 
-    private string NormalizeSeriesName(string userInput)
+    private string NormalizeTitleName(string userInput)
     {
         var trimmed = userInput.Trim();
-        var namespacePrefix = _settings.SeriesNamespace.Trim().TrimEnd(':');
+        var namespacePrefix = _settings.TitleNamespace.Trim().TrimEnd(':');
 
         if (string.IsNullOrWhiteSpace(namespacePrefix))
         {

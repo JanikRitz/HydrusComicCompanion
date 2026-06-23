@@ -8,15 +8,21 @@ namespace HydrusComicCompanion.Services;
 public interface IHydrusApiService
 {
     /// <summary>
-    /// Discovers all series tags in Hydrus
+    /// Discovers all title tags in Hydrus
     /// </summary>
-    /// <returns>List of series names extracted from series: tags</returns>
+    /// <returns>List of title names extracted from title: tags</returns>
+    Task<List<string>> DiscoverTitlesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Discovers all series tags in Hydrus.
+    /// </summary>
+    /// <returns>List of title names extracted from structural tags.</returns>
     Task<List<string>> DiscoverSeriesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Searches for files matching the given tags
     /// </summary>
-    /// <param name="tags">List of tags to search for (e.g., ["series:the sandman"])</param>
+    /// <param name="tags">List of tags to search for (e.g., ["title:the sandman"])</param>
     /// <param name="fileDomain">Optional file domain to scope the search (defaults to configured settings value)</param>
     /// <returns>List of file IDs matching the search criteria</returns>
     Task<List<long>> SearchFilesAsync(List<string> tags, string? fileDomain = null, CancellationToken cancellationToken = default);

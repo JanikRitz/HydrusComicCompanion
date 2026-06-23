@@ -68,15 +68,15 @@ public sealed class ComicImportService : IComicImportService
             .OrderBy(i => i)
             .ToList();
 
-        // Ensure page 0 is always a chapter start
-        if (!chapterStarts.Contains(0))
+        // Ensure page 0 is always a chapter start when the import is chaptered.
+        if (chapterStarts.Count > 0 && !chapterStarts.Contains(0))
         {
             chapterStarts.Insert(0, 0);
         }
 
         var total = request.Pages.Count;
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
-        var seriesTag = BuildTag(settings.SeriesNamespace, request.SeriesName);
+        var titleTag = BuildTag(settings.TitleNamespace, request.SeriesName);
 
         // Step 1: Upload all pages to Hydrus (or confirm they already exist)
         var pageHashes = new string[total];
@@ -121,15 +121,26 @@ public sealed class ComicImportService : IComicImportService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var (chapterNumber, pageNumber) = GetChapterAndPage(i, chapterStarts);
-
             var tags = new List<string>
             {
-                seriesTag,
-                BuildTag(settings.VolumeNamespace, request.VolumeNumber.ToString()),
-                BuildTag(settings.ChapterNamespace, chapterNumber.ToString()),
-                BuildTag(settings.PageNamespace, pageNumber.ToString())
+                titleTag
             };
+
+            if (request.VolumeNumber.HasValue)
+            {
+                tags.Add(BuildTag(settings.VolumeNamespace, request.VolumeNumber.Value.ToString()));
+            }
+
+            if (chapterStarts.Count > 0)
+            {
+                var (chapterNumber, pageNumber) = GetChapterAndPage(i, chapterStarts);
+                tags.Add(BuildTag(settings.ChapterNamespace, chapterNumber.ToString()));
+                tags.Add(BuildTag(settings.PageNamespace, pageNumber.ToString()));
+            }
+            else
+            {
+                tags.Add(BuildTag(settings.PageNamespace, (i + 1).ToString()));
+            }
 
             if (!string.IsNullOrWhiteSpace(request.Creator))
             {
@@ -271,7 +282,7 @@ public sealed class ComicImportService : IComicImportService
             var series = root.Element("Series")?.Value?.Trim() ?? string.Empty;
             var writer = root.Element("Writer")?.Value?.Trim() ?? string.Empty;
             var volumeRaw = root.Element("Number")?.Value?.Trim();
-            var volume = int.TryParse(volumeRaw, out var v) ? v : 1;
+            var volume = int.TryParse(volumeRaw, out var v) ? v : (int?)null;
 
             return new ComicMetadata
             {
@@ -307,46 +318,84 @@ public sealed class ComicImportService : IComicImportService
         }
 
         // Merge chapters into existing series and reject conflicting overlaps.
-        for (var ci = 0; ci < chapterStarts.Count; ci++)
+        if (chapterStarts.Count == 0)
         {
-            var chapterStartIdx = chapterStarts[ci];
-            var nextChapterStartIdx = ci + 1 < chapterStarts.Count ? chapterStarts[ci + 1] : request.Pages.Count;
-            var chapterNumber = ci + 1;
-
             var incomingPages = new List<PageRecord>();
-            var pageNumber = 1;
-            for (var pi = chapterStartIdx; pi < nextChapterStartIdx; pi++)
+            for (var pi = 0; pi < request.Pages.Count; pi++)
             {
                 incomingPages.Add(new PageRecord
                 {
                     FileHash = pageHashes[pi],
-                    PageNumber = pageNumber++,
+                    PageNumber = pi + 1,
                     MimeType = pageMimeTypes[pi]
                 });
             }
 
             var existingChapter = series.Chapters.FirstOrDefault(ch =>
                 ch.VolumeNumber == request.VolumeNumber &&
-                ch.ChapterNumber == chapterNumber);
+                ch.ChapterNumber == null);
 
             if (existingChapter == null)
             {
                 var chapter = new ChapterRecord
                 {
                     VolumeNumber = request.VolumeNumber,
-                    ChapterNumber = chapterNumber,
-                    Title = $"Ch. {chapterNumber}",
+                    ChapterNumber = null,
+                    Title = request.VolumeNumber.HasValue ? $"Vol. {request.VolumeNumber.Value}" : null,
                     Pages = incomingPages
                 };
 
                 series.Chapters.Add(chapter);
-                continue;
             }
-
-            if (!HasSamePages(existingChapter, incomingPages))
+            else if (!HasSamePages(existingChapter, incomingPages))
             {
                 throw new InvalidOperationException(
-                    $"Cannot merge import for series '{request.SeriesName}': conflicting content for volume {request.VolumeNumber}, chapter {chapterNumber}.");
+                    $"Cannot merge import for series '{request.SeriesName}': conflicting content for volume {request.VolumeNumber?.ToString() ?? "(none)"}, chapter (none).");
+            }
+        }
+        else
+        {
+            for (var ci = 0; ci < chapterStarts.Count; ci++)
+            {
+                var chapterStartIdx = chapterStarts[ci];
+                var nextChapterStartIdx = ci + 1 < chapterStarts.Count ? chapterStarts[ci + 1] : request.Pages.Count;
+                var chapterNumber = (decimal?)(ci + 1);
+
+                var incomingPages = new List<PageRecord>();
+                var pageNumber = 1;
+                for (var pi = chapterStartIdx; pi < nextChapterStartIdx; pi++)
+                {
+                    incomingPages.Add(new PageRecord
+                    {
+                        FileHash = pageHashes[pi],
+                        PageNumber = pageNumber++,
+                        MimeType = pageMimeTypes[pi]
+                    });
+                }
+
+                var existingChapter = series.Chapters.FirstOrDefault(ch =>
+                    ch.VolumeNumber == request.VolumeNumber &&
+                    ch.ChapterNumber == chapterNumber);
+
+                if (existingChapter == null)
+                {
+                    var chapter = new ChapterRecord
+                    {
+                        VolumeNumber = request.VolumeNumber,
+                        ChapterNumber = chapterNumber,
+                        Title = $"Ch. {chapterNumber}",
+                        Pages = incomingPages
+                    };
+
+                    series.Chapters.Add(chapter);
+                    continue;
+                }
+
+                if (!HasSamePages(existingChapter, incomingPages))
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot merge import for series '{request.SeriesName}': conflicting content for volume {request.VolumeNumber?.ToString() ?? "(none)"}, chapter {chapterNumber}.");
+                }
             }
         }
 

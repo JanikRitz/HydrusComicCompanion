@@ -12,7 +12,9 @@ public sealed class HydrusSettings
 
     public string TargetFileDomain { get; set; } = "all local files";
 
-    public string SeriesNamespace { get; set; } = "series:";
+    public string TitleNamespace { get; set; } = "title:";
+
+    public string SeriesNamespace { get; set; } = string.Empty;
 
     public string VolumeNamespace { get; set; } = "volume:";
 
@@ -31,6 +33,7 @@ public sealed class HydrusSettings
             PrimaryTagService = PrimaryTagService,
             TagServiceKey = TagServiceKey,
             TargetFileDomain = TargetFileDomain,
+            TitleNamespace = TitleNamespace,
             SeriesNamespace = SeriesNamespace,
             VolumeNamespace = VolumeNamespace,
             ChapterNamespace = ChapterNamespace,
