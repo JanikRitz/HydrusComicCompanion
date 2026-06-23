@@ -227,24 +227,67 @@ public class HydrusApiService : IHydrusApiService
     /// </summary>
     public async Task<Stream> GetFileAsync(string hash, CancellationToken cancellationToken = default)
     {
-        try
+        var mediaResult = await GetOriginalFileAsync(hash, cancellationToken: cancellationToken);
+        return mediaResult.Content;
+    }
+
+    public Task<HydrusMediaResult> GetThumbnailAsync(string hash, CancellationToken cancellationToken = default)
+    {
+        var query = $"hash={Uri.EscapeDataString(hash)}";
+        return GetMediaAsync("/get_files/thumbnail", query, "thumbnail", hash, cancellationToken);
+    }
+
+    public Task<HydrusMediaResult> GetRenderedImageAsync(
+        string hash,
+        int? width = null,
+        int? height = null,
+        int? renderFormat = null,
+        int? renderQuality = null,
+        bool download = false,
+        CancellationToken cancellationToken = default)
+    {
+        if ((width.HasValue && !height.HasValue) || (!width.HasValue && height.HasValue))
         {
-            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
-            var url = $"{settings.ApiUrl}/get_files/file?hash={Uri.EscapeDataString(hash)}";
-
-            var request = new HttpRequestMessage(HttpMethod.Get, url);
-            AddApiKeyHeader(request, settings);
-
-            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            return await response.Content.ReadAsStreamAsync(cancellationToken);
+            throw new ArgumentException("Width and height must both be provided when one is specified.");
         }
-        catch (Exception ex)
+
+        var queryParams = new List<string>
         {
-            _logger.LogError(ex, "Error retrieving file from Hydrus: {Hash}", hash);
-            throw;
+            $"hash={Uri.EscapeDataString(hash)}"
+        };
+
+        if (download)
+        {
+            queryParams.Add("download=true");
         }
+
+        if (renderFormat.HasValue)
+        {
+            queryParams.Add($"render_format={renderFormat.Value}");
+        }
+
+        if (renderQuality.HasValue)
+        {
+            queryParams.Add($"render_quality={renderQuality.Value}");
+        }
+
+        if (width.HasValue && height.HasValue)
+        {
+            queryParams.Add($"width={width.Value}");
+            queryParams.Add($"height={height.Value}");
+        }
+
+        var query = string.Join("&", queryParams);
+        return GetMediaAsync("/get_files/render", query, "rendered image", hash, cancellationToken);
+    }
+
+    public Task<HydrusMediaResult> GetOriginalFileAsync(string hash, bool download = false, CancellationToken cancellationToken = default)
+    {
+        var query = download
+            ? $"hash={Uri.EscapeDataString(hash)}&download=true"
+            : $"hash={Uri.EscapeDataString(hash)}";
+
+        return GetMediaAsync("/get_files/file", query, "file", hash, cancellationToken);
     }
 
     /// <summary>
@@ -362,6 +405,40 @@ public class HydrusApiService : IHydrusApiService
         }
 
         return string.Empty;
+    }
+
+    private async Task<HydrusMediaResult> GetMediaAsync(
+        string path,
+        string query,
+        string mediaType,
+        string hash,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}{path}?{query}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            AddApiKeyHeader(request, settings);
+
+            var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var contentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
+
+            return new HydrusMediaResult
+            {
+                Content = stream,
+                ContentType = contentType
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving {MediaType} from Hydrus for hash {Hash}", mediaType, hash);
+            throw;
+        }
     }
 
     private async Task<string> ResolveFileDomainKeyAsync(HydrusSettings settings, string? selectedFileDomain, CancellationToken cancellationToken)

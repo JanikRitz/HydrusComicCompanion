@@ -1,8 +1,10 @@
 @page "/series/{SeriesId:int}"
 @using HydrusComicCompanion.Data
+@using HydrusComicCompanion.Services
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
+@inject IHydrusMediaService MediaService
 
 <PageTitle>Series</PageTitle>
 
@@ -26,6 +28,15 @@ else
                 @(_series.LastSyncedAt is null ? "Not synced yet" : $"Last synced {_series.LastSyncedAt:yyyy-MM-dd HH:mm}")
             </MudText>
         </div>
+
+        @if (!string.IsNullOrWhiteSpace(_series.CoverFileHash))
+        {
+            <MudPaper Outlined="true" Class="pa-2" Style="max-width: 420px;">
+                <img src="@MediaService.BuildRenderUrl(_series.CoverFileHash, width: 800, height: 1200)"
+                     alt="@($"Cover image for {_series.Title}")"
+                     style="width:100%; height:auto; display:block; object-fit:contain;" />
+            </MudPaper>
+        }
 
         <MudPaper Class="pa-4" Outlined="true">
             <MudStack Spacing="2">
@@ -57,12 +68,27 @@ else
                 {
                     <MudTable Items="_series.Chapters.OrderBy(x => x.VolumeNumber).ThenBy(x => x.ChapterNumber)" Dense="true">
                         <HeaderContent>
+                            <MudTh>Preview</MudTh>
                             <MudTh>Volume</MudTh>
                             <MudTh>Chapter</MudTh>
                             <MudTh>Title</MudTh>
                             <MudTh>Pages</MudTh>
                         </HeaderContent>
                         <RowTemplate Context="chapter">
+                            <MudTd DataLabel="Preview">
+                                @{
+                                    var previewHash = chapter.Pages
+                                        .OrderBy(x => x.PageNumber)
+                                        .Select(x => x.FileHash)
+                                        .FirstOrDefault();
+                                }
+                                @if (!string.IsNullOrWhiteSpace(previewHash))
+                                {
+                                    <img src="@MediaService.BuildThumbnailUrl(previewHash)"
+                                         alt="@($"Preview for chapter {chapter.ChapterNumber}")"
+                                         style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; display:block;" />
+                                }
+                            </MudTd>
                             <MudTd DataLabel="Volume">@chapter.VolumeNumber</MudTd>
                             <MudTd DataLabel="Chapter">@chapter.ChapterNumber</MudTd>
                             <MudTd DataLabel="Title">@(chapter.Title ?? "-")</MudTd>

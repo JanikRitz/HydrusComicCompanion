@@ -29,11 +29,45 @@ public interface IHydrusApiService
     Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets the raw file bytes from Hydrus
+    /// Gets the raw file bytes from Hydrus.
     /// </summary>
-    /// <param name="hash">The file hash to retrieve</param>
-    /// <returns>Stream of the file content</returns>
+    /// <param name="hash">The file hash to retrieve.</param>
+    /// <returns>Stream of the file content.</returns>
     Task<Stream> GetFileAsync(string hash, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets a file thumbnail from Hydrus.
+    /// </summary>
+    /// <param name="hash">The file hash to retrieve.</param>
+    /// <returns>Hydrus media stream result including Content-Type.</returns>
+    Task<HydrusMediaResult> GetThumbnailAsync(string hash, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets a rendered image from Hydrus.
+    /// </summary>
+    /// <param name="hash">The file hash to retrieve.</param>
+    /// <param name="width">Optional render width. Must be paired with height when provided.</param>
+    /// <param name="height">Optional render height. Must be paired with width when provided.</param>
+    /// <param name="renderFormat">Optional Hydrus render format enum value.</param>
+    /// <param name="renderQuality">Optional render quality value for selected format.</param>
+    /// <param name="download">Whether the response should use attachment content disposition.</param>
+    /// <returns>Hydrus media stream result including Content-Type.</returns>
+    Task<HydrusMediaResult> GetRenderedImageAsync(
+        string hash,
+        int? width = null,
+        int? height = null,
+        int? renderFormat = null,
+        int? renderQuality = null,
+        bool download = false,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the original file stream from Hydrus with optional download disposition.
+    /// </summary>
+    /// <param name="hash">The file hash to retrieve.</param>
+    /// <param name="download">Whether the response should use attachment content disposition.</param>
+    /// <returns>Hydrus media stream result including Content-Type.</returns>
+    Task<HydrusMediaResult> GetOriginalFileAsync(string hash, bool download = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Discovers all available services (file domains, tag services)

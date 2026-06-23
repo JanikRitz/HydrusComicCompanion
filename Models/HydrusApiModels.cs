@@ -165,3 +165,13 @@ public class AddTagsRequest
     [JsonPropertyName("service_names_to_tags")]
     public Dictionary<string, List<string>> ServiceNamesTags { get; set; } = new();
 }
+
+/// <summary>
+/// Stream payload returned from Hydrus media endpoints.
+/// </summary>
+public sealed class HydrusMediaResult
+{
+    public required Stream Content { get; init; }
+
+    public string ContentType { get; init; } = "application/octet-stream";
+}

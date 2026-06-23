@@ -41,6 +41,7 @@ builder.Services.AddSingleton<IHydrusSettingsService, HydrusSettingsService>();
 // Add Hydrus API and sync services
 builder.Services.AddScoped<IHydrusApiService, HydrusApiService>();
 builder.Services.AddScoped<IHydrusSyncService, HydrusSyncService>();
+builder.Services.AddScoped<IHydrusMediaService, HydrusMediaService>();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
@@ -145,6 +146,64 @@ app.MapGet("/api/sync/unsynced-count", async (IHydrusSyncService syncService) =>
     return Results.Ok(new { unsyncedCount = count });
 })
 .WithName("GetUnsyncedCount")
+.Produces(200);
+
+app.MapGet("/media/thumbnail/{hash}", async (string hash, IHydrusMediaService mediaService, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var media = await mediaService.GetThumbnailAsync(hash, cancellationToken);
+        return Results.Stream(media.Content, contentType: media.ContentType, enableRangeProcessing: true);
+    }
+    catch (HttpRequestException ex) when (ex.StatusCode.HasValue)
+    {
+        return Results.StatusCode((int)ex.StatusCode.Value);
+    }
+})
+.WithName("GetMediaThumbnail")
+.Produces(200);
+
+app.MapGet("/media/render/{hash}", async (
+    string hash,
+    int? width,
+    int? height,
+    int? renderFormat,
+    int? renderQuality,
+    IHydrusMediaService mediaService,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var media = await mediaService.GetRenderAsync(hash, width, height, renderFormat, renderQuality, cancellationToken);
+        return Results.Stream(media.Content, contentType: media.ContentType, enableRangeProcessing: true);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+    catch (HttpRequestException ex) when (ex.StatusCode.HasValue)
+    {
+        return Results.StatusCode((int)ex.StatusCode.Value);
+    }
+})
+.WithName("GetMediaRender")
+.Produces(200)
+.Produces(400);
+
+app.MapGet("/media/file/{hash}", async (string hash, bool download, IHydrusMediaService mediaService, CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var media = await mediaService.GetOriginalFileAsync(hash, download, cancellationToken);
+        var fileName = download ? hash : null;
+        return Results.Stream(media.Content, contentType: media.ContentType, fileDownloadName: fileName, enableRangeProcessing: true);
+    }
+    catch (HttpRequestException ex) when (ex.StatusCode.HasValue)
+    {
+        return Results.StatusCode((int)ex.StatusCode.Value);
+    }
+})
+.WithName("GetMediaFile")
 .Produces(200);
 
 app.MapRazorComponents<App>()

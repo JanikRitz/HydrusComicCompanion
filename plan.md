@@ -78,13 +78,19 @@ Required Endpoints
 3. Metadata Parsing: `GET /get_files/file_metadata`
   - Payload: `file_ids=[Array of FileIds]` plus flags (e.g., `include_milliseconds=true`, `include_services_object=false`).
   - Use: Retrieves tag dictionaries keyed by service key (`storage_tags`/`display_tags`). The C# logic parses hierarchy namespaces from the configured structural service and stores additional namespaces from other services as metadata.
-4. Image Retrieval: `GET /get_files/file`
+4. Thumbnail Retrieval: `GET /get_files/thumbnail`
   - Payload: `hash=[FileHash]`
-  - Use: Fetches the actual image bytes.
-5. Metadata Writing: `POST /add_tags/add_tags`
+  - Use: Primary endpoint for library/series preview images and chapter/page thumbnails.
+5. Rendered Image Retrieval: `GET /get_files/render`
+  - Payload: `hash=[FileHash]` with optional `width`, `height`, `render_format`, `render_quality`
+  - Use: Primary endpoint for on-screen reading/display where browser-safe, resized output is preferred.
+6. Original File Retrieval: `GET /get_files/file`
+  - Payload: `hash=[FileHash]`, optional `download=true`
+  - Use: Fetches exact source bytes for original-quality viewing or downloads/export.
+7. Metadata Writing: `POST /add_tags/add_tags`
   - Payload: `{ "hash": "...", "service_names_to_tags": { "my tags": ["creator:alan moore"] } }`
   - Use: Pushes external data scraped by the web app back into Hydrus.
-6. Service Discovery: `GET /get_services`
+8. Service Discovery: `GET /get_services`
   - Payload: None
   - Use: Retrieves all available file domains and tag services configured in the user's Hydrus client to populate the application's settings dropdowns.
 
@@ -119,7 +125,7 @@ Because Blazor Server components communicate via SignalR, binary image data shou
 - App registers a Minimal API endpoint: `app.MapGet("/media/page/{FileHash}", ...)`
 - Frontend requests: `<img src="/media/page/{FileHash}" />`
 - Endpoint logic checks `IMemoryCache` (optional).
-- Endpoint calls Hydrus `GET /get_files/file`, receives the stream.
+- Endpoint calls Hydrus `GET /get_files/thumbnail` for gallery/list previews, `GET /get_files/render` for display-safe/resizeable image viewing, and `GET /get_files/file` for original/download paths.
 - Endpoint returns a `Results.Stream` to the frontend.
 
 Note: This strictly hides the Hydrus API key from the browser and keeps Hydrus secure behind the Blazor server.
