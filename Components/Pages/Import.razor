@@ -238,6 +238,8 @@
 
     // ─── Step 1 ───────────────────────────────────────────────────────────
 
+    private const long MaxArchiveSizeBytes = 2L * 1024 * 1024 * 1024; // 2 GB
+
     private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
     {
         _errorMessage = string.Empty;
@@ -246,9 +248,8 @@
         try
         {
             var file = e.File;
-            const long maxBytes = 2L * 1024 * 1024 * 1024; // 2 GB
 
-            await using var stream = file.OpenReadStream(maxAllowedSize: maxBytes);
+            await using var stream = file.OpenReadStream(maxAllowedSize: MaxArchiveSizeBytes);
 
             var (pages, metadata) = await ImportService.ExtractArchiveAsync(stream, file.Name);
 

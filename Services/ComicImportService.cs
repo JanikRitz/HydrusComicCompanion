@@ -212,7 +212,7 @@ public sealed class ComicImportService : IComicImportService
         await stream.CopyToAsync(ms, cancellationToken);
         ms.Position = 0;
 
-        using var rar = RarArchive.OpenArchive(ms, new SharpCompress.Readers.ReaderOptions());
+        using var rar = RarArchive.OpenArchive(ms, new SharpCompress.Readers.ReaderOptions()); // default options are sufficient for standard CBR files
 
         ComicMetadata? metadata = null;
         var rawPages = new List<(string Name, byte[] Data)>();
@@ -273,8 +273,8 @@ public sealed class ComicImportService : IComicImportService
 
             var series = root.Element("Series")?.Value?.Trim() ?? string.Empty;
             var writer = root.Element("Writer")?.Value?.Trim() ?? string.Empty;
-            var numberRaw = root.Element("Number")?.Value?.Trim();
-            var volume = int.TryParse(numberRaw, out var v) ? v : 1;
+            var volumeRaw = root.Element("Number")?.Value?.Trim();
+            var volume = int.TryParse(volumeRaw, out var v) ? v : 1;
 
             return new ComicMetadata
             {
@@ -311,7 +311,8 @@ public sealed class ComicImportService : IComicImportService
 
         series.Chapters.Clear();
 
-        // Build chapter records
+        // Build chapter records. The chapter clear + re-add below is safe because EF Core wraps
+        // SaveChangesAsync in a single transaction, so either all changes persist or none do.
         for (var ci = 0; ci < chapterStarts.Count; ci++)
         {
             var chapterStartIdx = chapterStarts[ci];
