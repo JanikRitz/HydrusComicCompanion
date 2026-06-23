@@ -27,11 +27,11 @@
                 @if (_isSyncing)
                 {
                     <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                    <span style="margin-left: 8px;">Syncing...</span>
+                    <span style="margin-left: 8px;">Syncing Existing...</span>
                 }
                 else
                 {
-                    <span>Sync Library</span>
+                    <span>Sync Existing</span>
                 }
             </MudButton>
         </MudStack>
@@ -145,7 +145,7 @@
 
         try
         {
-            _syncedSeriesCount = await SyncService.SyncLibraryAsync();
+            _syncedSeriesCount = await SyncService.SyncExistingLibrariesAsync();
             _lastSyncTime = DateTime.Now;
             await LoadSeriesAsync();
         }

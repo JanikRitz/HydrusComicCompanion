@@ -6,7 +6,7 @@
 - [x] Hydrus settings are persisted locally and API service discovery is implemented.
 - [x] Library and series detail pages are implemented against cached EF data.
 - [?] Hydrus file discovery, metadata parsing, and sync pipeline.
-- [ ] Media endpoint for streamed page images.
+- [X] Media endpoint for streamed page images.
 - [ ] CBZ export pipeline.
 - [ ] Full reader view with URL-synced page navigation.
 

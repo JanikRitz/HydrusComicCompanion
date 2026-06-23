@@ -2,6 +2,7 @@
 @using HydrusComicCompanion.Models
 @using HydrusComicCompanion.Services
 @inject IHydrusSettingsService SettingsService
+@inject IHydrusSyncService SyncService
 
 <PageTitle>Settings</PageTitle>
 
@@ -64,6 +65,15 @@
                     <MudText Typo="Typo.h6">Sync</MudText>
                     <MudNumericField T="int" @bind-Value="_settings.BackgroundSyncIntervalMinutes" Label="Background Sync Interval (minutes)" Min="0" />
 
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Spacing="2">
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            Run a full sync that discovers all series and refreshes the local cache.
+                        </MudText>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_isSyncingLibrary" OnClick="RunFullSyncAsync">
+                            @(_isSyncingLibrary ? "Syncing..." : "Run Normal Sync")
+                        </MudButton>
+                    </MudStack>
+
                     <MudStack Row="true" Justify="Justify.FlexEnd">
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@_isSaving" OnClick="SaveAsync">
                             @(_isSaving ? "Saving..." : "Save Settings")
@@ -80,6 +90,7 @@
     private bool _isLoading = true;
     private bool _isSaving;
     private bool _isDiscoveringServices;
+    private bool _isSyncingLibrary;
     private string _statusMessage = string.Empty;
     private Severity _statusSeverity = Severity.Info;
     private List<HydrusServiceOption> _tagServices = [new HydrusServiceOption { Name = "my tags" }];
@@ -128,6 +139,26 @@
         finally
         {
             _isSaving = false;
+        }
+    }
+
+    private async Task RunFullSyncAsync()
+    {
+        _isSyncingLibrary = true;
+        try
+        {
+            var syncedCount = await SyncService.SyncLibraryAsync();
+            _statusSeverity = Severity.Success;
+            _statusMessage = $"Normal sync completed. Synced {syncedCount} series.";
+        }
+        catch (Exception ex)
+        {
+            _statusSeverity = Severity.Error;
+            _statusMessage = $"Normal sync failed: {ex.Message}";
+        }
+        finally
+        {
+            _isSyncingLibrary = false;
         }
     }
 

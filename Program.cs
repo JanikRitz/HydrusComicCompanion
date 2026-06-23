@@ -121,6 +121,22 @@ app.MapPost("/api/sync/library", async (IHydrusSyncService syncService) =>
 .Produces(200)
 .Produces(400);
 
+app.MapPost("/api/sync/existing-libraries", async (IHydrusSyncService syncService) =>
+{
+    try
+    {
+        var count = await syncService.SyncExistingLibrariesAsync();
+        return Results.Ok(new { success = true, seriesSynced = count });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { success = false, error = ex.Message });
+    }
+})
+.WithName("SyncExistingLibraries")
+.Produces(200)
+.Produces(400);
+
 app.MapPost("/api/sync/series/{seriesName}", async (string seriesName, IHydrusSyncService syncService) =>
 {
     try

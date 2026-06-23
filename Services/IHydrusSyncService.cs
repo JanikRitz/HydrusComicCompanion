@@ -23,6 +23,13 @@ public interface IHydrusSyncService
     Task<int?> SyncSeriesAsync(string seriesName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Syncs only series that already exist in the local library cache.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of existing series synchronized</returns>
+    Task<int> SyncExistingLibrariesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets the count of unsynced series
     /// </summary>
     Task<int> GetUnsyncedSeriesCountAsync(CancellationToken cancellationToken = default);

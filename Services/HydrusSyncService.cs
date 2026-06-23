@@ -69,6 +69,54 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
+    /// Syncs only series that already exist in the local cache database.
+    /// </summary>
+    public async Task<int> SyncExistingLibrariesAsync(CancellationToken cancellationToken = default)
+    {
+        var syncedCount = 0;
+
+        try
+        {
+            _logger.LogInformation("Starting existing libraries sync");
+
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var existingSeriesNames = await dbContext.Series
+                .AsNoTracking()
+                .Select(s => s.Title)
+                .Where(title => !string.IsNullOrWhiteSpace(title))
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            _logger.LogInformation("Found {Count} existing series in local cache", existingSeriesNames.Count);
+
+            foreach (var seriesName in existingSeriesNames)
+            {
+                try
+                {
+                    var seriesId = await SyncSeriesAsync(seriesName, cancellationToken);
+                    if (seriesId.HasValue)
+                    {
+                        syncedCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error syncing existing series: {SeriesName}", seriesName);
+                }
+            }
+
+            _logger.LogInformation("Completed existing libraries sync: {SyncedCount} series synchronized", syncedCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during existing libraries sync");
+            throw;
+        }
+
+        return syncedCount;
+    }
+
+    /// <summary>
     /// Syncs a specific series: fetches all files tagged with the series and structures them
     /// </summary>
     public async Task<int?> SyncSeriesAsync(string seriesName, CancellationToken cancellationToken = default)
