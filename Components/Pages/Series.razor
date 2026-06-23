@@ -19,9 +19,9 @@ else if (_series is null)
 }
 else
 {
-    <MudStack Spacing="3">
+    <MudStack Spacing="3" Class="pa-4">
         <MudGrid>
-            <MudItem xs="12" sm="7" md="5" lg="4" xl="3">
+            <MudItem xs="12" sm="12" md="6" lg="6" xl="3">
                 <ComicSeriesCard
                     Title="@_series.Title"
                     CoverFileHash="@_series.CoverFileHash"
@@ -32,69 +32,70 @@ else
                     RenderWidth="840"
                     RenderHeight="1260" />
             </MudItem>
-        </MudGrid>
-
-        <MudPaper Class="pa-4" Outlined="true">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Metadata</MudText>
-                @if (_series.Metadata.Count == 0)
-                {
-                    <MudText Color="Color.Secondary">No metadata cached yet.</MudText>
-                }
-                else
-                {
-                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                        @foreach (var item in _series.Metadata)
+            <MudItem xs="12" sm="12" md="6" lg="6" xl="3">
+                <MudPaper Class="pa-4" Outlined="true">
+                    <MudStack Spacing="2">
+                        <MudText Typo="Typo.h6">Metadata</MudText>
+                        @if (_series.Metadata.Count == 0)
                         {
-                            <MudChip T="string" Variant="Variant.Outlined">@item.Key: @item.Value</MudChip>
+                            <MudText Color="Color.Secondary">No metadata cached yet.</MudText>
+                        }
+                        else
+                        {
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                                @foreach (var item in _series.Metadata)
+                                {
+                                    <MudChip T="string" Variant="Variant.Outlined">@item.Key: @item.Value</MudChip>
+                                }
+                            </MudStack>
                         }
                     </MudStack>
-                }
-            </MudStack>
-        </MudPaper>
-
-        <MudPaper Class="pa-4" Outlined="true">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Chapters</MudText>
-                @if (_series.Chapters.Count == 0)
-                {
-                    <MudText Color="Color.Secondary">No chapters cached yet.</MudText>
-                }
-                else
-                {
-                    <MudTable Items="_series.Chapters.OrderBy(x => x.VolumeNumber).ThenBy(x => x.ChapterNumber)" Dense="true">
-                        <HeaderContent>
-                            <MudTh>Preview</MudTh>
-                            <MudTh>Volume</MudTh>
-                            <MudTh>Chapter</MudTh>
-                            <MudTh>Title</MudTh>
-                            <MudTh>Pages</MudTh>
-                        </HeaderContent>
-                        <RowTemplate Context="chapter">
-                            <MudTd DataLabel="Preview">
-                                @{
-                                    var previewHash = chapter.Pages
-                                        .OrderBy(x => x.PageNumber)
-                                        .Select(x => x.FileHash)
-                                        .FirstOrDefault();
-                                }
-                                @if (!string.IsNullOrWhiteSpace(previewHash))
-                                {
-                                    <img src="@MediaService.BuildRenderUrl(previewHash, width: 200, height: 200)"
-                                         alt="@($"Preview for chapter {chapter.ChapterNumber}")"
-                                         style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; display:block;" />
-                                }
-                            </MudTd>
-                            <MudTd DataLabel="Volume">@chapter.VolumeNumber</MudTd>
-                            <MudTd DataLabel="Chapter">@chapter.ChapterNumber</MudTd>
-                            <MudTd DataLabel="Title">@(chapter.Title ?? "-")</MudTd>
-                            <MudTd DataLabel="Pages">@chapter.Pages.Count</MudTd>
-                        </RowTemplate>
-                    </MudTable>
-                }
-            </MudStack>
-        </MudPaper>
-
+                </MudPaper>
+            </MudItem>
+            <MudItem xs="12" sm="12" md="12" lg="12" xl="6">
+                <MudPaper Class="pa-4" Outlined="true">
+                    <MudStack Spacing="2">
+                        <MudText Typo="Typo.h6">Chapters</MudText>
+                        @if (_series.Chapters.Count == 0)
+                        {
+                            <MudText Color="Color.Secondary">No chapters cached yet.</MudText>
+                        }
+                        else
+                        {
+                            <MudTable Items="_series.Chapters.OrderBy(x => x.VolumeNumber).ThenBy(x => x.ChapterNumber)" Dense="true">
+                                <HeaderContent>
+                                    <MudTh>Preview</MudTh>
+                                    <MudTh>Volume</MudTh>
+                                    <MudTh>Chapter</MudTh>
+                                    <MudTh>Title</MudTh>
+                                    <MudTh>Pages</MudTh>
+                                </HeaderContent>
+                                <RowTemplate Context="chapter">
+                                    <MudTd DataLabel="Preview">
+                                        @{
+                                            var previewHash = chapter.Pages
+                                                .OrderBy(x => x.PageNumber)
+                                                .Select(x => x.FileHash)
+                                                .FirstOrDefault();
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(previewHash))
+                                        {
+                                            <img src="@MediaService.BuildRenderUrl(previewHash, width: 200, height: 200)"
+                                                 alt="@($"Preview for chapter {chapter.ChapterNumber}")"
+                                                 style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; display:block;" />
+                                        }
+                                    </MudTd>
+                                    <MudTd DataLabel="Volume">@chapter.VolumeNumber</MudTd>
+                                    <MudTd DataLabel="Chapter">@chapter.ChapterNumber</MudTd>
+                                    <MudTd DataLabel="Title">@(chapter.Title ?? "-")</MudTd>
+                                    <MudTd DataLabel="Pages">@chapter.Pages.Count</MudTd>
+                                </RowTemplate>
+                            </MudTable>
+                        }
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
         <MudButton Variant="Variant.Text" OnClick="GoHome">Back to Library</MudButton>
     </MudStack>
 }
