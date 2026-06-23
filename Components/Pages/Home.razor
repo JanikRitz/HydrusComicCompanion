@@ -256,8 +256,8 @@
         await LoadSeriesAsync();
     }
 
-    private void OpenSeries(int seriesId)
+    private void OpenSeries(int comicId)
     {
-        NavigationManager.NavigateTo($"/series/{seriesId}");
+        NavigationManager.NavigateTo($"/comic/{comicId}");
     }
 }

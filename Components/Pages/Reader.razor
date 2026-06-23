@@ -1,4 +1,4 @@
-@page "/read/{SeriesId:int}/{ChapterId:int}/{PageNumber:int}"
+@page "/read/{ComicId:int}/{ChapterId:int}/{PageNumber:int}"
 @using HydrusComicCompanion.Services
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
@@ -77,7 +77,9 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
 @code {
     [Parameter]
-    public int SeriesId { get; set; }
+    public int ComicId { get; set; }
+
+    // TODO also handle volume
 
     [Parameter]
     public int ChapterId { get; set; }
@@ -151,7 +153,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 .AsNoTracking()
                 .Include(x => x.Chapters)
                     .ThenInclude(x => x.Pages)
-                .SingleOrDefaultAsync(x => x.Id == SeriesId);
+                .SingleOrDefaultAsync(x => x.Id == ComicId);
 
             if (_series is null)
             {
@@ -320,12 +322,12 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
     private void NavigateToTarget(ChapterRecord chapter, int pageNumber)
     {
-        NavigationManager.NavigateTo(BuildReaderUrl(SeriesId, chapter.Id, pageNumber));
+        NavigationManager.NavigateTo(BuildReaderUrl(ComicId, chapter.Id, pageNumber));
     }
 
     private void GoBackToSeries()
     {
-        NavigationManager.NavigateTo($"/series/{SeriesId}");
+        NavigationManager.NavigateTo($"/comic/{ComicId}");
     }
 
     private static string BuildReaderUrl(int seriesId, int chapterId, int pageNumber)

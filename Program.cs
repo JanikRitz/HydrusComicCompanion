@@ -138,14 +138,14 @@ app.MapPost("/api/sync/existing-libraries", async (IHydrusSyncService syncServic
 .Produces(200)
 .Produces(400);
 
-app.MapPost("/api/sync/series/{seriesName}", async (string seriesName, IHydrusSyncService syncService) =>
+app.MapPost("/api/sync/comic/{comicName}", async (string comicName, IHydrusSyncService syncService) =>
 {
     try
     {
-        var seriesId = await syncService.SyncSeriesAsync(seriesName);
+        var seriesId = await syncService.SyncSeriesAsync(comicName);
         return seriesId.HasValue
             ? Results.Ok(new { success = true, seriesId = seriesId.Value })
-            : Results.NotFound(new { success = false, error = "Series not found" });
+            : Results.NotFound(new { success = false, error = "Comic not found" });
     }
     catch (Exception ex)
     {

@@ -1,4 +1,4 @@
-@page "/series/{SeriesId:int}"
+@page "/comic/{ComicId:int}"
 @using HydrusComicCompanion.Services
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
@@ -13,7 +13,7 @@
 {
     <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
 }
-else if (_series is null)
+else if (_comic is null)
 {
     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
         This title is not in the local cache yet.
@@ -26,12 +26,12 @@ else
         <MudGrid>
             <MudItem xs="12" sm="12" md="6" lg="6" xl="3">
                 <ComicSeriesCard
-                    Title="@_series.Title"
-                    CoverFileHash="@_series.CoverFileHash"
-                    LastSyncedAt="@_series.LastSyncedAt"
-                    ChapterCount="@_series.Chapters.Count"
-                    MetadataCount="@_series.Metadata.Count"
-                    TotalPageCount="@GetTotalPageCount(_series)"
+                    Title="@_comic.Title"
+                    CoverFileHash="@_comic.CoverFileHash"
+                    LastSyncedAt="@_comic.LastSyncedAt"
+                    ChapterCount="@_comic.Chapters.Count"
+                    MetadataCount="@_comic.Metadata.Count"
+                    TotalPageCount="@GetTotalPageCount(_comic)"
                     RenderWidth="840"
                     RenderHeight="1260"
                     OnDelete="DeleteSeriesAsync" />
@@ -40,14 +40,14 @@ else
                 <MudPaper Class="pa-4" Outlined="true">
                     <MudStack Spacing="2">
                         <MudText Typo="Typo.h6">Metadata</MudText>
-                        @if (_series.Metadata.Count == 0)
+                        @if (_comic.Metadata.Count == 0)
                         {
                             <MudText Color="Color.Secondary">No metadata cached yet.</MudText>
                         }
                         else
                         {
                             <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                @foreach (var item in _series.Metadata)
+                                @foreach (var item in _comic.Metadata)
                                 {
                                     <MudChip T="string" Variant="Variant.Outlined">@item.Key: @item.Value</MudChip>
                                 }
@@ -60,13 +60,13 @@ else
                 <MudPaper Class="pa-4" Outlined="true">
                     <MudStack Spacing="2">
                         <MudText Typo="Typo.h6">Chapters</MudText>
-                        @if (_series.Chapters.Count == 0)
+                        @if (_comic.Chapters.Count == 0)
                         {
                             <MudText Color="Color.Secondary">No chapters cached yet.</MudText>
                         }
                         else
                         {
-                            <MudTable Items="_series.Chapters.OrderBy(x => x.VolumeNumber ?? int.MinValue).ThenBy(x => x.ChapterNumber ?? decimal.MinValue)" Dense="true">
+                            <MudTable Items="_comic.Chapters.OrderBy(x => x.VolumeNumber ?? int.MinValue).ThenBy(x => x.ChapterNumber ?? decimal.MinValue)" Dense="true">
                                 <HeaderContent>
                                     <MudTh>Preview</MudTh>
                                     <MudTh>Volume</MudTh>
@@ -116,21 +116,21 @@ else
 
 @code {
     [Parameter]
-    public int SeriesId { get; set; }
+    public int ComicId { get; set; }
 
-    private SeriesRecord? _series;
+    private SeriesRecord? _comic;
     private bool _isLoading = true;
     private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
 
     protected override async Task OnInitializedAsync()
     {
         await using var context = await DbContextFactory.CreateDbContextAsync();
-        _series = await context.Series
+        _comic = await context.Series
             .AsNoTracking()
             .Include(x => x.Metadata)
             .Include(x => x.Chapters)
                 .ThenInclude(x => x.Pages)
-            .SingleOrDefaultAsync(x => x.Id == SeriesId);
+            .SingleOrDefaultAsync(x => x.Id == ComicId);
         _isLoading = false;
     }
 
@@ -149,14 +149,14 @@ else
 
     private async Task DeleteSeriesAsync()
     {
-        if (_series is null)
+        if (_comic is null)
         {
             return;
         }
 
         var parameters = new DialogParameters
         {
-            [nameof(DeleteSeriesDialog.TitleName)] = _series.Title
+            [nameof(DeleteSeriesDialog.TitleName)] = _comic.Title
         };
 
         var dialog = await DialogService.ShowAsync<DeleteSeriesDialog>("Delete title", parameters, _topCenter);
@@ -167,14 +167,14 @@ else
             return;
         }
 
-        var deleted = await SyncService.DeleteSeriesAsync(_series.Id);
+        var deleted = await SyncService.DeleteSeriesAsync(_comic.Id);
         if (!deleted)
         {
             Snackbar.Add("Title was already removed.", Severity.Warning);
         }
         else
         {
-            Snackbar.Add($"Deleted '{_series.Title}' from cache.", Severity.Success);
+            Snackbar.Add($"Deleted '{_comic.Title}' from cache.", Severity.Success);
         }
 
         NavigationManager.NavigateTo("/");
@@ -187,6 +187,6 @@ else
 
     private void OpenReader(int chapterId)
     {
-        NavigationManager.NavigateTo($"/read/{SeriesId}/{chapterId}/1");
+        NavigationManager.NavigateTo($"/read/{ComicId}/{chapterId}/1");
     }
 }
