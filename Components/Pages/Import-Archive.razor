@@ -1,9 +1,7 @@
-@page "/import"
+@page "/import-archive"
 @using HydrusComicCompanion.Models
 @using HydrusComicCompanion.Services
-@using Microsoft.AspNetCore.Components.Forms
 @inject IComicImportService ImportService
-@inject IHydrusSyncService SyncService
 @inject NavigationManager NavigationManager
 
 <PageTitle>Import Comic</PageTitle>
@@ -233,7 +231,7 @@
         <MudStack Row="true" Spacing="2">
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
-                       OnClick="@(() => NavigationManager.NavigateTo($"/series/{_importedSeriesId}"))">
+                       OnClick="@(() => NavigationManager.NavigateTo($"/comic/{_importedSeriesId}"))">
                 View Title
             </MudButton>
             <MudButton Variant="Variant.Outlined" OnClick="ResetToUpload">Import Another</MudButton>
