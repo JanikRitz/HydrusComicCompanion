@@ -95,8 +95,8 @@
     @* ─── Step 3: Chapter Placement ──────────────────────────────────── *@
     @if (_step == ImportStep.Chapters)
     {
-        <MudPaper Class="pa-4" Outlined="true">
-            <MudStack Spacing="2">
+        <MudPaper Class="pa-4" Outlined="true" Style="height: calc(100dvh - 220px);">
+            <MudStack Spacing="2" Style="height: 100%; min-height: 0;">
                 <MudText Typo="Typo.h6">Step 3 — Chapter Placement</MudText>
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
                     Page 1 always starts Chapter 1. Click <strong>New Chapter</strong> on any page to begin a new chapter
@@ -107,14 +107,29 @@
                     @_pages.Count pages · @_chapterStartIndices.Count chapter(s)
                 </MudText>
 
-                <MudTable Items="@_pages" Dense="true" Hover="true" FixedHeader="true" Height="480px">
+                <MudTable Items="@_pages" Dense="true" Hover="true" FixedHeader="true" Height="100%" Style="flex: 1 1 auto; min-height: 0;">
                     <HeaderContent>
+                        <MudTh>Preview</MudTh>
                         <MudTh>Page</MudTh>
                         <MudTh>File</MudTh>
                         <MudTh>Chapter</MudTh>
                         <MudTh></MudTh>
                     </HeaderContent>
                     <RowTemplate>
+                        <MudTd>
+                            @if (_pageThumbnailDataUrls.TryGetValue(context.Index, out var thumbnailUrl))
+                            {
+                                <img src="@thumbnailUrl"
+                                     alt="@($"Preview for page {context.Index + 1}")"
+                                     loading="lazy"
+                                     decoding="async"
+                                     style="width: 64px; height: 64px; object-fit: cover; border-radius: 4px; display:block;" />
+                            }
+                            else
+                            {
+                                <MudSkeleton Width="64px" Height="64px" Animation="Animation.Wave" />
+                            }
+                        </MudTd>
                         <MudTd>@(context.Index + 1)</MudTd>
                         <MudTd Style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                             @System.IO.Path.GetFileName(context.ArchiveFileName)
@@ -222,6 +237,9 @@
     // Extracted data
     private List<ImportPage> _pages = [];
     private HashSet<int> _chapterStartIndices = [0];
+    private Dictionary<int, string> _pageThumbnailDataUrls = [];
+    private bool _thumbnailPreloadQueued;
+    private bool _isPreloadingThumbnails;
 
     // Metadata fields
     private string _seriesName = string.Empty;
@@ -239,6 +257,7 @@
     // ─── Step 1 ───────────────────────────────────────────────────────────
 
     private const long MaxArchiveSizeBytes = 2L * 1024 * 1024 * 1024; // 2 GB
+    private const int ThumbnailPreloadBatchSize = 8;
 
     private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
     {
@@ -261,6 +280,9 @@
 
             _pages = pages;
             _chapterStartIndices = [0];
+            _pageThumbnailDataUrls = [];
+            _thumbnailPreloadQueued = false;
+            _isPreloadingThumbnails = false;
 
             // Pre-fill metadata from ComicInfo.xml if available
             if (metadata != null)
@@ -290,12 +312,72 @@
 
     // ─── Step 2 ───────────────────────────────────────────────────────────
 
-    private void GoToChapterStep() => _step = ImportStep.Chapters;
+    private void GoToChapterStep()
+    {
+        _step = ImportStep.Chapters;
+        _thumbnailPreloadQueued = true;
+    }
+
     private void GoToMetadataStep() => _step = ImportStep.Metadata;
 
     // ─── Step 3 ───────────────────────────────────────────────────────────
 
     private bool IsChapterStart(int pageIndex) => _chapterStartIndices.Contains(pageIndex);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_step != ImportStep.Chapters || !_thumbnailPreloadQueued || _isPreloadingThumbnails)
+        {
+            return;
+        }
+
+        _thumbnailPreloadQueued = false;
+        _isPreloadingThumbnails = true;
+
+        try
+        {
+            await PreloadThumbnailsAsync();
+        }
+        finally
+        {
+            _isPreloadingThumbnails = false;
+        }
+    }
+
+    private async Task PreloadThumbnailsAsync()
+    {
+        var processed = 0;
+
+        foreach (var page in _pages)
+        {
+            if (_step != ImportStep.Chapters)
+            {
+                break;
+            }
+
+            if (_pageThumbnailDataUrls.ContainsKey(page.Index))
+            {
+                continue;
+            }
+
+            _pageThumbnailDataUrls[page.Index] = BuildThumbnailDataUrl(page);
+            processed++;
+
+            if (processed % ThumbnailPreloadBatchSize == 0)
+            {
+                await InvokeAsync(StateHasChanged);
+                await Task.Yield();
+            }
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string BuildThumbnailDataUrl(ImportPage page)
+    {
+        var mimeType = string.IsNullOrWhiteSpace(page.MimeType) ? "image/jpeg" : page.MimeType;
+        return $"data:{mimeType};base64,{Convert.ToBase64String(page.Data)}";
+    }
 
     private int GetChapterNumber(int pageIndex)
     {
@@ -352,6 +434,7 @@
         {
             _errorMessage = $"Import failed: {ex.Message}";
             _step = ImportStep.Chapters;
+            _thumbnailPreloadQueued = true;
         }
     }
 
@@ -362,6 +445,9 @@
         _step = ImportStep.Upload;
         _pages = [];
         _chapterStartIndices = [0];
+        _pageThumbnailDataUrls = [];
+        _thumbnailPreloadQueued = false;
+        _isPreloadingThumbnails = false;
         _seriesName = string.Empty;
         _creator = string.Empty;
         _volumeNumber = 1;
