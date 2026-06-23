@@ -84,6 +84,14 @@ public interface IHydrusApiService
     Task AddTagsAsync(string hash, string serviceName, List<string> tags, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Uploads raw file bytes to Hydrus via POST /add_files/add_file.
+    /// </summary>
+    /// <param name="content">Raw bytes of the file to upload.</param>
+    /// <param name="mimeType">MIME type of the file (e.g. "image/jpeg").</param>
+    /// <returns>Result containing the Hydrus hash and import status.</returns>
+    Task<HydrusAddFileResult> AddFileAsync(byte[] content, string mimeType, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Tests the Hydrus API connection
     /// </summary>
     /// <returns>True if connection is successful</returns>

@@ -1,81 +1,374 @@
 @page "/import"
+@using HydrusComicCompanion.Models
 @using HydrusComicCompanion.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject IComicImportService ImportService
 @inject IHydrusSyncService SyncService
 @inject NavigationManager NavigationManager
 
-<PageTitle>Import</PageTitle>
+<PageTitle>Import Comic</PageTitle>
 
 <MudStack Spacing="3">
     <div>
-        <MudText Typo="Typo.h4" GutterBottom="true">Import</MudText>
+        <MudText Typo="Typo.h4" GutterBottom="true">Import Comic</MudText>
         <MudText Typo="Typo.body1" Color="Color.Secondary">
-            Sync a single series by entering its name (with or without namespace).
+            Import a CBZ or CBR archive. Pages are uploaded to Hydrus and tagged automatically.
         </MudText>
     </div>
 
-    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
     {
-        <MudAlert Severity="@_statusSeverity" Variant="Variant.Outlined">@_statusMessage</MudAlert>
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true">@_errorMessage</MudAlert>
     }
 
-    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-        <MudTextField @bind-Value="_seriesInput"
-                      Label="Series"
-                      Placeholder="series:the sandman or the sandman"
-                      Immediate="true"
-                      Disabled="@_isImporting"
-                      Class="flex-grow-1" />
-        <MudButton Variant="Variant.Filled"
-                   Color="Color.Primary"
-                   OnClick="ImportSeriesAsync"
-                   Disabled="@(_isImporting || string.IsNullOrWhiteSpace(_seriesInput))"
-                   StartIcon="@Icons.Material.Filled.Download">
-            @if (_isImporting)
-            {
-                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                <span style="margin-left: 8px;">Importing...</span>
-            }
-            else
-            {
-                <span>Import</span>
-            }
-        </MudButton>
-    </MudStack>
+    @* ─── Step 1: File Upload ─────────────────────────────────────────── *@
+    @if (_step == ImportStep.Upload)
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Step 1 — Select Archive</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Choose a <strong>.cbz</strong> or <strong>.cbr</strong> file. Any <code>ComicInfo.xml</code> found inside
+                    will be used to pre-fill the metadata fields.
+                </MudText>
+
+                <InputFile id="archiveInput" OnChange="OnFileSelectedAsync" accept=".cbz,.cbr" style="display:none" />
+                <MudButton HtmlTag="label"
+                           Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.FolderOpen"
+                           for="archiveInput"
+                           Disabled="@_isExtracting">
+                    Choose File
+                </MudButton>
+
+                @if (_isExtracting)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                        <MudText>Extracting archive…</MudText>
+                    </MudStack>
+                }
+            </MudStack>
+        </MudPaper>
+    }
+
+    @* ─── Step 2: Metadata ────────────────────────────────────────────── *@
+    @if (_step == ImportStep.Metadata)
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Step 2 — Metadata</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Review and edit the series information. Fields pre-filled from <code>ComicInfo.xml</code> where available.
+                </MudText>
+
+                <MudTextField @bind-Value="_seriesName"
+                              Label="Series Name"
+                              Required="true"
+                              Immediate="true"
+                              HelperText="e.g. The Sandman" />
+
+                <MudTextField @bind-Value="_creator"
+                              Label="Creator"
+                              Immediate="true"
+                              HelperText="e.g. Neil Gaiman (optional)" />
+
+                <MudNumericField T="int" @bind-Value="_volumeNumber"
+                                 Label="Volume Number"
+                                 Min="1"
+                                 HelperText="Default: 1" />
+
+                <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+                    <MudButton Variant="Variant.Outlined" OnClick="ResetToUpload">Back</MudButton>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Disabled="@string.IsNullOrWhiteSpace(_seriesName)"
+                               OnClick="GoToChapterStep">
+                        Next: Place Chapters
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @* ─── Step 3: Chapter Placement ──────────────────────────────────── *@
+    @if (_step == ImportStep.Chapters)
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Step 3 — Chapter Placement</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Page 1 always starts Chapter 1. Click <strong>New Chapter</strong> on any page to begin a new chapter
+                    there. Click again (or <strong>Remove</strong>) to undo.
+                </MudText>
+
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @_pages.Count pages · @_chapterStartIndices.Count chapter(s)
+                </MudText>
+
+                <MudTable Items="@_pages" Dense="true" Hover="true" FixedHeader="true" Height="480px">
+                    <HeaderContent>
+                        <MudTh>Page</MudTh>
+                        <MudTh>File</MudTh>
+                        <MudTh>Chapter</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@(context.Index + 1)</MudTd>
+                        <MudTd Style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            @System.IO.Path.GetFileName(context.ArchiveFileName)
+                        </MudTd>
+                        <MudTd>
+                            <MudChip T="string"
+                                     Color="@(IsChapterStart(context.Index) ? Color.Primary : Color.Default)"
+                                     Size="Size.Small"
+                                     Variant="Variant.Outlined">
+                                Ch. @GetChapterNumber(context.Index)
+                            </MudChip>
+                        </MudTd>
+                        <MudTd>
+                            @if (context.Index == 0)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Tertiary">Start</MudText>
+                            }
+                            else if (IsChapterStart(context.Index))
+                            {
+                                <MudButton Size="Size.Small"
+                                           Color="Color.Error"
+                                           Variant="Variant.Text"
+                                           OnClick="@(() => RemoveChapterStart(context.Index))">
+                                    Remove
+                                </MudButton>
+                            }
+                            else
+                            {
+                                <MudButton Size="Size.Small"
+                                           Color="Color.Primary"
+                                           Variant="Variant.Outlined"
+                                           OnClick="@(() => AddChapterStart(context.Index))">
+                                    New Chapter
+                                </MudButton>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+
+                <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+                    <MudButton Variant="Variant.Outlined" OnClick="GoToMetadataStep">Back</MudButton>
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Success"
+                               StartIcon="@Icons.Material.Filled.CloudUpload"
+                               OnClick="StartImportAsync">
+                        Import
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @* ─── Step 4: Progress ───────────────────────────────────────────── *@
+    @if (_step == ImportStep.Progress)
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Importing…</MudText>
+
+                @if (_progressTotal > 0)
+                {
+                    <MudProgressLinear Value="@((_progressCurrent * 100.0) / _progressTotal)"
+                                       Color="Color.Primary"
+                                       Rounded="true"
+                                       Size="Size.Large" />
+                    <MudText Typo="Typo.body2">@_progressCurrent / @_progressTotal</MudText>
+                }
+                else
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                }
+
+                @if (!string.IsNullOrEmpty(_progressMessage))
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@_progressMessage</MudText>
+                }
+            </MudStack>
+        </MudPaper>
+    }
+
+    @* ─── Step 5: Done ───────────────────────────────────────────────── *@
+    @if (_step == ImportStep.Done)
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+            Import complete! Series imported successfully.
+        </MudAlert>
+        <MudStack Row="true" Spacing="2">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       OnClick="@(() => NavigationManager.NavigateTo($"/series/{_importedSeriesId}"))">
+                View Series
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" OnClick="ResetToUpload">Import Another</MudButton>
+        </MudStack>
+    }
 </MudStack>
 
 @code {
-    private string _seriesInput = string.Empty;
-    private bool _isImporting;
-    private string _statusMessage = string.Empty;
-    private Severity _statusSeverity = Severity.Info;
+    private enum ImportStep { Upload, Metadata, Chapters, Progress, Done }
 
-    private async Task ImportSeriesAsync()
+    private ImportStep _step = ImportStep.Upload;
+    private bool _isExtracting;
+    private string _errorMessage = string.Empty;
+
+    // Extracted data
+    private List<ImportPage> _pages = [];
+    private HashSet<int> _chapterStartIndices = [0];
+
+    // Metadata fields
+    private string _seriesName = string.Empty;
+    private string _creator = string.Empty;
+    private int _volumeNumber = 1;
+
+    // Progress
+    private int _progressCurrent;
+    private int _progressTotal;
+    private string _progressMessage = string.Empty;
+
+    // Result
+    private int _importedSeriesId;
+
+    // ─── Step 1 ───────────────────────────────────────────────────────────
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
     {
-        _isImporting = true;
-        _statusMessage = string.Empty;
+        _errorMessage = string.Empty;
+        _isExtracting = true;
 
         try
         {
-            var seriesId = await SyncService.SyncSeriesAsync(_seriesInput);
-            if (seriesId is null)
+            var file = e.File;
+            const long maxBytes = 2L * 1024 * 1024 * 1024; // 2 GB
+
+            await using var stream = file.OpenReadStream(maxAllowedSize: maxBytes);
+
+            var (pages, metadata) = await ImportService.ExtractArchiveAsync(stream, file.Name);
+
+            if (pages.Count == 0)
             {
-                _statusSeverity = Severity.Warning;
-                _statusMessage = "No matching files found for that series.";
+                _errorMessage = "No image pages were found in the archive.";
                 return;
             }
 
-            _statusSeverity = Severity.Success;
-            _statusMessage = "Series synced successfully.";
-            NavigationManager.NavigateTo($"/series/{seriesId.Value}");
+            _pages = pages;
+            _chapterStartIndices = [0];
+
+            // Pre-fill metadata from ComicInfo.xml if available
+            if (metadata != null)
+            {
+                _seriesName = metadata.Series;
+                _creator = metadata.Creator;
+                _volumeNumber = metadata.VolumeNumber > 0 ? metadata.VolumeNumber : 1;
+            }
+            else
+            {
+                _seriesName = string.Empty;
+                _creator = string.Empty;
+                _volumeNumber = 1;
+            }
+
+            _step = ImportStep.Metadata;
         }
         catch (Exception ex)
         {
-            _statusSeverity = Severity.Error;
-            _statusMessage = $"Import failed: {ex.Message}";
+            _errorMessage = $"Failed to read archive: {ex.Message}";
         }
         finally
         {
-            _isImporting = false;
+            _isExtracting = false;
         }
     }
+
+    // ─── Step 2 ───────────────────────────────────────────────────────────
+
+    private void GoToChapterStep() => _step = ImportStep.Chapters;
+    private void GoToMetadataStep() => _step = ImportStep.Metadata;
+
+    // ─── Step 3 ───────────────────────────────────────────────────────────
+
+    private bool IsChapterStart(int pageIndex) => _chapterStartIndices.Contains(pageIndex);
+
+    private int GetChapterNumber(int pageIndex)
+    {
+        var sorted = _chapterStartIndices.OrderBy(i => i).ToList();
+        return sorted.Count(s => s <= pageIndex);
+    }
+
+    private void AddChapterStart(int pageIndex)
+    {
+        _chapterStartIndices.Add(pageIndex);
+    }
+
+    private void RemoveChapterStart(int pageIndex)
+    {
+        if (pageIndex != 0)
+        {
+            _chapterStartIndices.Remove(pageIndex);
+        }
+    }
+
+    // ─── Step 4 ───────────────────────────────────────────────────────────
+
+    private async Task StartImportAsync()
+    {
+        _step = ImportStep.Progress;
+        _errorMessage = string.Empty;
+        _progressCurrent = 0;
+        _progressTotal = _pages.Count;
+        _progressMessage = string.Empty;
+
+        var request = new ComicImportRequest
+        {
+            SeriesName = _seriesName.Trim(),
+            Creator = string.IsNullOrWhiteSpace(_creator) ? null : _creator.Trim(),
+            VolumeNumber = _volumeNumber,
+            Pages = _pages,
+            ChapterStartPageIndices = _chapterStartIndices.OrderBy(i => i).ToList()
+        };
+
+        var progress = new Progress<ImportProgressUpdate>(update =>
+        {
+            _progressCurrent = update.Current;
+            _progressTotal = update.Total;
+            _progressMessage = update.Message;
+            InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            _importedSeriesId = await ImportService.ImportComicAsync(request, progress);
+            _step = ImportStep.Done;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Import failed: {ex.Message}";
+            _step = ImportStep.Chapters;
+        }
+    }
+
+    // ─── Reset ────────────────────────────────────────────────────────────
+
+    private void ResetToUpload()
+    {
+        _step = ImportStep.Upload;
+        _pages = [];
+        _chapterStartIndices = [0];
+        _seriesName = string.Empty;
+        _creator = string.Empty;
+        _volumeNumber = 1;
+        _errorMessage = string.Empty;
+        _progressCurrent = 0;
+        _progressTotal = 0;
+        _progressMessage = string.Empty;
+        _importedSeriesId = 0;
+    }
 }
+

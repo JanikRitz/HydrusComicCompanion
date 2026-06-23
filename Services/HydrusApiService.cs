@@ -401,6 +401,38 @@ public class HydrusApiService : IHydrusApiService
     }
 
     /// <summary>
+    /// Uploads raw file bytes to Hydrus via POST /add_files/add_file.
+    /// </summary>
+    public async Task<HydrusAddFileResult> AddFileAsync(byte[] content, string mimeType, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/add_files/add_file";
+
+            using var httpContent = new ByteArrayContent(content);
+            httpContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
+
+            var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = httpContent };
+            AddApiKeyHeader(request, settings);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var result = JsonSerializer.Deserialize<HydrusAddFileResult>(jsonContent) ?? new HydrusAddFileResult();
+
+            _logger.LogInformation("File add result: status={Status}, hash={Hash}", result.Status, result.Hash);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding file to Hydrus");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Extracts a value from a namespaced tag
     /// </summary>
     private static string ExtractNamespaceValue(string tag, string namespaceName)
