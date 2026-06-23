@@ -17,16 +17,16 @@ public interface IHydrusApiService
     /// Searches for files matching the given tags
     /// </summary>
     /// <param name="tags">List of tags to search for (e.g., ["series:the sandman"])</param>
-    /// <param name="fileServiceKey">Optional file service key to scope the search</param>
-    /// <returns>List of file hashes matching the search criteria</returns>
-    Task<List<string>> SearchFilesAsync(List<string> tags, string? fileServiceKey = null, CancellationToken cancellationToken = default);
+    /// <param name="fileDomain">Optional file domain to scope the search (defaults to configured settings value)</param>
+    /// <returns>List of file IDs matching the search criteria</returns>
+    Task<List<long>> SearchFilesAsync(List<string> tags, string? fileDomain = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets detailed metadata for files, including their tags
     /// </summary>
-    /// <param name="hashes">List of file hashes to get metadata for</param>
+    /// <param name="fileIds">List of file IDs to get metadata for</param>
     /// <returns>List of file metadata objects</returns>
-    Task<List<FileMetadata>> GetFileMetadataAsync(List<string> hashes, CancellationToken cancellationToken = default);
+    Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the raw file bytes from Hydrus

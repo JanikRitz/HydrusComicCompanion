@@ -73,41 +73,48 @@ public class HydrusSyncService : IHydrusSyncService
     /// </summary>
     public async Task<int?> SyncSeriesAsync(string seriesName, CancellationToken cancellationToken = default)
     {
+        var normalizedSeriesName = NormalizeSeriesName(seriesName);
+
+        if (string.IsNullOrWhiteSpace(normalizedSeriesName))
+        {
+            throw new ArgumentException("Series name cannot be empty.", nameof(seriesName));
+        }
+
         try
         {
-            _logger.LogInformation("Syncing series: {SeriesName}", seriesName);
+            _logger.LogInformation("Syncing series: {SeriesName}", normalizedSeriesName);
 
             // Build the series search tag
-            var seriesTag = $"{_settings.SeriesNamespace}{seriesName}";
+            var seriesTag = BuildSeriesTag(normalizedSeriesName);
 
             // Step 1: Search for files with this series tag
-            var fileHashes = await _apiService.SearchFilesAsync(
+            var fileIds = await _apiService.SearchFilesAsync(
                 new List<string> { seriesTag },
                 cancellationToken: cancellationToken);
 
-            if (fileHashes.Count == 0)
+            if (fileIds.Count == 0)
             {
-                _logger.LogWarning("No files found for series: {SeriesName}", seriesName);
+                _logger.LogWarning("No files found for series: {SeriesName}", normalizedSeriesName);
                 return null;
             }
 
-            _logger.LogInformation("Found {Count} files for series {SeriesName}", fileHashes.Count, seriesName);
+            _logger.LogInformation("Found {Count} files for series {SeriesName}", fileIds.Count, normalizedSeriesName);
 
             // Step 2: Get metadata for all files
-            var fileMetadata = await _apiService.GetFileMetadataAsync(fileHashes, cancellationToken);
+            var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken);
 
             // Step 3: Parse metadata and structure into volume/chapter/page hierarchy
             var chapters = ParseFilesIntoChapters(fileMetadata);
 
             // Step 4: Store in database
-            var seriesId = await StoreSeriesInDatabaseAsync(seriesName, chapters, fileMetadata, cancellationToken);
+            var seriesId = await StoreSeriesInDatabaseAsync(normalizedSeriesName, chapters, fileMetadata, cancellationToken);
 
-            _logger.LogInformation("Successfully synced series {SeriesName} with ID {SeriesId}", seriesName, seriesId);
+            _logger.LogInformation("Successfully synced series {SeriesName} with ID {SeriesId}", normalizedSeriesName, seriesId);
             return seriesId;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error syncing series: {SeriesName}", seriesName);
+            _logger.LogError(ex, "Error syncing series: {SeriesName}", normalizedSeriesName);
             throw;
         }
     }
@@ -147,22 +154,24 @@ public class HydrusSyncService : IHydrusSyncService
 
         foreach (var file in fileMetadata)
         {
-            if (file.Tags?.MyTags?.Tags == null)
+            var structuralTags = GetStructuralTags(file);
+            if (structuralTags.Count == 0)
             {
                 continue;
             }
 
-            var volumeNumber = ExtractNumberFromTag(file.Tags.MyTags.Tags, _settings.VolumeNamespace) ?? 1;
-            var chapterNumber = ExtractDecimalFromTag(file.Tags.MyTags.Tags, _settings.ChapterNamespace);
-            var pageNumber = ExtractNumberFromTag(file.Tags.MyTags.Tags, _settings.PageNamespace) ?? 1;
-
-            if (!chapterNumber.HasValue)
+            var seriesTag = ExtractNamespaceValue(structuralTags, _settings.SeriesNamespace);
+            if (string.IsNullOrWhiteSpace(seriesTag))
             {
-                _logger.LogWarning("File {Hash} missing chapter tag, skipping", file.Hash);
+                _logger.LogWarning("File {Hash} is missing a series tag in the structural tag service and will be skipped.", file.Hash);
                 continue;
             }
 
-            var key = (volumeNumber, chapterNumber.Value);
+            var volumeNumber = ExtractNumberFromTag(structuralTags, _settings.VolumeNamespace) ?? 1;
+            var chapterNumber = ExtractDecimalFromTag(structuralTags, _settings.ChapterNamespace) ?? 1m;
+            var pageNumber = ExtractNumberFromTag(structuralTags, _settings.PageNamespace) ?? 1;
+
+            var key = (volumeNumber, chapterNumber);
 
             if (!chapters.ContainsKey(key))
             {
@@ -251,16 +260,13 @@ public class HydrusSyncService : IHydrusSyncService
     private void UpdateSeriesMetadata(SeriesRecord series, List<FileMetadata> fileMetadata)
     {
         var metadataDict = new Dictionary<string, HashSet<string>>();
+        var structuralTagServiceKey = _settings.TagServiceKey.Trim();
 
-        // Collect all metadata tags from files
+        // Collect metadata tags from non-structural tag services
         foreach (var file in fileMetadata)
         {
-            if (file.Tags?.MyTags?.Tags == null)
-            {
-                continue;
-            }
-
-            foreach (var tag in file.Tags.MyTags.Tags)
+            var infoTags = file.GetStorageTagsExcludingService(structuralTagServiceKey);
+            foreach (var tag in infoTags)
             {
                 // Extract metadata namespace:value tags (e.g., creator:Neil Gaiman)
                 var colonIndex = tag.IndexOf(':');
@@ -308,10 +314,65 @@ public class HydrusSyncService : IHydrusSyncService
                normalized == _settings.PageNamespace.TrimEnd(':').ToLowerInvariant();
     }
 
+    private string BuildSeriesTag(string seriesName)
+    {
+        var namespacePrefix = _settings.SeriesNamespace.Trim().TrimEnd(':');
+        return string.IsNullOrWhiteSpace(namespacePrefix)
+            ? seriesName
+            : $"{namespacePrefix}:{seriesName}";
+    }
+
+    private string NormalizeSeriesName(string userInput)
+    {
+        var trimmed = userInput.Trim();
+        var namespacePrefix = _settings.SeriesNamespace.Trim().TrimEnd(':');
+
+        if (string.IsNullOrWhiteSpace(namespacePrefix))
+        {
+            return trimmed;
+        }
+
+        var namespacedPrefix = $"{namespacePrefix}:";
+        if (trimmed.StartsWith(namespacedPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmed[namespacedPrefix.Length..].Trim();
+        }
+
+        return trimmed;
+    }
+
+    private IReadOnlyList<string> GetStructuralTags(FileMetadata file)
+    {
+        var structuralTagServiceKey = _settings.TagServiceKey.Trim();
+        if (!string.IsNullOrWhiteSpace(structuralTagServiceKey))
+        {
+            return file.GetStorageTagsForService(structuralTagServiceKey);
+        }
+
+        return file.Tags
+            .SelectMany(kvp => kvp.Value.StorageTags.Values)
+            .SelectMany(tags => tags)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string? ExtractNamespaceValue(IReadOnlyList<string> tags, string namespaceName)
+    {
+        foreach (var tag in tags)
+        {
+            if (tag.StartsWith(namespaceName, StringComparison.OrdinalIgnoreCase))
+            {
+                return tag[namespaceName.Length..];
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Extracts an integer value from a tag with the given namespace
     /// </summary>
-    private static int? ExtractNumberFromTag(List<string> tags, string namespaceName)
+    private static int? ExtractNumberFromTag(IReadOnlyList<string> tags, string namespaceName)
     {
         foreach (var tag in tags)
         {
@@ -331,7 +392,7 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Extracts a decimal value from a tag with the given namespace
     /// </summary>
-    private static decimal? ExtractDecimalFromTag(List<string> tags, string namespaceName)
+    private static decimal? ExtractDecimalFromTag(IReadOnlyList<string> tags, string namespaceName)
     {
         foreach (var tag in tags)
         {

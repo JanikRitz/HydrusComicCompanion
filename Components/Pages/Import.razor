@@ -1,0 +1,81 @@
+@page "/import"
+@using HydrusComicCompanion.Services
+@inject IHydrusSyncService SyncService
+@inject NavigationManager NavigationManager
+
+<PageTitle>Import</PageTitle>
+
+<MudStack Spacing="3">
+    <div>
+        <MudText Typo="Typo.h4" GutterBottom="true">Import</MudText>
+        <MudText Typo="Typo.body1" Color="Color.Secondary">
+            Sync a single series by entering its name (with or without namespace).
+        </MudText>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <MudAlert Severity="@_statusSeverity" Variant="Variant.Outlined">@_statusMessage</MudAlert>
+    }
+
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+        <MudTextField @bind-Value="_seriesInput"
+                      Label="Series"
+                      Placeholder="series:the sandman or the sandman"
+                      Immediate="true"
+                      Disabled="@_isImporting"
+                      Class="flex-grow-1" />
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   OnClick="ImportSeriesAsync"
+                   Disabled="@(_isImporting || string.IsNullOrWhiteSpace(_seriesInput))"
+                   StartIcon="@Icons.Material.Filled.Download">
+            @if (_isImporting)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <span style="margin-left: 8px;">Importing...</span>
+            }
+            else
+            {
+                <span>Import</span>
+            }
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+@code {
+    private string _seriesInput = string.Empty;
+    private bool _isImporting;
+    private string _statusMessage = string.Empty;
+    private Severity _statusSeverity = Severity.Info;
+
+    private async Task ImportSeriesAsync()
+    {
+        _isImporting = true;
+        _statusMessage = string.Empty;
+
+        try
+        {
+            var seriesId = await SyncService.SyncSeriesAsync(_seriesInput);
+            if (seriesId is null)
+            {
+                _statusSeverity = Severity.Warning;
+                _statusMessage = "No matching files found for that series.";
+                return;
+            }
+
+            _statusSeverity = Severity.Success;
+            _statusMessage = "Series synced successfully.";
+            NavigationManager.NavigateTo($"/series/{seriesId.Value}");
+        }
+        catch (Exception ex)
+        {
+            _statusSeverity = Severity.Error;
+            _statusMessage = $"Import failed: {ex.Message}";
+        }
+        finally
+        {
+            _isImporting = false;
+        }
+    }
+}

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace HydrusComicCompanion.Models;
@@ -40,6 +41,9 @@ public class FileSearchResponse
 /// </summary>
 public class FileMetadataResponse
 {
+    [JsonPropertyName("services")]
+    public JsonElement Services { get; set; }
+
     [JsonPropertyName("metadata")]
     public List<FileMetadata> Metadata { get; set; } = new();
 }
@@ -55,7 +59,7 @@ public class FileMetadata
     [JsonPropertyName("hash")]
     public string Hash { get; set; } = string.Empty;
 
-    [JsonPropertyName("mime_type")]
+    [JsonPropertyName("mime")]
     public string MimeType { get; set; } = string.Empty;
 
     [JsonPropertyName("size")]
@@ -71,35 +75,50 @@ public class FileMetadata
     public bool IsInbox { get; set; }
 
     [JsonPropertyName("time_modified")]
-    public long TimeModified { get; set; }
+    public double? TimeModified { get; set; }
 
     [JsonPropertyName("tags")]
-    public FileTagsMetadata Tags { get; set; } = new();
+    public Dictionary<string, ServiceTagBucket> Tags { get; set; } = new();
+
+    public IReadOnlyList<string> GetStorageTagsForService(string? serviceKey)
+    {
+        if (string.IsNullOrWhiteSpace(serviceKey))
+        {
+            return Array.Empty<string>();
+        }
+
+        if (!Tags.TryGetValue(serviceKey, out var serviceTags))
+        {
+            return Array.Empty<string>();
+        }
+
+        return serviceTags.StorageTags
+            .SelectMany(kvp => kvp.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    public IReadOnlyList<string> GetStorageTagsExcludingService(string? excludedServiceKey)
+    {
+        return Tags
+            .Where(kvp => !string.Equals(kvp.Key, excludedServiceKey, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(kvp => kvp.Value.StorageTags.Values)
+            .SelectMany(tags => tags)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
 }
 
 /// <summary>
-/// Tag metadata organized by service
+/// Tag buckets grouped by status for a single service key.
 /// </summary>
-public class FileTagsMetadata
+public class ServiceTagBucket
 {
-    [JsonPropertyName("my tags")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public TagNamespace? MyTags { get; set; }
-
-    [JsonExtensionData]
-    public Dictionary<string, TagNamespace> OtherServices { get; set; } = new();
-}
-
-/// <summary>
-/// A namespace of tags (e.g., "my tags", "public tag repository")
-/// </summary>
-public class TagNamespace
-{
-    [JsonPropertyName("tags")]
-    public List<string> Tags { get; set; } = new();
+    [JsonPropertyName("storage_tags")]
+    public Dictionary<string, List<string>> StorageTags { get; set; } = new();
 
     [JsonPropertyName("display_tags")]
-    public List<string>? DisplayTags { get; set; }
+    public Dictionary<string, List<string>> DisplayTags { get; set; } = new();
 }
 
 /// <summary>

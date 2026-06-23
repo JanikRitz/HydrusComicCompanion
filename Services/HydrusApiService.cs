@@ -35,8 +35,11 @@ public class HydrusApiService : IHydrusApiService
             var queryString = $"search={Uri.EscapeDataString(searchPrefix)}";
             if (!string.IsNullOrWhiteSpace(settings.TagServiceKey))
             {
-                queryString += $"&tag_service_key={Uri.EscapeDataString(settings.TagServiceKey)}";
+                // Hydrus doesn't properly resolve the Tag service on tag_search and returns and empty result (?)
+                // TODO fix this on Hydrus side (?)
+                // queryString += $"&tag_service_key={Uri.EscapeDataString(settings.TagServiceKey)}";
             }
+            queryString += $"&tag_display_type=display";
             var url = $"{settings.ApiUrl}/add_tags/search_tags?{queryString}";
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -75,12 +78,12 @@ public class HydrusApiService : IHydrusApiService
     /// <summary>
     /// Searches for files matching the given tags
     /// </summary>
-    public async Task<List<string>> SearchFilesAsync(
+    public async Task<List<long>> SearchFilesAsync(
         List<string> tags,
-        string? fileServiceKey = null,
+        string? fileDomain = null,
         CancellationToken cancellationToken = default)
     {
-        var hashes = new List<string>();
+        var fileIds = new List<long>();
 
         try
         {
@@ -88,36 +91,56 @@ public class HydrusApiService : IHydrusApiService
             var url = $"{settings.ApiUrl}/get_files/search_files";
 
             // Build query parameters
+            var selectedFileDomain = string.IsNullOrWhiteSpace(fileDomain)
+                ? settings.TargetFileDomain
+                : fileDomain;
+            var fileDomainKey = await ResolveFileDomainKeyAsync(settings, selectedFileDomain, cancellationToken);
+
             var queryParams = new Dictionary<string, string>
             {
                 ["tags"] = JsonSerializer.Serialize(tags)
             };
 
-            if (!string.IsNullOrEmpty(fileServiceKey))
+            if (!string.IsNullOrWhiteSpace(fileDomainKey))
             {
-                queryParams["file_service_key"] = fileServiceKey;
+                queryParams["file_domain"] = fileDomainKey;
+            }
+
+            if (!string.IsNullOrWhiteSpace(settings.TagServiceKey))
+            {
+                queryParams["tag_service_key"] = settings.TagServiceKey;
             }
 
             var queryString = string.Join("&", queryParams.Select(kvp =>
                 $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
 
             var fullUrl = $"{url}?{queryString}";
+            _logger.LogDebug("Hydrus file search request URL: {RequestUrl}", fullUrl);
 
             var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
             AddApiKeyHeader(request, settings);
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Hydrus file search failed. Status: {StatusCode}. URL: {RequestUrl}. Response: {ResponseBody}",
+                    (int)response.StatusCode,
+                    fullUrl,
+                    errorContent);
+                response.EnsureSuccessStatusCode();
+            }
 
             var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
             var searchResponse = JsonSerializer.Deserialize<FileSearchResponse>(jsonContent);
 
-            if (searchResponse?.Hashes != null)
+            if (searchResponse?.FileIds != null)
             {
-                hashes.AddRange(searchResponse.Hashes);
+                fileIds.AddRange(searchResponse.FileIds);
             }
 
-            _logger.LogInformation("Found {Count} files matching tags: {Tags}", hashes.Count, string.Join(", ", tags));
+            _logger.LogInformation("Found {Count} files matching tags: {Tags}", fileIds.Count, string.Join(", ", tags));
         }
         catch (Exception ex)
         {
@@ -125,17 +148,17 @@ public class HydrusApiService : IHydrusApiService
             throw;
         }
 
-        return hashes;
+        return fileIds;
     }
 
     /// <summary>
     /// Gets detailed metadata for files, including their tags
     /// </summary>
-    public async Task<List<FileMetadata>> GetFileMetadataAsync(List<string> hashes, CancellationToken cancellationToken = default)
+    public async Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, CancellationToken cancellationToken = default)
     {
         var metadata = new List<FileMetadata>();
 
-        if (hashes.Count == 0)
+        if (fileIds.Count == 0)
         {
             return metadata;
         }
@@ -145,29 +168,54 @@ public class HydrusApiService : IHydrusApiService
             var settings = await _settingsService.GetSettingsAsync(cancellationToken);
             var url = $"{settings.ApiUrl}/get_files/file_metadata";
 
-            var queryParams = JsonSerializer.Serialize(hashes);
-            var queryString = $"hashes={Uri.EscapeDataString(queryParams)}";
-            var fullUrl = $"{url}?{queryString}";
-
-            var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
-            AddApiKeyHeader(request, settings);
-
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            var metadataResponse = JsonSerializer.Deserialize<FileMetadataResponse>(jsonContent);
-
-            if (metadataResponse?.Metadata != null)
+            foreach (var batch in fileIds.Chunk(256))
             {
-                metadata.AddRange(metadataResponse.Metadata);
+                var queryParams = new Dictionary<string, string>
+                {
+                    ["file_ids"] = JsonSerializer.Serialize(batch),
+                    ["create_new_file_ids"] = "false",
+                    ["only_return_identifiers"] = "false",
+                    ["only_return_basic_information"] = "false",
+                    ["detailed_url_information"] = "false",
+                    ["include_blurhash"] = "false",
+                    ["include_milliseconds"] = "true",
+                    ["include_notes"] = "false",
+                    ["include_services_object"] = "false"
+                };
+
+                var queryString = string.Join("&", queryParams.Select(kvp =>
+                    $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
+                var fullUrl = $"{url}?{queryString}";
+
+                var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
+                AddApiKeyHeader(request, settings);
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    _logger.LogError(
+                        "Hydrus file metadata request failed. Status: {StatusCode}. URL: {RequestUrl}. Response: {ResponseBody}",
+                        (int)response.StatusCode,
+                        fullUrl,
+                        errorContent);
+                    response.EnsureSuccessStatusCode();
+                }
+
+                var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                var metadataResponse = JsonSerializer.Deserialize<FileMetadataResponse>(jsonContent);
+
+                if (metadataResponse?.Metadata != null)
+                {
+                    metadata.AddRange(metadataResponse.Metadata);
+                }
             }
 
             _logger.LogInformation("Retrieved metadata for {Count} files", metadata.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error retrieving file metadata from Hydrus for {Count} hashes", hashes.Count);
+            _logger.LogError(ex, "Error retrieving file metadata from Hydrus for {Count} file IDs", fileIds.Count);
             throw;
         }
 
@@ -314,6 +362,44 @@ public class HydrusApiService : IHydrusApiService
         }
 
         return string.Empty;
+    }
+
+    private async Task<string> ResolveFileDomainKeyAsync(HydrusSettings settings, string? selectedFileDomain, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(selectedFileDomain))
+        {
+            return string.Empty;
+        }
+
+        var trimmedDomain = selectedFileDomain.Trim();
+
+        if (IsLikelyServiceKey(trimmedDomain))
+        {
+            return trimmedDomain;
+        }
+
+        try
+        {
+            var services = await _settingsService.GetServicesAsync(settings, cancellationToken);
+            var matchingService = services.FileServices.FirstOrDefault(service =>
+                service.Name.Equals(trimmedDomain, StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(matchingService?.Key))
+            {
+                return matchingService.Key;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not resolve file domain '{FileDomain}' to a service key.", trimmedDomain);
+        }
+
+        return trimmedDomain;
+    }
+
+    private static bool IsLikelyServiceKey(string value)
+    {
+        return value.Length == 64 && value.All(Uri.IsHexDigit);
     }
 
     /// <summary>

@@ -26,7 +26,7 @@ Source of Truth: Hydrus Network Client (via local REST API).
 
 To reliably parse flat files into a hierarchical comic structure, the Hydrus tagging must be strictly defined and adhered to.
 
-Only writing tags into the my tags area of tags to distinguish from 'downloader tags' and 'public tag repository' and only using the my tags for building the comics (using the other Tag spaces for creating new comics).
+Use the configured structural tag service key for `series/volume/chapter/page` hierarchy tags. Treat tags from other tag services as informational metadata sources (e.g., creator/genre/character), not as structure-defining input.
 
 Core Hierarchy Tags
 
@@ -61,7 +61,7 @@ The sync process is divided into two highly efficient steps utilizing the Hydrus
   - Hydrus returns an array of all known series. The server cross-references this with the SQLite DB to identify new or missing series.
 2. Deep Structure Sync (On-Demand or Background):
   - For a newly discovered series, the server queries `GET /get_files/search_files?tags=["series:the sandman"]`.
-  - It takes those hashes, fetches their metadata, and maps the files into the `Volume -> Chapter -> Page` hierarchy in the SQLite DB, caching the structure for instant frontend reads.
+  - It takes those file IDs, fetches metadata in batches (typically 256 IDs per request), and maps files into the `Volume -> Chapter -> Page` hierarchy in SQLite.
 
 ## Hydrus API Integration
 
@@ -76,8 +76,8 @@ Required Endpoints
   - Payload: `tags=["series:the sandman"]` (JSON & URL Encoded), `file_service_key=[SelectedFileService]`
   - Use: Returns a list of File IDs/Hashes belonging to a specific series.
 3. Metadata Parsing: `GET /get_files/file_metadata`
-  - Payload: `hashes=[Array of FileHashes]`
-  - Use: Retrieves all tags for the files. The C# logic will parse the namespaces (volume, chapter, page) and populate the EF Core DB.
+  - Payload: `file_ids=[Array of FileIds]` plus flags (e.g., `include_milliseconds=true`, `include_services_object=false`).
+  - Use: Retrieves tag dictionaries keyed by service key (`storage_tags`/`display_tags`). The C# logic parses hierarchy namespaces from the configured structural service and stores additional namespaces from other services as metadata.
 4. Image Retrieval: `GET /get_files/file`
   - Payload: `hash=[FileHash]`
   - Use: Fetches the actual image bytes.
