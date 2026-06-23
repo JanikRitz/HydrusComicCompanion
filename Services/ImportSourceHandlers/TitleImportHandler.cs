@@ -4,8 +4,8 @@ using HydrusComicCompanion.Services.Abstractions;
 namespace HydrusComicCompanion.Services.ImportSourceHandlers;
 
 /// <summary>
-/// Handles imports by syncing an existing title from Hydrus.
-/// Wraps the IHydrusSyncService to fetch files and structure them by chapter.
+/// Handles imports from an existing Hydrus title.
+/// Wraps the IHydrusSyncService so the workflow can extract and later sync the same title.
 /// </summary>
 public class TitleImportHandler : IImportSourceHandler
 {
@@ -15,7 +15,7 @@ public class TitleImportHandler : IImportSourceHandler
 
     public string DisplayName => "Hydrus Title";
 
-    public string Description => "Sync a single comic by entering its title (with or without namespace).";
+    public string Description => "Load an existing Hydrus title and edit metadata and chapters before import.";
 
     public TitleImportHandler(IHydrusSyncService syncService)
     {
@@ -23,16 +23,20 @@ public class TitleImportHandler : IImportSourceHandler
     }
 
     /// <summary>
-    /// For title imports, extraction is deferred to CompleteImportAsync.
-    /// This method always throws as titles are synced directly.
+    /// Extracts Hydrus title data so the caller can edit metadata and chapter placement before import.
     /// </summary>
-    public Task<(List<ImportPage> Pages, ComicMetadata? Metadata)> ExtractAsync(
+    public async Task<ComicImportPreparation> ExtractAsync(
         object sourceIdentifier,
         CancellationToken cancellationToken = default)
     {
-        throw new NotSupportedException(
-            "Title import handler does not support the extract phase. " +
-            "Use CompleteImportAsync with a ComicImportRequest containing the title name instead.");
+        if (sourceIdentifier is not string titleName)
+        {
+            throw new ArgumentException(
+                $"Title handler expects a string title name; got {sourceIdentifier?.GetType().Name ?? "null"}",
+                nameof(sourceIdentifier));
+        }
+
+        return await _syncService.ExtractTitleAsync(titleName, cancellationToken);
     }
 
     /// <summary>

@@ -7,20 +7,30 @@ namespace HydrusComicCompanion.Models;
 /// </summary>
 public sealed class ImportPage
 {
-    /// <summary>0-based index of the page within the archive (by sorted filename).</summary>
+    /// <summary>0-based index of the page within the extracted source order.</summary>
     public int Index { get; set; }
 
-    /// <summary>Original entry name inside the archive.</summary>
+    /// <summary>Display name for the page source entry.</summary>
     public string ArchiveFileName { get; set; } = string.Empty;
 
-    /// <summary>Raw image bytes extracted from the archive.</summary>
+    /// <summary>Raw image bytes extracted from the source, when available.</summary>
     public byte[] Data { get; set; } = [];
 
-    /// <summary>SHA-256 hex string of <see cref="Data"/> (lower-case, no separators).</summary>
+    /// <summary>SHA-256 hex string for the page. Used for archive extraction and Hydrus-sourced pages.</summary>
     public string Sha256Hash { get; set; } = string.Empty;
 
-    /// <summary>MIME type inferred from the file extension.</summary>
+    /// <summary>MIME type inferred from the file extension or source metadata.</summary>
     public string MimeType { get; set; } = "image/jpeg";
+}
+
+/// <summary>
+/// Shared extraction result used by the import workflow before metadata and chapter edits.
+/// </summary>
+public sealed class ComicImportPreparation
+{
+    public List<ImportPage> Pages { get; set; } = [];
+    public ComicMetadata? Metadata { get; set; }
+    public List<int> ChapterStartPageIndices { get; set; } = [];
 }
 
 /// <summary>

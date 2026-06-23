@@ -43,13 +43,13 @@ public interface IImportSourceHandler
     string Description { get; }
 
     /// <summary>
-    /// Extracts pages and metadata from the given source identifier.
+    /// Extracts pages, metadata, and initial chapter state from the given source identifier.
     /// For archives, this would be a file stream; for titles, a title name, etc.
     /// </summary>
     /// <param name="sourceIdentifier">Source-specific identifier (e.g., file stream, title name)</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Extracted pages and optional metadata.</returns>
-    Task<(List<ImportPage> Pages, ComicMetadata? Metadata)> ExtractAsync(
+    /// <returns>Shared import preparation data.</returns>
+    Task<ComicImportPreparation> ExtractAsync(
         object sourceIdentifier,
         CancellationToken cancellationToken = default);
 

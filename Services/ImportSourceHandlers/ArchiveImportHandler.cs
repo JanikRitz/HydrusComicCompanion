@@ -30,7 +30,7 @@ public class ArchiveImportHandler : IImportSourceHandler
     /// Expected to be an IBrowserFile from an InputFile component.
     /// The file stream will be opened and passed to the import service.
     /// </param>
-    public async Task<(List<ImportPage> Pages, ComicMetadata? Metadata)> ExtractAsync(
+    public async Task<ComicImportPreparation> ExtractAsync(
         object sourceIdentifier,
         CancellationToken cancellationToken = default)
     {

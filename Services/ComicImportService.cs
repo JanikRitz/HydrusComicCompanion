@@ -31,7 +31,7 @@ public sealed class ComicImportService : IComicImportService
     }
 
     /// <inheritdoc/>
-    public async Task<(List<ImportPage> Pages, ComicMetadata? Metadata)> ExtractArchiveAsync(
+    public async Task<ComicImportPreparation> ExtractArchiveAsync(
         Stream fileStream,
         string fileName,
         CancellationToken cancellationToken = default)
@@ -87,25 +87,42 @@ public sealed class ComicImportService : IComicImportService
             cancellationToken.ThrowIfCancellationRequested();
 
             var page = request.Pages[i];
+            var hasBytes = page.Data is { Length: > 0 };
+            var hasHash = !string.IsNullOrWhiteSpace(page.Sha256Hash);
+
             progress?.Report(new ImportProgressUpdate
             {
                 Current = i + 1,
                 Total = total,
-                Message = $"Uploading page {i + 1}/{total}: {page.ArchiveFileName}"
+                Message = hasBytes
+                    ? $"Uploading page {i + 1}/{total}: {page.ArchiveFileName}"
+                    : $"Using existing Hydrus file {i + 1}/{total}: {page.ArchiveFileName}"
             });
 
-            var result = await _apiService.AddFileAsync(page.Data, page.MimeType, cancellationToken);
-
-            if (!result.IsAvailable)
+            if (hasBytes)
             {
-                _logger.LogWarning("Page {Index} ({File}) could not be imported into Hydrus (status={Status}, note={Note})",
-                    i, page.ArchiveFileName, result.Status, result.Note);
-                throw new InvalidOperationException(
-                    $"Hydrus rejected page {i + 1} ({page.ArchiveFileName}): status={result.Status}, note={result.Note}");
+                var result = await _apiService.AddFileAsync(page.Data, page.MimeType, cancellationToken);
+
+                if (!result.IsAvailable)
+                {
+                    _logger.LogWarning("Page {Index} ({File}) could not be imported into Hydrus (status={Status}, note={Note})",
+                        i, page.ArchiveFileName, result.Status, result.Note);
+                    throw new InvalidOperationException(
+                        $"Hydrus rejected page {i + 1} ({page.ArchiveFileName}): status={result.Status}, note={result.Note}");
+                }
+
+                // Use the hash returned by Hydrus (matches our SHA-256 but canonicalized by Hydrus)
+                pageHashes[i] = result.Hash;
+            }
+            else if (hasHash)
+            {
+                pageHashes[i] = page.Sha256Hash;
+            }
+            else
+            {
+                throw new InvalidOperationException($"Page {i + 1} ({page.ArchiveFileName}) has neither file bytes nor a Hydrus hash.");
             }
 
-            // Use the hash returned by Hydrus (matches our SHA-256 but canonicalized by Hydrus)
-            pageHashes[i] = result.Hash;
             pageMimeTypes[i] = page.MimeType;
         }
 
@@ -172,7 +189,7 @@ public sealed class ComicImportService : IComicImportService
 
     // ─── Private helpers ────────────────────────────────────────────────────
 
-    private async Task<(List<ImportPage> Pages, ComicMetadata? Metadata)> ExtractCbzAsync(
+    private async Task<ComicImportPreparation> ExtractCbzAsync(
         Stream stream, CancellationToken cancellationToken)
     {
         // Copy to a MemoryStream so ZipArchive can seek (browser stream may not support seeking)
@@ -209,11 +226,10 @@ public sealed class ComicImportService : IComicImportService
             }
         }
 
-        var pages = BuildSortedPages(rawPages);
-        return (pages, metadata);
+        return BuildPreparation(rawPages, metadata, []);
     }
 
-    private async Task<(List<ImportPage> Pages, ComicMetadata? Metadata)> ExtractCbrAsync(
+    private async Task<ComicImportPreparation> ExtractCbrAsync(
         Stream stream, CancellationToken cancellationToken)
     {
         var ms = new MemoryStream();
@@ -249,23 +265,30 @@ public sealed class ComicImportService : IComicImportService
             }
         }
 
-        var pages = BuildSortedPages(rawPages);
-        return (pages, metadata);
+        return BuildPreparation(rawPages, metadata, []);
     }
 
-    private static List<ImportPage> BuildSortedPages(List<(string Name, byte[] Data)> rawPages)
+    private static ComicImportPreparation BuildPreparation(
+        List<(string Name, byte[] Data)> rawPages,
+        ComicMetadata? metadata,
+        List<int> chapterStartPageIndices)
     {
-        return rawPages
-            .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
-            .Select((p, index) => new ImportPage
-            {
-                Index = index,
-                ArchiveFileName = p.Name,
-                Data = p.Data,
-                Sha256Hash = ComputeSha256(p.Data),
-                MimeType = GetMimeType(p.Name)
-            })
-            .ToList();
+        return new ComicImportPreparation
+        {
+            Pages = rawPages
+                .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .Select((p, index) => new ImportPage
+                {
+                    Index = index,
+                    ArchiveFileName = p.Name,
+                    Data = p.Data,
+                    Sha256Hash = ComputeSha256(p.Data),
+                    MimeType = GetMimeType(p.Name)
+                })
+                .ToList(),
+            Metadata = metadata,
+            ChapterStartPageIndices = chapterStartPageIndices.Count == 0 ? [0] : chapterStartPageIndices
+        };
     }
 
     private static ComicMetadata? ParseComicInfoXml(Stream stream)

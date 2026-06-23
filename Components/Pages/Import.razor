@@ -3,6 +3,7 @@
 @using HydrusComicCompanion.Services
 @using HydrusComicCompanion.Services.Abstractions
 @inject IComicImportService ComicImportService
+@inject IHydrusMediaService HydrusMediaService
 @inject IHydrusSyncService SyncService
 @inject NavigationManager NavigationManager
 
@@ -44,10 +45,10 @@
                         <MudRadio T="ImportSource" Value="ImportSource.Title" Color="Color.Primary">
                             <MudStack Spacing="0">
                                 <MudText Typo="Typo.body2">
-                                    <strong>Sync Hydrus Title</strong>
+                                    <strong>Import Hydrus Title</strong>
                                 </MudText>
                                 <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                    Sync an existing comic from Hydrus by title name
+                                    Load an existing comic from Hydrus and continue through the shared workflow
                                 </MudText>
                             </MudStack>
                         </MudRadio>
@@ -129,9 +130,9 @@
         {
             <MudPaper Class="pa-4" Outlined="true">
                 <MudStack Spacing="2">
-                    <MudText Typo="Typo.h6">Step 2 — Enter Title</MudText>
+                    <MudText Typo="Typo.h6">Step 2 — Enter Hydrus Title</MudText>
                     <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        Enter the title of the comic to sync from Hydrus.
+                        Enter the title of the comic to load from Hydrus, then edit metadata and chapters.
                     </MudText>
 
                     <MudTextField @bind-Value="_titleInput"
@@ -145,17 +146,17 @@
                         <MudButton Variant="Variant.Outlined" OnClick="ResetToSourceSelection">Back</MudButton>
                         <MudButton Variant="Variant.Filled"
                                    Color="Color.Primary"
-                                   OnClick="GoToProgressStepForTitleAsync"
+                                   OnClick="LoadHydrusTitleAsync"
                                    Disabled="@(_isSyncing || string.IsNullOrWhiteSpace(_titleInput))"
                                    StartIcon="@Icons.Material.Filled.Download">
                             @if (_isSyncing)
                             {
                                 <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                                <span style="margin-left: 8px;">Syncing...</span>
+                                <span style="margin-left: 8px;">Loading...</span>
                             }
                             else
                             {
-                                <span>Sync & Continue</span>
+                                <span>Load & Continue</span>
                             }
                         </MudButton>
                     </MudStack>
@@ -164,14 +165,14 @@
         }
     }
 
-    @* ─── Step 3: Metadata (Only for Archive) ───────────────────────── *@
+    @* ─── Step 3: Metadata ───────────────────────────────────────────── *@
     @if (_step == ImportStep.Metadata)
     {
         <MudPaper Class="pa-4" Outlined="true">
             <MudStack Spacing="2">
                 <MudText Typo="Typo.h6">Step 3 — Metadata</MudText>
                 <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Review and edit the title information. Fields pre-filled from <code>ComicInfo.xml</code> where available.
+                    Review and edit the title information. Fields are pre-filled from source metadata where available.
                 </MudText>
 
                 <MudTextField @bind-Value="_titleName"
@@ -409,35 +410,14 @@
             var file = e.File;
             await using var stream = file.OpenReadStream(maxAllowedSize: MaxArchiveSizeBytes);
 
-            var (pages, metadata) = await ComicImportService.ExtractArchiveAsync(stream, file.Name);
-
-            if (pages.Count == 0)
+            var preparation = await ComicImportService.ExtractArchiveAsync(stream, file.Name);
+            if (preparation.Pages.Count == 0)
             {
                 _errorMessage = "No image pages were found in the archive.";
                 return;
             }
 
-            _pages = pages;
-            _useChapterTags = true;
-            _chapterStartIndices = [0];
-            _pageThumbnailDataUrls = [];
-            _thumbnailPreloadQueued = false;
-            _isPreloadingThumbnails = false;
-
-            // Pre-fill metadata from ComicInfo.xml if available
-            if (metadata != null)
-            {
-                _titleName = metadata.Series;
-                _creator = metadata.Creator;
-                _volumeNumber = metadata.VolumeNumber;
-            }
-            else
-            {
-                _titleName = string.Empty;
-                _creator = string.Empty;
-                _volumeNumber = null;
-            }
-
+            ApplyPreparation(preparation);
             _step = ImportStep.Metadata;
         }
         catch (Exception ex)
@@ -450,39 +430,48 @@
         }
     }
 
-    private async Task GoToProgressStepForTitleAsync()
+    private async Task LoadHydrusTitleAsync()
     {
         _isSyncing = true;
         _errorMessage = string.Empty;
 
         try
         {
-            _step = ImportStep.Progress;
-            _progressCurrent = 0;
-            _progressTotal = 0;
-            _progressMessage = $"Syncing title: {_titleInput}...";
-
-            var titleId = await SyncService.SyncTitleAsync(_titleInput);
-
-            if (titleId is null)
+            var preparation = await SyncService.ExtractTitleAsync(_titleInput);
+            if (preparation.Pages.Count == 0)
             {
                 _errorMessage = "No matching files found for that title.";
                 _step = ImportStep.SourceSpecific;
                 return;
             }
 
-            _importedSeriesId = titleId.Value;
-            _step = ImportStep.Done;
+            ApplyPreparation(preparation);
+            _step = ImportStep.Metadata;
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Sync failed: {ex.Message}";
+            _errorMessage = $"Failed to load Hydrus title: {ex.Message}";
             _step = ImportStep.SourceSpecific;
         }
         finally
         {
             _isSyncing = false;
         }
+    }
+
+    private void ApplyPreparation(ComicImportPreparation preparation)
+    {
+        _pages = preparation.Pages;
+        _titleName = preparation.Metadata?.Series?.Trim() ?? string.Empty;
+        _creator = preparation.Metadata?.Creator?.Trim() ?? string.Empty;
+        _volumeNumber = preparation.Metadata?.VolumeNumber;
+        _chapterStartIndices = preparation.ChapterStartPageIndices.Count > 0
+            ? [.. preparation.ChapterStartPageIndices.Distinct().OrderBy(i => i)]
+            : [0];
+        _useChapterTags = _chapterStartIndices.Count > 0;
+        _pageThumbnailDataUrls = [];
+        _thumbnailPreloadQueued = false;
+        _isPreloadingThumbnails = false;
     }
 
     // ─── Step 3: Metadata ───────────────────────────────────────────────
@@ -547,7 +536,7 @@
                 continue;
             }
 
-            _pageThumbnailDataUrls[page.Index] = BuildThumbnailDataUrl(page);
+            _pageThumbnailDataUrls[page.Index] = BuildThumbnailSrc(page);
             processed++;
 
             if (processed % ThumbnailPreloadBatchSize == 0)
@@ -560,10 +549,20 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private static string BuildThumbnailDataUrl(ImportPage page)
+    private string BuildThumbnailSrc(ImportPage page)
     {
-        var mimeType = string.IsNullOrWhiteSpace(page.MimeType) ? "image/jpeg" : page.MimeType;
-        return $"data:{mimeType};base64,{Convert.ToBase64String(page.Data)}";
+        if (page.Data is { Length: > 0 })
+        {
+            var mimeType = string.IsNullOrWhiteSpace(page.MimeType) ? "image/jpeg" : page.MimeType;
+            return $"data:{mimeType};base64,{Convert.ToBase64String(page.Data)}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(page.Sha256Hash))
+        {
+            return HydrusMediaService.BuildThumbnailUrl(page.Sha256Hash);
+        }
+
+        return string.Empty;
     }
 
     private int GetChapterNumber(int pageIndex)

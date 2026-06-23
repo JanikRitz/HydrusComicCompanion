@@ -14,8 +14,8 @@ public interface IComicImportService
     /// <param name="fileStream">Stream of the archive file.</param>
     /// <param name="fileName">Original file name (used to detect CBZ vs CBR).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Ordered list of pages and any metadata found in ComicInfo.xml (may be null).</returns>
-    Task<(List<ImportPage> Pages, ComicMetadata? Metadata)> ExtractArchiveAsync(
+    /// <returns>Preparation data including ordered pages, metadata, and initial chapter starts.</returns>
+    Task<ComicImportPreparation> ExtractArchiveAsync(
         Stream fileStream,
         string fileName,
         CancellationToken cancellationToken = default);

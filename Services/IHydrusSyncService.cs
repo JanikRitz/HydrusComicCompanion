@@ -1,4 +1,5 @@
 using HydrusComicCompanion.Data;
+using HydrusComicCompanion.Models;
 
 namespace HydrusComicCompanion.Services;
 
@@ -13,6 +14,14 @@ public interface IHydrusSyncService
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of titles synchronized</returns>
     Task<int> SyncLibraryAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Extracts a title from Hydrus so the import workflow can edit metadata and chapters before import.
+    /// </summary>
+    /// <param name="seriesName">Name of the title to extract (without the namespace prefix)</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Preparation data containing ordered pages, metadata, and chapter starts.</returns>
+    Task<ComicImportPreparation> ExtractTitleAsync(string seriesName, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Syncs a specific title: fetches all files tagged with the title and structures them

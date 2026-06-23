@@ -117,6 +117,36 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
+    /// Extracts a Hydrus title into pages plus initial metadata/chapter state for the import UI.
+    /// </summary>
+    public async Task<ComicImportPreparation> ExtractTitleAsync(string seriesName, CancellationToken cancellationToken = default)
+    {
+        var normalizedSeriesName = NormalizeTitleName(seriesName);
+
+        if (string.IsNullOrWhiteSpace(normalizedSeriesName))
+        {
+            throw new ArgumentException("Title name cannot be empty.", nameof(seriesName));
+        }
+
+        var seriesTag = BuildTitleTag(normalizedSeriesName);
+        var fileIds = await _apiService.SearchFilesAsync(
+            new List<string> { seriesTag },
+            cancellationToken: cancellationToken);
+
+        if (fileIds.Count == 0)
+        {
+            return new ComicImportPreparation
+            {
+                Metadata = new ComicMetadata { Series = normalizedSeriesName },
+                ChapterStartPageIndices = [0]
+            };
+        }
+
+        var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken);
+        return BuildImportPreparation(normalizedSeriesName, fileMetadata);
+    }
+
+    /// <summary>
     /// Syncs a specific title: fetches all files tagged with the title and structures them.
     /// </summary>
     public async Task<int?> SyncTitleAsync(string seriesName, CancellationToken cancellationToken = default)
@@ -226,6 +256,60 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
+    /// Builds the editable import payload for a Hydrus title.
+    /// </summary>
+    private ComicImportPreparation BuildImportPreparation(string seriesName, List<FileMetadata> fileMetadata)
+    {
+        var orderedFiles = fileMetadata
+            .Select(file => new HydrusImportFile(
+                file,
+                ExtractNumberFromTag(GetStructuralTags(file), _settings.VolumeNamespace),
+                ExtractDecimalFromTag(GetStructuralTags(file), _settings.ChapterNamespace),
+                ExtractNumberFromTag(GetStructuralTags(file), _settings.PageNamespace)))
+            .OrderBy(file => file.Volume ?? int.MaxValue)
+            .ThenBy(file => file.Chapter ?? decimal.MaxValue)
+            .ThenBy(file => file.Page ?? int.MaxValue)
+            .ThenBy(file => file.Metadata.FileId)
+            .ToList();
+
+        var chapterStarts = new List<int>();
+        (int? Volume, decimal? Chapter)? lastChapterKey = null;
+
+        for (var i = 0; i < orderedFiles.Count; i++)
+        {
+            var currentKey = (orderedFiles[i].Volume, orderedFiles[i].Chapter);
+            if (lastChapterKey != currentKey)
+            {
+                chapterStarts.Add(i);
+                lastChapterKey = currentKey;
+            }
+        }
+
+        var metadata = new ComicMetadata
+        {
+            Series = seriesName,
+            Creator = ExtractCreatorMetadata(orderedFiles),
+            VolumeNumber = orderedFiles.Select(file => file.Volume).FirstOrDefault(volume => volume.HasValue)
+        };
+
+        return new ComicImportPreparation
+        {
+            Pages = orderedFiles
+                .Select((file, index) => new ImportPage
+                {
+                    Index = index,
+                    ArchiveFileName = file.Metadata.Hash,
+                    Data = [],
+                    Sha256Hash = file.Metadata.Hash,
+                    MimeType = file.Metadata.MimeType
+                })
+                .ToList(),
+            Metadata = metadata,
+            ChapterStartPageIndices = chapterStarts.Count == 0 ? [0] : chapterStarts
+        };
+    }
+
+    /// <summary>
     /// Parses files into a chapter/volume/page structure based on tags
     /// </summary>
     private Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>> ParseFilesIntoChapters(
@@ -269,6 +353,34 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         return chapters;
+    }
+
+    private sealed record HydrusImportFile(
+        FileMetadata Metadata,
+        int? Volume,
+        decimal? Chapter,
+        int? Page);
+
+    private string ExtractCreatorMetadata(IEnumerable<HydrusImportFile> orderedFiles)
+    {
+        var structuralTagServiceKey = _settings.TagServiceKey.Trim();
+
+        foreach (var file in orderedFiles)
+        {
+            foreach (var tag in file.Metadata.GetStorageTagsExcludingService(structuralTagServiceKey))
+            {
+                if (tag.StartsWith("creator:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var creator = tag["creator:".Length..].Trim();
+                    if (!string.IsNullOrWhiteSpace(creator))
+                    {
+                        return creator;
+                    }
+                }
+            }
+        }
+
+        return string.Empty;
     }
 
     /// <summary>
