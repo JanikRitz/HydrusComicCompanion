@@ -1,7 +1,5 @@
 @page "/series/{SeriesId:int}"
-@using HydrusComicCompanion.Data
 @using HydrusComicCompanion.Services
-@using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
 @inject IHydrusMediaService MediaService
@@ -22,21 +20,19 @@ else if (_series is null)
 else
 {
     <MudStack Spacing="3">
-        <div>
-            <MudText Typo="Typo.h4" GutterBottom="true">@_series.Title</MudText>
-            <MudText Typo="Typo.body1" Color="Color.Secondary">
-                @(_series.LastSyncedAt is null ? "Not synced yet" : $"Last synced {_series.LastSyncedAt:yyyy-MM-dd HH:mm}")
-            </MudText>
-        </div>
-
-        @if (!string.IsNullOrWhiteSpace(_series.CoverFileHash))
-        {
-            <MudPaper Outlined="true" Class="pa-2" Style="max-width: 420px;">
-                <img src="@MediaService.BuildRenderUrl(_series.CoverFileHash, width: 800, height: 1200)"
-                     alt="@($"Cover image for {_series.Title}")"
-                     style="width:100%; height:auto; display:block; object-fit:contain;" />
-            </MudPaper>
-        }
+        <MudGrid>
+            <MudItem xs="12" sm="7" md="5" lg="4" xl="3">
+                <ComicSeriesCard
+                    Title="@_series.Title"
+                    CoverFileHash="@_series.CoverFileHash"
+                    LastSyncedAt="@_series.LastSyncedAt"
+                    ChapterCount="@_series.Chapters.Count"
+                    MetadataCount="@_series.Metadata.Count"
+                    TotalPageCount="@GetTotalPageCount(_series)"
+                    RenderWidth="840"
+                    RenderHeight="1260" />
+            </MudItem>
+        </MudGrid>
 
         <MudPaper Class="pa-4" Outlined="true">
             <MudStack Spacing="2">
@@ -84,7 +80,7 @@ else
                                 }
                                 @if (!string.IsNullOrWhiteSpace(previewHash))
                                 {
-                                    <img src="@MediaService.BuildThumbnailUrl(previewHash)"
+                                    <img src="@MediaService.BuildRenderUrl(previewHash, width: 200, height: 200)"
                                          alt="@($"Preview for chapter {chapter.ChapterNumber}")"
                                          style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; display:block;" />
                                 }
@@ -120,6 +116,11 @@ else
                 .ThenInclude(x => x.Pages)
             .SingleOrDefaultAsync(x => x.Id == SeriesId);
         _isLoading = false;
+    }
+
+    private static int GetTotalPageCount(SeriesRecord series)
+    {
+        return series.Chapters.Sum(chapter => chapter.Pages.Count);
     }
 
     private void GoHome()

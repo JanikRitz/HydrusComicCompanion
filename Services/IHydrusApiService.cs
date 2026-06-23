@@ -46,8 +46,8 @@ public interface IHydrusApiService
     /// Gets a rendered image from Hydrus.
     /// </summary>
     /// <param name="hash">The file hash to retrieve.</param>
-    /// <param name="width">Optional render width. Must be paired with height when provided.</param>
-    /// <param name="height">Optional render height. Must be paired with width when provided.</param>
+    /// <param name="width">Optional maximum render width. Must be paired with height when provided.</param>
+    /// <param name="height">Optional maximum render height. Must be paired with width when provided.</param>
     /// <param name="renderFormat">Optional Hydrus render format enum value.</param>
     /// <param name="renderQuality">Optional render quality value for selected format.</param>
     /// <param name="download">Whether the response should use attachment content disposition.</param>

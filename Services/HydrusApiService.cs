@@ -237,7 +237,7 @@ public class HydrusApiService : IHydrusApiService
         return GetMediaAsync("/get_files/thumbnail", query, "thumbnail", hash, cancellationToken);
     }
 
-    public Task<HydrusMediaResult> GetRenderedImageAsync(
+    public async Task<HydrusMediaResult> GetRenderedImageAsync(
         string hash,
         int? width = null,
         int? height = null,
@@ -249,6 +249,11 @@ public class HydrusApiService : IHydrusApiService
         if ((width.HasValue && !height.HasValue) || (!width.HasValue && height.HasValue))
         {
             throw new ArgumentException("Width and height must both be provided when one is specified.");
+        }
+
+        if ((width.HasValue && width.Value <= 0) || (height.HasValue && height.Value <= 0))
+        {
+            throw new ArgumentException("Width and height must be greater than zero when provided.");
         }
 
         var queryParams = new List<string>
@@ -273,12 +278,13 @@ public class HydrusApiService : IHydrusApiService
 
         if (width.HasValue && height.HasValue)
         {
-            queryParams.Add($"width={width.Value}");
-            queryParams.Add($"height={height.Value}");
+            var resolvedDimensions = await ResolveRenderDimensionsAsync(hash, width.Value, height.Value, cancellationToken);
+            queryParams.Add($"width={resolvedDimensions.Width}");
+            queryParams.Add($"height={resolvedDimensions.Height}");
         }
 
         var query = string.Join("&", queryParams);
-        return GetMediaAsync("/get_files/render", query, "rendered image", hash, cancellationToken);
+        return await GetMediaAsync("/get_files/render", query, "rendered image", hash, cancellationToken);
     }
 
     public Task<HydrusMediaResult> GetOriginalFileAsync(string hash, bool download = false, CancellationToken cancellationToken = default)
@@ -405,6 +411,80 @@ public class HydrusApiService : IHydrusApiService
         }
 
         return string.Empty;
+    }
+
+    private async Task<(int Width, int Height)> ResolveRenderDimensionsAsync(
+        string hash,
+        int maxWidth,
+        int maxHeight,
+        CancellationToken cancellationToken)
+    {
+        var originalDimensions = await TryGetImageDimensionsAsync(hash, cancellationToken);
+        if (!originalDimensions.HasValue)
+        {
+            return (maxWidth, maxHeight);
+        }
+
+        var (originalWidth, originalHeight) = originalDimensions.Value;
+
+        var scale = Math.Min((double)maxWidth / originalWidth, (double)maxHeight / originalHeight);
+        if (scale >= 1d)
+        {
+            return (originalWidth, originalHeight);
+        }
+
+        var targetWidth = Math.Clamp((int)Math.Floor(originalWidth * scale), 1, maxWidth);
+        var targetHeight = Math.Clamp((int)Math.Floor(originalHeight * scale), 1, maxHeight);
+
+        return (targetWidth, targetHeight);
+    }
+
+    private async Task<(int Width, int Height)?> TryGetImageDimensionsAsync(string hash, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/get_files/file_metadata";
+
+            var queryParams = new Dictionary<string, string>
+            {
+                ["hashes"] = JsonSerializer.Serialize(new[] { hash }),
+                ["create_new_file_ids"] = "false",
+                ["only_return_identifiers"] = "false",
+                ["only_return_basic_information"] = "true",
+                ["detailed_url_information"] = "false",
+                ["include_blurhash"] = "false",
+                ["include_milliseconds"] = "false",
+                ["include_notes"] = "false",
+                ["include_services_object"] = "false"
+            };
+
+            var queryString = string.Join("&", queryParams.Select(kvp =>
+                $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
+            var fullUrl = $"{url}?{queryString}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
+            AddApiKeyHeader(request, settings);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var metadataResponse = JsonSerializer.Deserialize<FileMetadataResponse>(jsonContent);
+            var metadata = metadataResponse?.Metadata?.FirstOrDefault();
+
+            if (metadata is null || metadata.Width <= 0 || metadata.Height <= 0)
+            {
+                return null;
+            }
+
+            return (metadata.Width, metadata.Height);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not resolve original image dimensions for hash {Hash} before rendering.", hash);
+            return null;
+        }
     }
 
     private async Task<HydrusMediaResult> GetMediaAsync(

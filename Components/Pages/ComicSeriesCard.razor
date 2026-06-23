@@ -1,0 +1,84 @@
+@using HydrusComicCompanion.Services
+@inject IHydrusMediaService MediaService
+
+<div class="comic-series-card @(IsClickable ? "comic-series-card--clickable" : string.Empty)"
+     @onclick="HandleClick"
+     role="@(IsClickable ? "button" : null)">
+    <MudCard Outlined="true" Class="comic-series-card__surface">
+        <div class="comic-series-card__media-wrap">
+            @if (!string.IsNullOrWhiteSpace(CoverFileHash))
+            {
+                <img class="comic-series-card__media"
+                     src="@MediaService.BuildRenderUrl(CoverFileHash, width: RenderWidth, height: RenderHeight)"
+                     alt="@($"Cover image for {Title}")"
+                     loading="lazy" />
+            }
+            else
+            {
+                <div class="comic-series-card__placeholder">
+                    <MudIcon Icon="@Icons.Material.Filled.ImageNotSupported" Size="Size.Large" />
+                </div>
+            }
+
+            <div class="comic-series-card__info-icon">
+                <MudTooltip Text="@LastSyncedLabel">
+                    <MudIconButton Icon="@Icons.Material.Filled.Info" Color="Color.Inherit" Variant="Variant.Text" Size="Size.Small" />
+                </MudTooltip>
+            </div>
+
+            <div class="comic-series-card__overlay">
+                <MudText Typo="Typo.subtitle1" Class="comic-series-card__title">@Title</MudText>
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="comic-series-card__stats">
+                    <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Icon="@Icons.Material.Filled.MenuBook">@ChapterCount</MudChip>
+                    <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Icon="@Icons.Material.Filled.LocalOffer">@MetadataCount</MudChip>
+                    <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Icon="@Icons.Material.Filled.Collections">@TotalPageCount</MudChip>
+                </MudStack>
+            </div>
+        </div>
+    </MudCard>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? CoverFileHash { get; set; }
+
+    [Parameter]
+    public DateTimeOffset? LastSyncedAt { get; set; }
+
+    [Parameter]
+    public int ChapterCount { get; set; }
+
+    [Parameter]
+    public int MetadataCount { get; set; }
+
+    [Parameter]
+    public int TotalPageCount { get; set; }
+
+    [Parameter]
+    public int RenderWidth { get; set; } = 720;
+
+    [Parameter]
+    public int RenderHeight { get; set; } = 1080;
+
+    [Parameter]
+    public EventCallback OnClick { get; set; }
+
+    private bool IsClickable => OnClick.HasDelegate;
+
+    private string LastSyncedLabel => LastSyncedAt is null
+        ? "Not synced yet"
+        : $"Last synced {LastSyncedAt:yyyy-MM-dd HH:mm}";
+
+    private Task HandleClick()
+    {
+        if (!IsClickable)
+        {
+            return Task.CompletedTask;
+        }
+
+        return OnClick.InvokeAsync();
+    }
+}
