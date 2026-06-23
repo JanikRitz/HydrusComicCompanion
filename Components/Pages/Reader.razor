@@ -18,8 +18,8 @@ else if (!string.IsNullOrWhiteSpace(_errorMessage))
         <MudAlert Severity="Severity.Error" Variant="Variant.Filled" Class="reader-alert">
             @_errorMessage
         </MudAlert>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GoBackToSeries">
-            Back to title
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="GoBackToComic">
+            Back to comic
         </MudButton>
     </div>
 }
@@ -60,8 +60,8 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 <MudDivider Vertical="true" FlexItem="true" />
                 <MudText Typo="Typo.body2">Page @_currentPageNumber of @_pages.Count</MudText>
                 <MudDivider Vertical="true" FlexItem="true" />
-                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.MenuBook" OnClick="GoBackToSeries">
-                    Title
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.MenuBook" OnClick="GoBackToComic">
+                    Comic
                 </MudButton>
             </MudStack>
         </MudPaper>
@@ -325,7 +325,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         NavigationManager.NavigateTo(BuildReaderUrl(ComicId, chapter.Id, pageNumber));
     }
 
-    private void GoBackToSeries()
+    private void GoBackToComic()
     {
         NavigationManager.NavigateTo($"/comic/{ComicId}");
     }
@@ -366,7 +366,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         }
         else if (args.Key is "Escape")
         {
-            GoBackToSeries();
+            GoBackToComic();
         }
     }
 
