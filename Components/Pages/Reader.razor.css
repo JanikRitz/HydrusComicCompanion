@@ -1,0 +1,102 @@
+.reader-shell {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: #000;
+    overflow: hidden;
+    outline: none;
+    touch-action: manipulation;
+}
+
+.reader-shell--loading,
+.reader-shell--error {
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 2rem;
+}
+
+.reader-alert {
+    max-width: min(42rem, calc(100vw - 2rem));
+}
+
+.reader-topbar {
+    position: relative;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(18, 18, 18, 0.82);
+    color: var(--mud-palette-text-primary);
+    backdrop-filter: blur(12px);
+}
+
+.reader-topbar__title {
+    min-width: 0;
+}
+
+.reader-topbar__controls {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.reader-canvas {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem;
+    min-height: 0;
+}
+
+.reader-page {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 24px 64px rgba(0, 0, 0, 0.55);
+    background: #111;
+}
+
+.reader-click-zone {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 2;
+    width: 20vw;
+    min-width: 4rem;
+    cursor: pointer;
+}
+
+.reader-click-zone--previous {
+    left: 0;
+}
+
+.reader-click-zone--next {
+    right: 0;
+}
+
+@media (max-width: 960px) {
+    .reader-topbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .reader-topbar__controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .reader-click-zone {
+        width: 25vw;
+    }
+}

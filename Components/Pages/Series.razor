@@ -69,6 +69,7 @@ else
                                     <MudTh>Chapter</MudTh>
                                     <MudTh>Title</MudTh>
                                     <MudTh>Pages</MudTh>
+                                    <MudTh></MudTh>
                                 </HeaderContent>
                                 <RowTemplate Context="chapter">
                                     <MudTd DataLabel="Preview">
@@ -89,6 +90,15 @@ else
                                     <MudTd DataLabel="Chapter">@chapter.ChapterNumber</MudTd>
                                     <MudTd DataLabel="Title">@(chapter.Title ?? "-")</MudTd>
                                     <MudTd DataLabel="Pages">@chapter.Pages.Count</MudTd>
+                                    <MudTd DataLabel="Read">
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Size="Size.Small"
+                                                   StartIcon="@Icons.Material.Filled.MenuBook"
+                                                   Disabled="@(!chapter.Pages.Any())"
+                                                   OnClick="() => OpenReader(chapter.Id)">
+                                            Read
+                                        </MudButton>
+                                    </MudTd>
                                 </RowTemplate>
                             </MudTable>
                         }
@@ -127,5 +137,10 @@ else
     private void GoHome()
     {
         NavigationManager.NavigateTo("/");
+    }
+
+    private void OpenReader(int chapterId)
+    {
+        NavigationManager.NavigateTo($"/read/{SeriesId}/{chapterId}/1");
     }
 }
