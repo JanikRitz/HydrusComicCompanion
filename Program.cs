@@ -42,6 +42,7 @@ builder.Services.AddSingleton<IHydrusSettingsService, HydrusSettingsService>();
 builder.Services.AddScoped<IHydrusApiService, HydrusApiService>();
 builder.Services.AddScoped<IHydrusSyncService, HydrusSyncService>();
 builder.Services.AddScoped<IHydrusMediaService, HydrusMediaService>();
+builder.Services.AddScoped<IComicImportService, ComicImportService>();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
