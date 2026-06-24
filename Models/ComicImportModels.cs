@@ -22,8 +22,17 @@ public sealed class ImportPage
     /// <summary>MIME type inferred from the file extension or source metadata.</summary>
     public string MimeType { get; set; } = "image/jpeg";
 
-    /// <summary>Editable 1-based page number used for page tags during import.</summary>
+    /// <summary>
+    /// Computed 1-based page number written to Hydrus during import.
+    /// Set by <c>ImportWizardState.BuildImportRequest</c>; do not edit directly in the wizard UI.
+    /// </summary>
     public int? PageNumber { get; set; }
+
+    /// <summary>
+    /// Number of source pages that are missing immediately before this page.
+    /// Each unit adds +1 to this page's final number and all subsequent pages in the same chapter.
+    /// </summary>
+    public int GapBefore { get; set; }
 }
 
 /// <summary>

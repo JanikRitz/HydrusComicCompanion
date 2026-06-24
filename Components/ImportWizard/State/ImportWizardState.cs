@@ -101,11 +101,6 @@ public class ImportWizardState
         Pages = preparation.Pages;
         ReindexPages();
 
-        for (var i = 0; i < Pages.Count; i++)
-        {
-            Pages[i].PageNumber = Pages[i].PageNumber is > 0 ? Pages[i].PageNumber : i + 1;
-        }
-
         TitleName = preparation.Metadata?.Series?.Trim() ?? string.Empty;
         Creator = preparation.Metadata?.Creator?.Trim() ?? string.Empty;
         VolumeNumber = preparation.Metadata?.VolumeNumber;
@@ -113,6 +108,15 @@ public class ImportWizardState
             ? [.. preparation.ChapterStartPageIndices.Where(i => i >= 0 && i < Pages.Count).Distinct().OrderBy(i => i)]
             : [0];
         UseChapterTags = ChapterStartIndices.Count > 0;
+
+        // Infer gap markers from any existing page numbers (e.g. Hydrus re-import with missing pages),
+        // then clear PageNumber — it is always recomputed from position + gaps at request-build time.
+        InferGapsFromPageNumbers();
+        foreach (var p in Pages)
+        {
+            p.PageNumber = null;
+        }
+
         PageThumbnailDataUrls = [];
         ThumbnailPreloadQueued = false;
         IsPreloadingThumbnails = false;
@@ -156,14 +160,87 @@ public class ImportWizardState
         ThumbnailPreloadQueued = true;
     }
 
-    public void SetPageNumber(int pageIndex, int? pageNumber)
+    // ─── Page Gap Management ─────────────────────────────────────────────
+
+    /// <summary>Returns true when the page at <paramref name="pageIndex"/> has at least one gap marker.</summary>
+    public bool IsPageGap(int pageIndex) => pageIndex > 0 && !ChapterStartIndices.Contains(pageIndex) && Pages[pageIndex].GapBefore > 0;
+
+    /// <summary>Increments the gap counter for the page at <paramref name="pageIndex"/> by one missing page.</summary>
+    public void AddPageGap(int pageIndex)
     {
-        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        if (pageIndex <= 0 || pageIndex >= Pages.Count || ChapterStartIndices.Contains(pageIndex))
         {
             return;
         }
 
-        Pages[pageIndex].PageNumber = pageNumber is > 0 ? pageNumber : null;
+        Pages[pageIndex].GapBefore++;
+    }
+
+    /// <summary>Decrements the gap counter for the page at <paramref name="pageIndex"/> by one (minimum 0).</summary>
+    public void RemovePageGap(int pageIndex)
+    {
+        if (pageIndex <= 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        Pages[pageIndex].GapBefore = Math.Max(0, Pages[pageIndex].GapBefore - 1);
+    }
+
+    /// <summary>
+    /// Computes the final 1-based page number that will be written to Hydrus for the given page.
+    /// Equals the within-chapter position plus the cumulative gap count up to that position.
+    /// </summary>
+    public int ComputeFinalPageNumber(int pageIndex)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return pageIndex + 1;
+        }
+
+        var chapterStart = 0;
+        if (UseChapterTags && ChapterStartIndices.Count > 0)
+        {
+            chapterStart = ChapterStartIndices
+                .Where(s => s <= pageIndex)
+                .DefaultIfEmpty(0)
+                .Max();
+        }
+
+        var withinChapterPos = pageIndex - chapterStart + 1;
+        var gapCount = 0;
+        for (var i = chapterStart; i <= pageIndex; i++)
+        {
+            gapCount += Pages[i].GapBefore;
+        }
+
+        return withinChapterPos + gapCount;
+    }
+
+    /// <summary>
+    /// Infers <see cref="ImportPage.GapBefore"/> values from existing <see cref="ImportPage.PageNumber"/> values.
+    /// Called inside <see cref="ApplyPreparation"/> so that Hydrus re-imports with non-sequential tags
+    /// (e.g. 1, 2, 3, 5, 6) are automatically converted to the equivalent gap representation.
+    /// </summary>
+    private void InferGapsFromPageNumbers()
+    {
+        var chapterStarts = (UseChapterTags && ChapterStartIndices.Count > 0)
+            ? ChapterStartIndices.OrderBy(i => i).ToList()
+            : (List<int>)[0];
+
+        for (var ci = 0; ci < chapterStarts.Count; ci++)
+        {
+            var start = chapterStarts[ci];
+            var end = ci + 1 < chapterStarts.Count ? chapterStarts[ci + 1] : Pages.Count;
+
+            var expected = 1;
+            for (var i = start; i < end; i++)
+            {
+                var actual = Pages[i].PageNumber is > 0 ? Pages[i].PageNumber!.Value : (i - start + 1);
+                Pages[i].GapBefore = Math.Max(0, actual - expected);
+                expected = actual + 1;
+            }
+        }
     }
 
     private void RemapChapterStartsAfterMove(int fromIndex, int toIndex)
@@ -261,12 +338,26 @@ public class ImportWizardState
 
     public ComicImportRequest BuildImportRequest()
     {
+        // Compute final page numbers and snapshot into a new list so the wizard state is not mutated.
+        var pagesWithNumbers = Pages
+            .Select((p, i) => new ImportPage
+            {
+                Index = p.Index,
+                ArchiveFileName = p.ArchiveFileName,
+                Data = p.Data,
+                Sha256Hash = p.Sha256Hash,
+                MimeType = p.MimeType,
+                GapBefore = p.GapBefore,
+                PageNumber = ComputeFinalPageNumber(i)
+            })
+            .ToList();
+
         return new ComicImportRequest
         {
             SeriesName = TitleName.Trim(),
             Creator = string.IsNullOrWhiteSpace(Creator) ? null : Creator.Trim(),
             VolumeNumber = VolumeNumber,
-            Pages = Pages,
+            Pages = pagesWithNumbers,
             CustomTags = string.IsNullOrWhiteSpace(CustomTags)
                 ? []
                 : [.. CustomTags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)

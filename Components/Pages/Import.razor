@@ -72,7 +72,8 @@
                                   OnChapterStartAdded="@HandleChapterStartAdded"
                                   OnChapterStartRemoved="@HandleChapterStartRemoved"
                                   OnPageMoved="@HandlePageMoved"
-                                  OnPageNumberChanged="@HandlePageNumberChanged"
+                                  OnPageGapAdded="@HandlePageGapAdded"
+                                  OnPageGapRemoved="@HandlePageGapRemoved"
                                   OnImport="@StartImportAsync"
                                   OnBack="@_state.GoToMetadata" />
             break;
@@ -213,9 +214,14 @@
         _state.MovePage(move.FromIndex, move.ToIndex);
     }
 
-    private void HandlePageNumberChanged((int PageIndex, int? PageNumber) update)
+    private void HandlePageGapAdded(int pageIndex)
     {
-        _state.SetPageNumber(update.PageIndex, update.PageNumber);
+        _state.AddPageGap(pageIndex);
+    }
+
+    private void HandlePageGapRemoved(int pageIndex)
+    {
+        _state.RemovePageGap(pageIndex);
     }
 
     // ─── Import Execution ───────────────────────────────────────────────

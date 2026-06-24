@@ -15,11 +15,9 @@
             <HeaderContent>
                 <MudTh>Move</MudTh>
                 <MudTh>Preview</MudTh>
-                <MudTh>Order</MudTh>
-                <MudTh>Tag Page #</MudTh>
-                <MudTh>File</MudTh>
+                <MudTh>Page #</MudTh>
                 <MudTh>Chapter</MudTh>
-                <MudTh></MudTh>
+                <MudTh>Actions</MudTh>
             </HeaderContent>
             <RowTemplate>
                 @{ var pageIndex = context.Index; }
@@ -43,32 +41,27 @@
                     </MudStack>
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
-                    @if (PageThumbnails.TryGetValue(pageIndex, out var thumbnailUrl))
-                    {
-                        <img src="@thumbnailUrl"
-                             alt="@($"Preview for page {pageIndex + 1}")"
-                             loading="lazy"
-                             decoding="async"
-                             style="width: 64px; height: 64px; object-fit: cover; border-radius: 4px; display:block;" />
-                    }
-                    else
-                    {
-                        <MudSkeleton Width="64px" Height="64px" Animation="Animation.Wave" />
-                    }
+                    <MudTooltip Text="@System.IO.Path.GetFileName(context.ArchiveFileName)" Placement="Placement.Right">
+                        @if (PageThumbnails.TryGetValue(pageIndex, out var thumbnailUrl))
+                        {
+                            <img src="@thumbnailUrl"
+                                 alt="@System.IO.Path.GetFileName(context.ArchiveFileName)"
+                                 loading="lazy"
+                                 decoding="async"
+                                 style="width: 64px; height: 64px; object-fit: cover; border-radius: 4px; display:block; cursor:default;" />
+                        }
+                        else
+                        {
+                            <MudSkeleton Width="64px" Height="64px" Animation="Animation.Wave" />
+                        }
+                    </MudTooltip>
                 </MudTd>
-                <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">@(pageIndex + 1)</MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
-                    <MudNumericField T="int?"
-                                     Value="context.PageNumber"
-                                     ValueChanged="@((int? value) => OnPageNumberEdited(pageIndex, value))"
-                                     Immediate="true"
-                                     Min="1"
-                                     Variant="Variant.Outlined"
-                                     Margin="Margin.Dense"
-                                     Style="max-width:110px;" />
-                </MudTd>
-                <MudTd Style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
-                    @System.IO.Path.GetFileName(context.ArchiveFileName)
+                    <MudText Typo="Typo.body1">@ComputeFinalPageNumber(pageIndex)</MudText>
+                    @if (context.GapBefore > 0)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Warning">+@context.GapBefore gap</MudText>
+                    }
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
                     @if (UseChapterTags)
@@ -88,32 +81,68 @@
                     }
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
-                    @if (!UseChapterTags)
-                    {
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">No chapter tags</MudText>
-                    }
-                    else if (pageIndex == 0)
-                    {
-                        <MudText Typo="Typo.caption" Color="Color.Tertiary">Start</MudText>
-                    }
-                    else if (IsChapterStart(pageIndex))
-                    {
-                        <MudButton Size="Size.Small"
-                                   Color="Color.Error"
-                                   Variant="Variant.Text"
-                                   OnClick="@(() => OnRemoveChapterStart(pageIndex))">
-                            Remove
-                        </MudButton>
-                    }
-                    else
-                    {
-                        <MudButton Size="Size.Small"
-                                   Color="Color.Primary"
-                                   Variant="Variant.Outlined"
-                                   OnClick="@(() => OnAddChapterStart(pageIndex))">
-                            New Chapter
-                        </MudButton>
-                    }
+                    <MudStack Spacing="1">
+                        @if (UseChapterTags)
+                        {
+                            @if (pageIndex == 0)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Tertiary">Start</MudText>
+                            }
+                            else if (IsChapterStart(pageIndex))
+                            {
+                                <MudButton Size="Size.Small"
+                                           Color="Color.Error"
+                                           Variant="Variant.Text"
+                                           OnClick="@(() => OnRemoveChapterStart(pageIndex))">
+                                    Remove Chapter
+                                </MudButton>
+                            }
+                            else
+                            {
+                                <MudButton Size="Size.Small"
+                                           Color="Color.Primary"
+                                           Variant="Variant.Outlined"
+                                           OnClick="@(() => OnAddChapterStart(pageIndex))">
+                                    New Chapter
+                                </MudButton>
+                            }
+                        }
+                        @if (pageIndex > 0 && (!UseChapterTags || !IsChapterStart(pageIndex)))
+                        {
+                            @if (context.GapBefore > 0)
+                            {
+                                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                    <MudChip T="string"
+                                             Size="Size.Small"
+                                             Color="Color.Warning"
+                                             Variant="Variant.Outlined">
+                                        +@context.GapBefore missing
+                                    </MudChip>
+                                    <MudIconButton Size="Size.Small"
+                                                   Icon="@Icons.Material.Filled.Remove"
+                                                   Color="Color.Default"
+                                                   Variant="Variant.Text"
+                                                   Title="Remove one gap"
+                                                   OnClick="@(() => OnRemovePageGap(pageIndex))" />
+                                    <MudIconButton Size="Size.Small"
+                                                   Icon="@Icons.Material.Filled.Add"
+                                                   Color="Color.Warning"
+                                                   Variant="Variant.Text"
+                                                   Title="Add another gap"
+                                                   OnClick="@(() => OnAddPageGap(pageIndex))" />
+                                </MudStack>
+                            }
+                            else
+                            {
+                                <MudButton Size="Size.Small"
+                                           Color="Color.Default"
+                                           Variant="Variant.Outlined"
+                                           OnClick="@(() => OnAddPageGap(pageIndex))">
+                                    + Gap
+                                </MudButton>
+                            }
+                        }
+                    </MudStack>
                 </MudTd>
             </RowTemplate>
         </MudTable>
@@ -153,7 +182,10 @@
     public EventCallback<(int FromIndex, int ToIndex)> OnPageMoved { get; set; }
 
     [Parameter]
-    public EventCallback<(int PageIndex, int? PageNumber)> OnPageNumberChanged { get; set; }
+    public EventCallback<int> OnPageGapAdded { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnPageGapRemoved { get; set; }
 
     [Parameter]
     public EventCallback OnImport { get; set; }
@@ -164,8 +196,8 @@
     private int? _draggedPageIndex;
 
     private string ChapterPlacementHint => UseChapterTags
-        ? "Page 1 starts Chapter 1. Drag pages (or use arrows) to reorder, edit page numbers directly, and set chapter starts as needed."
-        : "Chapter tags are disabled. You can still reorder pages and edit page numbers (including gaps).";
+        ? "Drag pages (or use arrows) to reorder \u2014 page numbers update automatically. Use \u2018New Chapter\u2019 to mark chapter boundaries and \u2018+ Gap\u2019 to indicate a missing source page (shifts all subsequent page numbers in the chapter)."
+        : "Chapter tags are disabled. Drag pages to reorder. Use \u2018+ Gap\u2019 if a source page is missing to keep tag numbering accurate.";
 
     private string ChapterSummary => UseChapterTags
         ? $"{ChapterStartIndices.Count} chapter(s)"
@@ -212,9 +244,35 @@
         await OnPageMoved.InvokeAsync((fromIndex, toIndex));
     }
 
-    private async Task OnPageNumberEdited(int pageIndex, int? pageNumber)
+    private async Task OnAddPageGap(int pageIndex)
     {
-        await OnPageNumberChanged.InvokeAsync((pageIndex, pageNumber));
+        await OnPageGapAdded.InvokeAsync(pageIndex);
+    }
+
+    private async Task OnRemovePageGap(int pageIndex)
+    {
+        await OnPageGapRemoved.InvokeAsync(pageIndex);
+    }
+
+    private int ComputeFinalPageNumber(int pageIndex)
+    {
+        var chapterStart = 0;
+        if (UseChapterTags && ChapterStartIndices.Count > 0)
+        {
+            chapterStart = ChapterStartIndices
+                .Where(s => s <= pageIndex)
+                .DefaultIfEmpty(0)
+                .Max();
+        }
+
+        var withinChapterPos = pageIndex - chapterStart + 1;
+        var gapCount = 0;
+        for (var i = chapterStart; i <= pageIndex; i++)
+        {
+            gapCount += Pages[i].GapBefore;
+        }
+
+        return withinChapterPos + gapCount;
     }
 
     private async Task OnAddChapterStart(int pageIndex)
