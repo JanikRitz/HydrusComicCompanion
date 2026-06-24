@@ -32,6 +32,7 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.VolumeNamespace).IsRequired();
             entity.Property(x => x.ChapterNamespace).IsRequired();
             entity.Property(x => x.PageNamespace).IsRequired();
+            entity.Property(x => x.CoverPageTag).IsRequired();
         });
 
         modelBuilder.Entity<SeriesRecord>(entity =>

@@ -22,6 +22,8 @@ public sealed class HydrusSettings
 
     public string PageNamespace { get; set; } = "page:";
 
+    public string CoverPageTag { get; set; } = "meta:cover page";
+
     public int BackgroundSyncIntervalMinutes { get; set; } = 15;
 
     public HydrusSettings Clone()
@@ -38,6 +40,7 @@ public sealed class HydrusSettings
             VolumeNamespace = VolumeNamespace,
             ChapterNamespace = ChapterNamespace,
             PageNamespace = PageNamespace,
+            CoverPageTag = CoverPageTag,
             BackgroundSyncIntervalMinutes = BackgroundSyncIntervalMinutes
         };
     }

@@ -23,5 +23,7 @@ public sealed class HydrusSettingsRecord
 
     public string PageNamespace { get; set; } = string.Empty;
 
+    public string CoverPageTag { get; set; } = string.Empty;
+
     public int BackgroundSyncIntervalMinutes { get; set; }
 }

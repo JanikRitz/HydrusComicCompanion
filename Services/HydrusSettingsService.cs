@@ -39,6 +39,7 @@ public sealed class HydrusSettingsService(
         settings.VolumeNamespace = stored.VolumeNamespace;
         settings.ChapterNamespace = stored.ChapterNamespace;
         settings.PageNamespace = stored.PageNamespace;
+        settings.CoverPageTag = stored.CoverPageTag;
         settings.BackgroundSyncIntervalMinutes = stored.BackgroundSyncIntervalMinutes;
 
         if (TryUnprotectApiAccessKey(stored.ProtectedApiAccessKey, out var apiAccessKey))
@@ -72,6 +73,7 @@ public sealed class HydrusSettingsService(
         stored.VolumeNamespace = normalized.VolumeNamespace;
         stored.ChapterNamespace = normalized.ChapterNamespace;
         stored.PageNamespace = normalized.PageNamespace;
+        stored.CoverPageTag = normalized.CoverPageTag;
         stored.BackgroundSyncIntervalMinutes = normalized.BackgroundSyncIntervalMinutes;
 
         await context.SaveChangesAsync(cancellationToken);
@@ -132,6 +134,7 @@ public sealed class HydrusSettingsService(
         normalized.VolumeNamespace = NormalizeNamespace(normalized.VolumeNamespace, "volume:");
         normalized.ChapterNamespace = NormalizeNamespace(normalized.ChapterNamespace, "chapter:");
         normalized.PageNamespace = NormalizeNamespace(normalized.PageNamespace, "page:");
+        normalized.CoverPageTag = NormalizeCoverPageTag(normalized.CoverPageTag, "meta:cover page");
         normalized.BackgroundSyncIntervalMinutes = Math.Max(0, normalized.BackgroundSyncIntervalMinutes);
 
         return normalized;
@@ -146,6 +149,12 @@ public sealed class HydrusSettingsService(
         }
 
         return trimmed.EndsWith(':') ? trimmed : $"{trimmed}:";
+    }
+
+    private static string NormalizeCoverPageTag(string value, string fallback)
+    {
+        var trimmed = value.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
     }
 
     private static string NormalizeTitleNamespace(HydrusSettings settings)

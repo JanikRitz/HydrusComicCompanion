@@ -38,13 +38,17 @@ public class HydrusApiService : IHydrusApiService
             var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "title:");
             var pageNamespace = NormalizeNamespace(settings.PageNamespace, "page:");
 
+            var coverPageTag = string.IsNullOrWhiteSpace(settings.CoverPageTag)
+                ? "meta:cover page"
+                : settings.CoverPageTag.Trim();
+
             var discoveryTags = new List<object>
             {
                 $"{titleNamespace}*",
                 new List<string>
                 {
                     $"{pageNamespace}1",
-                    "meta:cover page"
+                    coverPageTag
                 }
             };
 
