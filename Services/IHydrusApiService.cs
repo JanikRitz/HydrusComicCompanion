@@ -24,8 +24,9 @@ public interface IHydrusApiService
     /// </summary>
     /// <param name="tags">List of tags to search for (e.g., ["title:the sandman"])</param>
     /// <param name="fileDomain">Optional file domain to scope the search (defaults to configured settings value)</param>
+    /// <param name="skipTagService">If true, ignores the configured tag service key and searches without it (uses Hydrus default "my tags")</param>
     /// <returns>List of file IDs matching the search criteria</returns>
-    Task<List<long>> SearchFilesAsync(List<string> tags, string? fileDomain = null, CancellationToken cancellationToken = default);
+    Task<List<long>> SearchFilesAsync(List<string> tags, string? fileDomain = null, bool skipTagService = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets detailed metadata for files, including their tags

@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using HydrusComicCompanion.Data;
 using HydrusComicCompanion.Models;
 using Microsoft.EntityFrameworkCore;
@@ -10,18 +9,18 @@ public class HydrusSyncService : IHydrusSyncService
 {
     private readonly IHydrusApiService _apiService;
     private readonly IDbContextFactory<SettingsDbContext> _dbContextFactory;
-    private readonly HydrusSettings _settings;
+    private readonly IHydrusSettingsService _settingsService;
     private readonly ILogger<HydrusSyncService> _logger;
 
     public HydrusSyncService(
         IHydrusApiService apiService,
         IDbContextFactory<SettingsDbContext> dbContextFactory,
-        IOptions<HydrusSettings> settings,
+        IHydrusSettingsService settingsService,
         ILogger<HydrusSyncService> logger)
     {
         _apiService = apiService;
         _dbContextFactory = dbContextFactory;
-        _settings = settings.Value;
+        _settingsService = settingsService;
         _logger = logger;
     }
 
@@ -118,20 +117,33 @@ public class HydrusSyncService : IHydrusSyncService
 
     /// <summary>
     /// Extracts a Hydrus title into pages plus initial metadata/chapter state for the import UI.
+    /// Implements fallback: if no files found with configured tag service, retries with default tag service.
     /// </summary>
     public async Task<ComicImportPreparation> ExtractTitleAsync(string seriesName, CancellationToken cancellationToken = default)
     {
-        var normalizedSeriesName = NormalizeTitleName(seriesName);
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        var normalizedSeriesName = NormalizeTitleName(seriesName, settings);
 
         if (string.IsNullOrWhiteSpace(normalizedSeriesName))
         {
             throw new ArgumentException("Title name cannot be empty.", nameof(seriesName));
         }
-
-        var seriesTag = BuildTitleTag(normalizedSeriesName);
+        
+        var seriesTag = BuildTitleTag(normalizedSeriesName, settings);
         var fileIds = await _apiService.SearchFilesAsync(
             new List<string> { seriesTag },
             cancellationToken: cancellationToken);
+
+        // Fallback: if no files found with configured tag service, retry with default tag service
+        if (fileIds.Count == 0 && !string.IsNullOrWhiteSpace(settings.TagServiceKey))
+        {
+            _logger.LogInformation("No files found for title {TitleName} with configured tag service. Retrying with default tag service.", normalizedSeriesName);
+            fileIds = await _apiService.SearchFilesAsync(
+                new List<string> { seriesTag },
+                fileDomain: null,
+                skipTagService: true,
+                cancellationToken: cancellationToken);
+        }
 
         if (fileIds.Count == 0)
         {
@@ -143,15 +155,17 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken);
-        return BuildImportPreparation(normalizedSeriesName, fileMetadata);
+        return BuildImportPreparation(normalizedSeriesName, fileMetadata, settings);
     }
 
     /// <summary>
     /// Syncs a specific title: fetches all files tagged with the title and structures them.
+    /// Implements fallback: if no files found with configured tag service, retries with default tag service.
     /// </summary>
     public async Task<int?> SyncTitleAsync(string seriesName, CancellationToken cancellationToken = default)
     {
-        var normalizedSeriesName = NormalizeTitleName(seriesName);
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        var normalizedSeriesName = NormalizeTitleName(seriesName, settings);
 
         if (string.IsNullOrWhiteSpace(normalizedSeriesName))
         {
@@ -161,14 +175,25 @@ public class HydrusSyncService : IHydrusSyncService
         try
         {
             _logger.LogInformation("Syncing title: {TitleName}", normalizedSeriesName);
-
+            
             // Build the title search tag
-            var seriesTag = BuildTitleTag(normalizedSeriesName);
+            var seriesTag = BuildTitleTag(normalizedSeriesName, settings);
 
             // Step 1: Search for files with this series tag
             var fileIds = await _apiService.SearchFilesAsync(
                 new List<string> { seriesTag },
                 cancellationToken: cancellationToken);
+
+            // Fallback: if no files found with configured tag service, retry with default tag service
+            if (fileIds.Count == 0 && !string.IsNullOrWhiteSpace(settings.TagServiceKey))
+            {
+                _logger.LogInformation("No files found for title {TitleName} with configured tag service. Retrying with default tag service.", normalizedSeriesName);
+                fileIds = await _apiService.SearchFilesAsync(
+                    new List<string> { seriesTag },
+                    fileDomain: null,
+                    skipTagService: true,
+                    cancellationToken: cancellationToken);
+            }
 
             if (fileIds.Count == 0)
             {
@@ -182,7 +207,7 @@ public class HydrusSyncService : IHydrusSyncService
             var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken);
 
             // Step 3: Parse metadata and structure into volume/chapter/page hierarchy
-            var chapters = ParseFilesIntoChapters(fileMetadata);
+            var chapters = ParseFilesIntoChapters(fileMetadata, settings);
 
             // Step 4: Store in database
             var seriesId = await StoreSeriesInDatabaseAsync(normalizedSeriesName, chapters, fileMetadata, cancellationToken);
@@ -258,14 +283,14 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Builds the editable import payload for a Hydrus title.
     /// </summary>
-    private ComicImportPreparation BuildImportPreparation(string seriesName, List<FileMetadata> fileMetadata)
+    private ComicImportPreparation BuildImportPreparation(string seriesName, List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
         var orderedFiles = fileMetadata
             .Select(file => new HydrusImportFile(
                 file,
-                ExtractNumberFromTag(GetStructuralTags(file), _settings.VolumeNamespace),
-                ExtractDecimalFromTag(GetStructuralTags(file), _settings.ChapterNamespace),
-                ExtractNumberFromTag(GetStructuralTags(file), _settings.PageNamespace)))
+                ExtractNumberFromTag(GetStructuralTags(file, settings), settings.VolumeNamespace),
+                ExtractDecimalFromTag(GetStructuralTags(file, settings), settings.ChapterNamespace),
+                ExtractNumberFromTag(GetStructuralTags(file, settings), settings.PageNamespace)))
             .OrderBy(file => file.Volume ?? int.MaxValue)
             .ThenBy(file => file.Chapter ?? decimal.MaxValue)
             .ThenBy(file => file.Page ?? int.MaxValue)
@@ -288,7 +313,7 @@ public class HydrusSyncService : IHydrusSyncService
         var metadata = new ComicMetadata
         {
             Series = seriesName,
-            Creator = ExtractCreatorMetadata(orderedFiles),
+            Creator = ExtractCreatorMetadata(orderedFiles, settings.TagServiceKey),
             VolumeNumber = orderedFiles.Select(file => file.Volume).FirstOrDefault(volume => volume.HasValue)
         };
 
@@ -313,34 +338,34 @@ public class HydrusSyncService : IHydrusSyncService
     /// Parses files into a chapter/volume/page structure based on tags
     /// </summary>
     private Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>> ParseFilesIntoChapters(
-        List<FileMetadata> fileMetadata)
+        List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
         var chapters = new Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>>();
 
         foreach (var file in fileMetadata)
         {
-            var structuralTags = GetStructuralTags(file);
+            var structuralTags = GetStructuralTags(file, settings);
             if (structuralTags.Count == 0)
             {
                 continue;
             }
 
-            var titleTag = ExtractNamespaceValue(structuralTags, _settings.TitleNamespace);
+            var titleTag = ExtractNamespaceValue(structuralTags, settings.TitleNamespace);
             if (string.IsNullOrWhiteSpace(titleTag))
             {
                 _logger.LogWarning("File {Hash} is missing a title tag in the structural tag service and will be skipped.", file.Hash);
                 continue;
             }
 
-            var pageNumber = ExtractNumberFromTag(structuralTags, _settings.PageNamespace);
+            var pageNumber = ExtractNumberFromTag(structuralTags, settings.PageNamespace);
             if (!pageNumber.HasValue)
             {
                 _logger.LogWarning("File {Hash} is missing a page tag in the structural tag service and will be skipped.", file.Hash);
                 continue;
             }
 
-            var volumeNumber = ExtractNumberFromTag(structuralTags, _settings.VolumeNamespace);
-            var chapterNumber = ExtractDecimalFromTag(structuralTags, _settings.ChapterNamespace);
+            var volumeNumber = ExtractNumberFromTag(structuralTags, settings.VolumeNamespace);
+            var chapterNumber = ExtractDecimalFromTag(structuralTags, settings.ChapterNamespace);
 
             var key = (volumeNumber, chapterNumber);
 
@@ -361,10 +386,8 @@ public class HydrusSyncService : IHydrusSyncService
         decimal? Chapter,
         int? Page);
 
-    private string ExtractCreatorMetadata(IEnumerable<HydrusImportFile> orderedFiles)
+    private string ExtractCreatorMetadata(IEnumerable<HydrusImportFile> orderedFiles, string structuralTagServiceKey)
     {
-        var structuralTagServiceKey = _settings.TagServiceKey.Trim();
-
         foreach (var file in orderedFiles)
         {
             foreach (var tag in file.Metadata.GetStorageTagsExcludingService(structuralTagServiceKey))
@@ -438,7 +461,8 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         // Update series metadata (creators, genres, etc.)
-        UpdateSeriesMetadata(series, allFileMetadata);
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        UpdateSeriesMetadata(series, allFileMetadata, settings);
 
         // Set cover image to the first page of the first chapter if not already set
         if (string.IsNullOrEmpty(series.CoverFileHash) && chapters.Count > 0)
@@ -463,15 +487,14 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Updates series metadata from file tags
     /// </summary>
-    private void UpdateSeriesMetadata(SeriesRecord series, List<FileMetadata> fileMetadata)
+    private void UpdateSeriesMetadata(SeriesRecord series, List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
         var metadataDict = new Dictionary<string, HashSet<string>>();
-        var structuralTagServiceKey = _settings.TagServiceKey.Trim();
 
         // Collect metadata tags from non-structural tag services
         foreach (var file in fileMetadata)
         {
-            var infoTags = file.GetStorageTagsExcludingService(structuralTagServiceKey);
+            var infoTags = file.GetStorageTagsExcludingService(settings.TagServiceKey);
             foreach (var tag in infoTags)
             {
                 // Extract metadata namespace:value tags (e.g., creator:Neil Gaiman)
@@ -482,7 +505,7 @@ public class HydrusSyncService : IHydrusSyncService
                     var value = tag[(colonIndex + 1)..];
 
                     // Skip known structural namespaces
-                    if (IsStructuralNamespace(ns))
+                    if (IsStructuralNamespace(ns, settings))
                     {
                         continue;
                     }
@@ -511,27 +534,27 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Checks if a namespace is a structural namespace (title, volume, chapter, page)
     /// </summary>
-    private bool IsStructuralNamespace(string ns)
+    private bool IsStructuralNamespace(string ns, HydrusSettings settings)
     {
         var normalized = ns.ToLowerInvariant();
-        return normalized == _settings.TitleNamespace.TrimEnd(':').ToLowerInvariant() ||
-               normalized == _settings.VolumeNamespace.TrimEnd(':').ToLowerInvariant() ||
-               normalized == _settings.ChapterNamespace.TrimEnd(':').ToLowerInvariant() ||
-               normalized == _settings.PageNamespace.TrimEnd(':').ToLowerInvariant();
+        return normalized == settings.TitleNamespace.TrimEnd(':').ToLowerInvariant() ||
+               normalized == settings.VolumeNamespace.TrimEnd(':').ToLowerInvariant() ||
+               normalized == settings.ChapterNamespace.TrimEnd(':').ToLowerInvariant() ||
+               normalized == settings.PageNamespace.TrimEnd(':').ToLowerInvariant();
     }
 
-    private string BuildTitleTag(string seriesName)
+    private string BuildTitleTag(string seriesName, HydrusSettings settings)
     {
-        var namespacePrefix = _settings.TitleNamespace.Trim().TrimEnd(':');
+        var namespacePrefix = settings.TitleNamespace.Trim().TrimEnd(':');
         return string.IsNullOrWhiteSpace(namespacePrefix)
             ? seriesName
             : $"{namespacePrefix}:{seriesName}";
     }
 
-    private string NormalizeTitleName(string userInput)
+    private string NormalizeTitleName(string userInput, HydrusSettings settings)
     {
         var trimmed = userInput.Trim();
-        var namespacePrefix = _settings.TitleNamespace.Trim().TrimEnd(':');
+        var namespacePrefix = settings.TitleNamespace.Trim().TrimEnd(':');
 
         if (string.IsNullOrWhiteSpace(namespacePrefix))
         {
@@ -547,9 +570,9 @@ public class HydrusSyncService : IHydrusSyncService
         return trimmed;
     }
 
-    private IReadOnlyList<string> GetStructuralTags(FileMetadata file)
+    private IReadOnlyList<string> GetStructuralTags(FileMetadata file, HydrusSettings settings)
     {
-        var structuralTagServiceKey = _settings.TagServiceKey.Trim();
+        var structuralTagServiceKey = settings.TagServiceKey.Trim();
         if (!string.IsNullOrWhiteSpace(structuralTagServiceKey))
         {
             return file.GetStorageTagsForService(structuralTagServiceKey);

@@ -52,7 +52,7 @@ public class HydrusApiService : IHydrusApiService
                 }
             };
 
-            var fileIds = await SearchFilesInternalAsync(settings, discoveryTags, settings.TargetFileDomain, cancellationToken);
+            var fileIds = await SearchFilesInternalAsync(settings, discoveryTags, settings.TargetFileDomain, skipTagService: false, cancellationToken);
             if (fileIds.Count == 0)
             {
                 _logger.LogInformation("Discovered 0 titles from Hydrus (no files matched title discovery query).");
@@ -99,12 +99,13 @@ public class HydrusApiService : IHydrusApiService
     public async Task<List<long>> SearchFilesAsync(
         List<string> tags,
         string? fileDomain = null,
+        bool skipTagService = false,
         CancellationToken cancellationToken = default)
     {
         try
         {
             var settings = await _settingsService.GetSettingsAsync(cancellationToken);
-            var fileIds = await SearchFilesInternalAsync(settings, tags, fileDomain, cancellationToken);
+            var fileIds = await SearchFilesInternalAsync(settings, tags, fileDomain, skipTagService, cancellationToken);
 
             _logger.LogInformation("Found {Count} files matching tags: {Tags}", fileIds.Count, string.Join(", ", tags));
             return fileIds;
@@ -524,6 +525,7 @@ public class HydrusApiService : IHydrusApiService
         HydrusSettings settings,
         object tags,
         string? fileDomain,
+        bool skipTagService,
         CancellationToken cancellationToken)
     {
         var url = $"{settings.ApiUrl}/get_files/search_files";
@@ -532,47 +534,87 @@ public class HydrusApiService : IHydrusApiService
             ? settings.TargetFileDomain
             : fileDomain;
         var fileDomainKey = await ResolveFileDomainKeyAsync(settings, selectedFileDomain, cancellationToken);
+        
+        var queryParams = new Dictionary<string, string> { ["tags"] = JsonSerializer.Serialize(tags) };
+        
+        if (!string.IsNullOrWhiteSpace(fileDomainKey)) queryParams["file_domain"] = fileDomainKey;
 
-        var queryParams = new Dictionary<string, string>
-        {
-            ["tags"] = JsonSerializer.Serialize(tags)
-        };
-
-        if (!string.IsNullOrWhiteSpace(fileDomainKey))
-        {
-            queryParams["file_domain"] = fileDomainKey;
-        }
-
-        if (!string.IsNullOrWhiteSpace(settings.TagServiceKey))
+        // Try searching with the configured tag service first (unless explicitly skipped)
+        if (!skipTagService && !string.IsNullOrWhiteSpace(settings.TagServiceKey))
         {
             queryParams["tag_service_key"] = settings.TagServiceKey;
+
+            var queryString = string.Join("&", queryParams.Select(kvp => $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
+
+            var fullUrl = $"{url}?{queryString}";
+            _logger.LogDebug("Hydrus file search request URL: {RequestUrl}", fullUrl);
+
+            var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
+            AddApiKeyHeader(request, settings);
+
+            try
+            {
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                    var searchResponse = JsonSerializer.Deserialize<FileSearchResponse>(jsonContent);
+                    return searchResponse?.FileIds?.ToList() ?? new List<long>();
+                }
+
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogWarning(
+                    "Hydrus file search with configured tag service failed (Status: {StatusCode}). URL: {RequestUrl}. Response: {ResponseBody}. Falling back to default tag service.",
+                    (int)response.StatusCode,
+                    fullUrl,
+                    errorContent);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Hydrus file search with configured tag service failed. Falling back to default tag service.");
+            }
         }
 
-        var queryString = string.Join("&", queryParams.Select(kvp =>
-            $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
-
-        var fullUrl = $"{url}?{queryString}";
-        _logger.LogDebug("Hydrus file search request URL: {RequestUrl}", fullUrl);
-
-        var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
-        AddApiKeyHeader(request, settings);
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        // Fallback/direct search: search without tag service key (uses Hydrus default "my tags")
         {
-            var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogError(
-                "Hydrus file search failed. Status: {StatusCode}. URL: {RequestUrl}. Response: {ResponseBody}",
-                (int)response.StatusCode,
-                fullUrl,
-                errorContent);
-            response.EnsureSuccessStatusCode();
+            var queryString = string.Join("&", queryParams.Select(kvp =>
+                $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
+
+            var fullUrl = $"{url}?{queryString}";
+            var debugMessage = skipTagService
+                ? "Hydrus file search request URL (skipping configured tag service): {RequestUrl}"
+                : "Hydrus file search request URL (fallback to default tag service): {RequestUrl}";
+            _logger.LogDebug(debugMessage, fullUrl);
+
+            var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
+            AddApiKeyHeader(request, settings);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Hydrus file search failed. Status: {StatusCode}. URL: {RequestUrl}. Response: {ResponseBody}",
+                    (int)response.StatusCode,
+                    fullUrl,
+                    errorContent);
+                response.EnsureSuccessStatusCode();
+            }
+
+            var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var searchResponse = JsonSerializer.Deserialize<FileSearchResponse>(jsonContent);
+
+            if (skipTagService && !string.IsNullOrWhiteSpace(settings.TagServiceKey))
+            {
+                _logger.LogInformation("File search succeeded with skipTagService option, bypassing configured tag service.");
+            }
+            else if (!skipTagService && !string.IsNullOrWhiteSpace(settings.TagServiceKey))
+            {
+                _logger.LogInformation("File search succeeded using default tag service as fallback from configured tag service.");
+            }
+
+            return searchResponse?.FileIds?.ToList() ?? new List<long>();
         }
-
-        var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
-        var searchResponse = JsonSerializer.Deserialize<FileSearchResponse>(jsonContent);
-
-        return searchResponse?.FileIds?.ToList() ?? new List<long>();
     }
 
     private static string NormalizeNamespace(string namespaceName, string fallback)
