@@ -1,0 +1,70 @@
+@using HydrusComicCompanion.Services
+@inject IHydrusMediaService MediaService
+
+<div class="chapter-card">
+    <MudCard Outlined="true" Class="chapter-card__surface">
+        <div class="chapter-card__media-wrap">
+            @if (!string.IsNullOrWhiteSpace(PreviewFileHash))
+            {
+                <img class="chapter-card__media"
+                     src="@MediaService.BuildRenderUrl(PreviewFileHash, width: RenderWidth, height: RenderHeight)"
+                     alt="@($"Preview for {ChapterLabel}")"
+                     loading="lazy" />
+            }
+            else
+            {
+                <div class="chapter-card__placeholder">
+                    <MudIcon Icon="@Icons.Material.Filled.ImageNotSupported" Size="Size.Large" />
+                </div>
+            }
+
+            <div class="chapter-card__overlay">
+                <MudText Typo="Typo.body2" Class="chapter-card__subtitle">@ChapterLabel</MudText>
+                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="chapter-card__stats">
+                    <MudChip T="string" Variant="Variant.Filled" Size="Size.Small" Icon="@Icons.Material.Filled.Collections">@PageCount pages</MudChip>
+                </MudStack>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.MenuBook"
+                           Disabled="@(!CanRead)"
+                           OnClick="HandleRead">
+                    Read
+                </MudButton>
+            </div>
+        </div>
+    </MudCard>
+</div>
+
+@code {
+    [Parameter]
+    public string? PreviewFileHash { get; set; }
+    
+    [Parameter, EditorRequired]
+    public string ChapterLabel { get; set; } = string.Empty;
+
+    [Parameter]
+    public int PageCount { get; set; }
+
+    [Parameter]
+    public int RenderWidth { get; set; } = 480;
+
+    [Parameter]
+    public int RenderHeight { get; set; } = 720;
+
+    [Parameter]
+    public bool CanRead { get; set; }
+
+    [Parameter]
+    public EventCallback OnRead { get; set; }
+
+    private Task HandleRead()
+    {
+        if (!CanRead || !OnRead.HasDelegate)
+        {
+            return Task.CompletedTask;
+        }
+
+        return OnRead.InvokeAsync();
+    }
+}

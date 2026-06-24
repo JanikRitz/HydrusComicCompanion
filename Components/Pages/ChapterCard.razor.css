@@ -1,0 +1,64 @@
+.chapter-card {
+    height: 100%;
+}
+
+.chapter-card__surface {
+    height: 100%;
+    overflow: hidden;
+}
+
+.chapter-card__media-wrap {
+    position: relative;
+    aspect-ratio: 4 / 5;
+    background: var(--mud-palette-surface);
+}
+
+.chapter-card__media {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+    object-position: center center;
+}
+
+.chapter-card__placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mud-palette-text-secondary);
+    background: linear-gradient(160deg, rgba(var(--mud-palette-primary-rgb), 0.15), rgba(var(--mud-palette-surface-rgb), 0.9));
+}
+
+.chapter-card__overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+    padding: 16px;
+    color: white;
+    background: linear-gradient(to top, rgba(8, 10, 14, 0.96) 5%, rgba(8, 10, 14, 0.72) 45%, rgba(8, 10, 14, 0.08) 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.chapter-card__title {
+    font-weight: 600;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.chapter-card__subtitle {
+    color: rgba(255, 255, 255, 0.88);
+}
+
+.chapter-card__stats :deep(.mud-chip) {
+    background: rgba(255, 255, 255, 0.16);
+    color: white;
+    backdrop-filter: blur(2px);
+}
