@@ -99,11 +99,18 @@ public class ImportWizardState
     public void ApplyPreparation(ComicImportPreparation preparation)
     {
         Pages = preparation.Pages;
+        ReindexPages();
+
+        for (var i = 0; i < Pages.Count; i++)
+        {
+            Pages[i].PageNumber = Pages[i].PageNumber is > 0 ? Pages[i].PageNumber : i + 1;
+        }
+
         TitleName = preparation.Metadata?.Series?.Trim() ?? string.Empty;
         Creator = preparation.Metadata?.Creator?.Trim() ?? string.Empty;
         VolumeNumber = preparation.Metadata?.VolumeNumber;
         ChapterStartIndices = preparation.ChapterStartPageIndices.Count > 0
-            ? [.. preparation.ChapterStartPageIndices.Distinct().OrderBy(i => i)]
+            ? [.. preparation.ChapterStartPageIndices.Where(i => i >= 0 && i < Pages.Count).Distinct().OrderBy(i => i)]
             : [0];
         UseChapterTags = ChapterStartIndices.Count > 0;
         PageThumbnailDataUrls = [];
@@ -115,6 +122,11 @@ public class ImportWizardState
 
     public void AddChapterStart(int pageIndex)
     {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
         ChapterStartIndices.Add(pageIndex);
     }
 
@@ -123,6 +135,74 @@ public class ImportWizardState
         if (pageIndex != 0)
         {
             ChapterStartIndices.Remove(pageIndex);
+        }
+    }
+
+    public void MovePage(int fromIndex, int toIndex)
+    {
+        if (fromIndex < 0 || toIndex < 0 || fromIndex >= Pages.Count || toIndex >= Pages.Count || fromIndex == toIndex)
+        {
+            return;
+        }
+
+        var movedPage = Pages[fromIndex];
+        Pages.RemoveAt(fromIndex);
+        Pages.Insert(toIndex, movedPage);
+
+        RemapChapterStartsAfterMove(fromIndex, toIndex);
+        ReindexPages();
+
+        PageThumbnailDataUrls = [];
+        ThumbnailPreloadQueued = true;
+    }
+
+    public void SetPageNumber(int pageIndex, int? pageNumber)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        Pages[pageIndex].PageNumber = pageNumber is > 0 ? pageNumber : null;
+    }
+
+    private void RemapChapterStartsAfterMove(int fromIndex, int toIndex)
+    {
+        var remapped = new HashSet<int>();
+
+        foreach (var chapterStart in ChapterStartIndices)
+        {
+            if (chapterStart == fromIndex)
+            {
+                remapped.Add(toIndex);
+            }
+            else if (fromIndex < toIndex && chapterStart > fromIndex && chapterStart <= toIndex)
+            {
+                remapped.Add(chapterStart - 1);
+            }
+            else if (toIndex < fromIndex && chapterStart >= toIndex && chapterStart < fromIndex)
+            {
+                remapped.Add(chapterStart + 1);
+            }
+            else
+            {
+                remapped.Add(chapterStart);
+            }
+        }
+
+        ChapterStartIndices = remapped;
+
+        if (UseChapterTags)
+        {
+            ChapterStartIndices.Add(0);
+        }
+    }
+
+    private void ReindexPages()
+    {
+        for (var i = 0; i < Pages.Count; i++)
+        {
+            Pages[i].Index = i;
         }
     }
 
@@ -192,7 +272,9 @@ public class ImportWizardState
                 : [.. CustomTags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                     .Where(tag => !string.IsNullOrWhiteSpace(tag))
                     .Distinct(StringComparer.OrdinalIgnoreCase)],
-            ChapterStartPageIndices = UseChapterTags ? [.. ChapterStartIndices.OrderBy(i => i)] : []
+            ChapterStartPageIndices = UseChapterTags
+                ? [.. ChapterStartIndices.Where(i => i >= 0 && i < Pages.Count).OrderBy(i => i)]
+                : []
         };
     }
 }

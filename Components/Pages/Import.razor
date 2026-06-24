@@ -71,6 +71,8 @@
                                   UseChapterTags="@_state.UseChapterTags"
                                   OnChapterStartAdded="@HandleChapterStartAdded"
                                   OnChapterStartRemoved="@HandleChapterStartRemoved"
+                                  OnPageMoved="@HandlePageMoved"
+                                  OnPageNumberChanged="@HandlePageNumberChanged"
                                   OnImport="@StartImportAsync"
                                   OnBack="@_state.GoToMetadata" />
             break;
@@ -204,6 +206,16 @@
     private void HandleChapterStartRemoved(int pageIndex)
     {
         _state.RemoveChapterStart(pageIndex);
+    }
+
+    private void HandlePageMoved((int FromIndex, int ToIndex) move)
+    {
+        _state.MovePage(move.FromIndex, move.ToIndex);
+    }
+
+    private void HandlePageNumberChanged((int PageIndex, int? PageNumber) update)
+    {
+        _state.SetPageNumber(update.PageIndex, update.PageNumber);
     }
 
     // ─── Import Execution ───────────────────────────────────────────────

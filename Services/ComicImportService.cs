@@ -150,13 +150,15 @@ public sealed class ComicImportService : IComicImportService
 
             if (chapterStarts.Count > 0)
             {
-                var (chapterNumber, pageNumber) = GetChapterAndPage(i, chapterStarts);
+                var (chapterNumber, fallbackPageNumber) = GetChapterAndPage(i, chapterStarts);
+                var pageNumber = ResolvePageNumber(request.Pages[i].PageNumber, fallbackPageNumber);
                 tags.Add(BuildTag(settings.ChapterNamespace, chapterNumber.ToString()));
                 tags.Add(BuildTag(settings.PageNamespace, pageNumber.ToString()));
             }
             else
             {
-                tags.Add(BuildTag(settings.PageNamespace, (i + 1).ToString()));
+                var pageNumber = ResolvePageNumber(request.Pages[i].PageNumber, i + 1);
+                tags.Add(BuildTag(settings.PageNamespace, pageNumber.ToString()));
             }
 
             if (!string.IsNullOrWhiteSpace(request.Creator))
@@ -285,7 +287,8 @@ public sealed class ComicImportService : IComicImportService
                     ArchiveFileName = p.Name,
                     Data = p.Data,
                     Sha256Hash = ComputeSha256(p.Data),
-                    MimeType = GetMimeType(p.Name)
+                    MimeType = GetMimeType(p.Name),
+                    PageNumber = index + 1
                 })
                 .ToList(),
             Metadata = metadata,
@@ -351,7 +354,7 @@ public sealed class ComicImportService : IComicImportService
                 incomingPages.Add(new PageRecord
                 {
                     FileHash = pageHashes[pi],
-                    PageNumber = pi + 1,
+                    PageNumber = ResolvePageNumber(request.Pages[pi].PageNumber, pi + 1),
                     MimeType = pageMimeTypes[pi]
                 });
             }
@@ -387,13 +390,13 @@ public sealed class ComicImportService : IComicImportService
                 var chapterNumber = (decimal?)(ci + 1);
 
                 var incomingPages = new List<PageRecord>();
-                var pageNumber = 1;
+                var fallbackPageNumber = 1;
                 for (var pi = chapterStartIdx; pi < nextChapterStartIdx; pi++)
                 {
                     incomingPages.Add(new PageRecord
                     {
                         FileHash = pageHashes[pi],
-                        PageNumber = pageNumber++,
+                        PageNumber = ResolvePageNumber(request.Pages[pi].PageNumber, fallbackPageNumber++),
                         MimeType = pageMimeTypes[pi]
                     });
                 }
@@ -471,6 +474,9 @@ public sealed class ComicImportService : IComicImportService
         var pageNumber = pageIndex - chapterStart + 1;
         return (chapterNumber, pageNumber);
     }
+
+    private static int ResolvePageNumber(int? pageNumber, int fallback)
+        => pageNumber is > 0 ? pageNumber.Value : fallback;
 
     private static bool HasSamePages(ChapterRecord existingChapter, List<PageRecord> incomingPages)
     {

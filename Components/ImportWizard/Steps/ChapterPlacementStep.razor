@@ -13,18 +13,40 @@
 
         <MudTable Items="@Pages" Dense="true" Hover="true" FixedHeader="true" Height="100%" Style="flex: 1 1 auto; min-height: 0;">
             <HeaderContent>
+                <MudTh>Move</MudTh>
                 <MudTh>Preview</MudTh>
-                <MudTh>Page</MudTh>
+                <MudTh>Order</MudTh>
+                <MudTh>Tag Page #</MudTh>
                 <MudTh>File</MudTh>
                 <MudTh>Chapter</MudTh>
                 <MudTh></MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd>
-                    @if (PageThumbnails.TryGetValue(context.Index, out var thumbnailUrl))
+                @{ var pageIndex = context.Index; }
+                <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <MudIconButton Icon="@Icons.Material.Filled.DragIndicator"
+                                       Variant="Variant.Text"
+                                       Color="Color.Default"
+                                       draggable="true"
+                                       @ondragstart="@(() => OnDragStart(pageIndex))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp"
+                                       Disabled="@(pageIndex == 0)"
+                                       Size="Size.Small"
+                                       Variant="Variant.Text"
+                                       OnClick="@(() => OnMoveClicked(pageIndex, pageIndex - 1))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown"
+                                       Disabled="@(pageIndex >= Pages.Count - 1)"
+                                       Size="Size.Small"
+                                       Variant="Variant.Text"
+                                       OnClick="@(() => OnMoveClicked(pageIndex, pageIndex + 1))" />
+                    </MudStack>
+                </MudTd>
+                <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
+                    @if (PageThumbnails.TryGetValue(pageIndex, out var thumbnailUrl))
                     {
                         <img src="@thumbnailUrl"
-                             alt="@($"Preview for page {context.Index + 1}")"
+                             alt="@($"Preview for page {pageIndex + 1}")"
                              loading="lazy"
                              decoding="async"
                              style="width: 64px; height: 64px; object-fit: cover; border-radius: 4px; display:block;" />
@@ -34,18 +56,28 @@
                         <MudSkeleton Width="64px" Height="64px" Animation="Animation.Wave" />
                     }
                 </MudTd>
-                <MudTd>@(context.Index + 1)</MudTd>
-                <MudTd Style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">@(pageIndex + 1)</MudTd>
+                <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
+                    <MudNumericField T="int?"
+                                     Value="context.PageNumber"
+                                     ValueChanged="@((int? value) => OnPageNumberEdited(pageIndex, value))"
+                                     Immediate="true"
+                                     Min="1"
+                                     Variant="Variant.Outlined"
+                                     Margin="Margin.Dense"
+                                     Style="max-width:110px;" />
+                </MudTd>
+                <MudTd Style="max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
                     @System.IO.Path.GetFileName(context.ArchiveFileName)
                 </MudTd>
-                <MudTd>
+                <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
                     @if (UseChapterTags)
                     {
                         <MudChip T="string"
-                                 Color="@(IsChapterStart(context.Index) ? Color.Primary : Color.Default)"
+                                 Color="@(IsChapterStart(pageIndex) ? Color.Primary : Color.Default)"
                                  Size="Size.Small"
                                  Variant="Variant.Outlined">
-                            Ch. @GetChapterNumber(context.Index)
+                            Ch. @GetChapterNumber(pageIndex)
                         </MudChip>
                     }
                     else
@@ -55,21 +87,21 @@
                         </MudChip>
                     }
                 </MudTd>
-                <MudTd>
+                <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
                     @if (!UseChapterTags)
                     {
                         <MudText Typo="Typo.caption" Color="Color.Secondary">No chapter tags</MudText>
                     }
-                    else if (context.Index == 0)
+                    else if (pageIndex == 0)
                     {
                         <MudText Typo="Typo.caption" Color="Color.Tertiary">Start</MudText>
                     }
-                    else if (IsChapterStart(context.Index))
+                    else if (IsChapterStart(pageIndex))
                     {
                         <MudButton Size="Size.Small"
                                    Color="Color.Error"
                                    Variant="Variant.Text"
-                                   OnClick="@(() => OnRemoveChapterStart(context.Index))">
+                                   OnClick="@(() => OnRemoveChapterStart(pageIndex))">
                             Remove
                         </MudButton>
                     }
@@ -78,7 +110,7 @@
                         <MudButton Size="Size.Small"
                                    Color="Color.Primary"
                                    Variant="Variant.Outlined"
-                                   OnClick="@(() => OnAddChapterStart(context.Index))">
+                                   OnClick="@(() => OnAddChapterStart(pageIndex))">
                             New Chapter
                         </MudButton>
                     }
@@ -118,14 +150,22 @@
     public EventCallback<int> OnChapterStartRemoved { get; set; }
 
     [Parameter]
+    public EventCallback<(int FromIndex, int ToIndex)> OnPageMoved { get; set; }
+
+    [Parameter]
+    public EventCallback<(int PageIndex, int? PageNumber)> OnPageNumberChanged { get; set; }
+
+    [Parameter]
     public EventCallback OnImport { get; set; }
 
     [Parameter]
     public EventCallback OnBack { get; set; }
 
+    private int? _draggedPageIndex;
+
     private string ChapterPlacementHint => UseChapterTags
-        ? "Page 1 always starts Chapter 1. Click New Chapter on any page to begin a new chapter there. Click again (or Remove) to undo."
-        : "Chapter tags are disabled. Pages will be imported as one flat section without chapter tags.";
+        ? "Page 1 starts Chapter 1. Drag pages (or use arrows) to reorder, edit page numbers directly, and set chapter starts as needed."
+        : "Chapter tags are disabled. You can still reorder pages and edit page numbers (including gaps).";
 
     private string ChapterSummary => UseChapterTags
         ? $"{ChapterStartIndices.Count} chapter(s)"
@@ -137,6 +177,44 @@
     {
         var sorted = ChapterStartIndices.OrderBy(i => i).ToList();
         return sorted.Count(s => s <= pageIndex);
+    }
+
+    private void OnDragStart(int pageIndex)
+    {
+        _draggedPageIndex = pageIndex;
+    }
+
+    private async Task OnDrop(int targetPageIndex)
+    {
+        if (!_draggedPageIndex.HasValue)
+        {
+            return;
+        }
+
+        var fromIndex = _draggedPageIndex.Value;
+        _draggedPageIndex = null;
+
+        if (fromIndex == targetPageIndex)
+        {
+            return;
+        }
+
+        await OnPageMoved.InvokeAsync((fromIndex, targetPageIndex));
+    }
+
+    private async Task OnMoveClicked(int fromIndex, int toIndex)
+    {
+        if (toIndex < 0 || toIndex >= Pages.Count || fromIndex == toIndex)
+        {
+            return;
+        }
+
+        await OnPageMoved.InvokeAsync((fromIndex, toIndex));
+    }
+
+    private async Task OnPageNumberEdited(int pageIndex, int? pageNumber)
+    {
+        await OnPageNumberChanged.InvokeAsync((pageIndex, pageNumber));
     }
 
     private async Task OnAddChapterStart(int pageIndex)

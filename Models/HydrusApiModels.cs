@@ -80,6 +80,14 @@ public class FileMetadata
     [JsonPropertyName("tags")]
     public Dictionary<string, ServiceTagBucket> Tags { get; set; } = new();
 
+    /*
+     * The tags structure is similar to the /add_tags/add_tags scheme, excepting that the status numbers are:
+       0 - current
+       1 - pending
+       2 - deleted
+       3 - petitioned
+     */
+
     public IReadOnlyList<string> GetStorageTagsForService(string? serviceKey)
     {
         if (string.IsNullOrWhiteSpace(serviceKey))
@@ -92,8 +100,17 @@ public class FileMetadata
             return Array.Empty<string>();
         }
 
-        return serviceTags.StorageTags
-            .SelectMany(kvp => kvp.Value)
+        // Only use 0 -> current tags 
+        return serviceTags.StorageTags.TryGetValue("0", out var currentTags)
+            ? currentTags.Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            : Array.Empty<string>();
+    }
+    public IReadOnlyList<string> GetAllStorageTags()
+    {
+        return Tags
+            .SelectMany(kvp => kvp.Value.StorageTags.TryGetValue("0", out var currentTags)
+                ? currentTags.AsEnumerable()
+                : Array.Empty<string>())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
@@ -102,8 +119,9 @@ public class FileMetadata
     {
         return Tags
             .Where(kvp => !string.Equals(kvp.Key, excludedServiceKey, StringComparison.OrdinalIgnoreCase))
-            .SelectMany(kvp => kvp.Value.StorageTags.Values)
-            .SelectMany(tags => tags)
+            .SelectMany(kvp => kvp.Value.StorageTags.TryGetValue("0", out var currentTags)
+                ? currentTags.AsEnumerable()
+                : Array.Empty<string>())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }

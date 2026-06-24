@@ -285,12 +285,14 @@ public class HydrusSyncService : IHydrusSyncService
     /// </summary>
     private ComicImportPreparation BuildImportPreparation(string seriesName, List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
+        var useConfiguredTagService = ShouldUseConfiguredTagServiceForStructuralTags(fileMetadata, settings);
+
         var orderedFiles = fileMetadata
             .Select(file => new HydrusImportFile(
                 file,
-                ExtractNumberFromTag(GetStructuralTags(file, settings), settings.VolumeNamespace),
-                ExtractDecimalFromTag(GetStructuralTags(file, settings), settings.ChapterNamespace),
-                ExtractNumberFromTag(GetStructuralTags(file, settings), settings.PageNamespace)))
+                ExtractNumberFromTag(GetStructuralTags(file, settings, useConfiguredTagService), settings.VolumeNamespace),
+                ExtractDecimalFromTag(GetStructuralTags(file, settings, useConfiguredTagService), settings.ChapterNamespace),
+                ExtractNumberFromTag(GetStructuralTags(file, settings, useConfiguredTagService), settings.PageNamespace)))
             .OrderBy(file => file.Volume ?? int.MaxValue)
             .ThenBy(file => file.Chapter ?? decimal.MaxValue)
             .ThenBy(file => file.Page ?? int.MaxValue)
@@ -326,7 +328,8 @@ public class HydrusSyncService : IHydrusSyncService
                     ArchiveFileName = file.Metadata.Hash,
                     Data = [],
                     Sha256Hash = file.Metadata.Hash,
-                    MimeType = file.Metadata.MimeType
+                    MimeType = file.Metadata.MimeType,
+                    PageNumber = file.Page ?? index + 1
                 })
                 .ToList(),
             Metadata = metadata,
@@ -341,10 +344,11 @@ public class HydrusSyncService : IHydrusSyncService
         List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
         var chapters = new Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>>();
+        var useConfiguredTagService = ShouldUseConfiguredTagServiceForStructuralTags(fileMetadata, settings);
 
         foreach (var file in fileMetadata)
         {
-            var structuralTags = GetStructuralTags(file, settings);
+            var structuralTags = GetStructuralTags(file, settings, useConfiguredTagService);
             if (structuralTags.Count == 0)
             {
                 continue;
@@ -570,19 +574,34 @@ public class HydrusSyncService : IHydrusSyncService
         return trimmed;
     }
 
-    private IReadOnlyList<string> GetStructuralTags(FileMetadata file, HydrusSettings settings)
+    private bool ShouldUseConfiguredTagServiceForStructuralTags(List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
         var structuralTagServiceKey = settings.TagServiceKey.Trim();
-        if (!string.IsNullOrWhiteSpace(structuralTagServiceKey))
+        if (string.IsNullOrWhiteSpace(structuralTagServiceKey))
+        {
+            return false;
+        }
+
+        var hasConfiguredPageTags = fileMetadata.Any(file =>
+            ExtractNumberFromTag(file.GetStorageTagsForService(structuralTagServiceKey), settings.PageNamespace).HasValue);
+
+        if (!hasConfiguredPageTags)
+        {
+            _logger.LogInformation("Configured tag service {TagServiceKey} has no page tags for this title. Falling back to all tags for structural parsing.", structuralTagServiceKey);
+        }
+
+        return hasConfiguredPageTags;
+    }
+
+    private IReadOnlyList<string> GetStructuralTags(FileMetadata file, HydrusSettings settings, bool useConfiguredTagService)
+    {
+        var structuralTagServiceKey = settings.TagServiceKey.Trim();
+        if (useConfiguredTagService && !string.IsNullOrWhiteSpace(structuralTagServiceKey))
         {
             return file.GetStorageTagsForService(structuralTagServiceKey);
         }
 
-        return file.Tags
-            .SelectMany(kvp => kvp.Value.StorageTags.Values)
-            .SelectMany(tags => tags)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        return file.GetAllStorageTags();
     }
 
     private static string? ExtractNamespaceValue(IReadOnlyList<string> tags, string namespaceName)

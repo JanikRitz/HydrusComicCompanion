@@ -21,6 +21,9 @@ public sealed class ImportPage
 
     /// <summary>MIME type inferred from the file extension or source metadata.</summary>
     public string MimeType { get; set; } = "image/jpeg";
+
+    /// <summary>Editable 1-based page number used for page tags during import.</summary>
+    public int? PageNumber { get; set; }
 }
 
 /// <summary>
