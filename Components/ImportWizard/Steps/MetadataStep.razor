@@ -5,20 +5,28 @@
             Review and edit the title information. Fields are pre-filled from source metadata where available.
         </MudText>
 
-        <MudTextField @bind-Value="TitleName"
+        <MudTextField Value="@TitleName"
+                      ValueChanged="@TitleNameChanged"
                       Label="Title Name"
                       Required="true"
                       Immediate="true"
                       HelperText="e.g. The Sandman" />
 
-        <MudTextField @bind-Value="Creator"
+        <MudTextField Value="@Creator"
+                      ValueChanged="@CreatorChanged"
                       Label="Creator"
                       Immediate="true"
                       HelperText="e.g. Neil Gaiman (optional)" />
 
-        <MudSwitch @bind-Value="UseChapterTags" Color="Color.Primary" Label="Use chapter tags" />
+        <MudTextField Value="@CustomTags"
+                      ValueChanged="@CustomTagsChanged"
+                      Label="Custom Tags"
+                      Immediate="true"
+                      HelperText="Separate tags with commas, e.g. action, drama, sci-fi" />
 
-        <MudNumericField T="int?" @bind-Value="VolumeNumber"
+        <MudSwitch Value="@UseChapterTags" ValueChanged="@UseChapterTagsChanged" Color="Color.Primary" Label="Use chapter tags" />
+
+        <MudNumericField T="int?" Value="@VolumeNumber" ValueChanged="@VolumeNumberChanged"
                          Label="Volume Number"
                          Clearable="true"
                          HelperText="Optional" />
@@ -47,6 +55,12 @@
 
     [Parameter]
     public EventCallback<string> CreatorChanged { get; set; }
+
+    [Parameter]
+    public string CustomTags { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> CustomTagsChanged { get; set; }
 
     [Parameter]
     public bool UseChapterTags { get; set; }

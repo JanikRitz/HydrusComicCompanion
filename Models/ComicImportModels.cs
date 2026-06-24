@@ -52,6 +52,7 @@ public sealed class ComicImportRequest
     public string? Creator { get; set; }
     public int? VolumeNumber { get; set; }
     public List<ImportPage> Pages { get; set; } = [];
+    public List<string> CustomTags { get; set; } = [];
 
     /// <summary>
     /// 0-based page indices that start a new chapter.

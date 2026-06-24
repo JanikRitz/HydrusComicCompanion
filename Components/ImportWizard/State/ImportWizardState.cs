@@ -40,6 +40,7 @@ public class ImportWizardState
     // ─── Metadata Fields ────────────────────────────────────────────────
     public string TitleName { get; set; } = string.Empty;
     public string Creator { get; set; } = string.Empty;
+    public string CustomTags { get; set; } = string.Empty;
     public int? VolumeNumber { get; set; }
 
     // ─── Progress and Errors ────────────────────────────────────────────
@@ -138,6 +139,7 @@ public class ImportWizardState
         IsPreloadingThumbnails = false;
         TitleName = string.Empty;
         Creator = string.Empty;
+        CustomTags = string.Empty;
         VolumeNumber = null;
         TitleInput = string.Empty;
         ErrorMessage = string.Empty;
@@ -158,6 +160,7 @@ public class ImportWizardState
         IsPreloadingThumbnails = false;
         TitleName = string.Empty;
         Creator = string.Empty;
+        CustomTags = string.Empty;
         VolumeNumber = null;
         ErrorMessage = string.Empty;
         ProgressCurrent = 0;
@@ -184,6 +187,11 @@ public class ImportWizardState
             Creator = string.IsNullOrWhiteSpace(Creator) ? null : Creator.Trim(),
             VolumeNumber = VolumeNumber,
             Pages = Pages,
+            CustomTags = string.IsNullOrWhiteSpace(CustomTags)
+                ? []
+                : [.. CustomTags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(tag => !string.IsNullOrWhiteSpace(tag))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)],
             ChapterStartPageIndices = UseChapterTags ? [.. ChapterStartIndices.OrderBy(i => i)] : []
         };
     }

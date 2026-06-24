@@ -164,6 +164,8 @@ public sealed class ComicImportService : IComicImportService
                 tags.Add($"creator:{request.Creator.Trim()}");
             }
 
+            tags.AddRange(request.CustomTags.Where(tag => !string.IsNullOrWhiteSpace(tag)).Select(tag => tag.Trim()).Distinct(StringComparer.OrdinalIgnoreCase));
+
             await _apiService.AddTagsAsync(pageHashes[i], settings.TagServiceKey, tags, cancellationToken);
         }
 
