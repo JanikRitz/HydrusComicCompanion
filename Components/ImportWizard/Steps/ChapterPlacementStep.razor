@@ -22,22 +22,60 @@
             <RowTemplate>
                 @{ var pageIndex = context.Index; }
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
-                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-                        <MudIconButton Icon="@Icons.Material.Filled.DragIndicator"
-                                       Variant="Variant.Text"
-                                       Color="Color.Default"
-                                       draggable="true"
-                                       @ondragstart="@(() => OnDragStart(pageIndex))" />
-                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp"
-                                       Disabled="@(pageIndex == 0)"
-                                       Size="Size.Small"
-                                       Variant="Variant.Text"
-                                       OnClick="@(() => OnMoveClicked(pageIndex, pageIndex - 1))" />
-                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown"
-                                       Disabled="@(pageIndex >= Pages.Count - 1)"
-                                       Size="Size.Small"
-                                       Variant="Variant.Text"
-                                       OnClick="@(() => OnMoveClicked(pageIndex, pageIndex + 1))" />
+                    <MudStack Spacing="0">
+                        <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                            <MudIconButton Icon="@Icons.Material.Filled.DragIndicator"
+                                           Variant="Variant.Text"
+                                           Color="Color.Default"
+                                           draggable="true"
+                                           @ondragstart="@(() => OnDragStart(pageIndex))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp"
+                                           Disabled="@(pageIndex == 0)"
+                                           Size="Size.Small"
+                                           Variant="Variant.Text"
+                                           OnClick="@(() => OnMoveClicked(pageIndex, pageIndex - 1))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown"
+                                           Disabled="@(pageIndex >= Pages.Count - 1)"
+                                           Size="Size.Small"
+                                           Variant="Variant.Text"
+                                           OnClick="@(() => OnMoveClicked(pageIndex, pageIndex + 1))" />
+                        </MudStack>
+                        @if (UseChapterTags)
+                        {
+                            <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardDoubleArrowUp"
+                                               Disabled="@(pageIndex == GetChapterStartIndex(pageIndex))"
+                                               Size="Size.Small"
+                                               Variant="Variant.Text"
+                                               Color="Color.Primary"
+                                               Title="Move to chapter start"
+                                               OnClick="@(() => OnMoveToChapterStart(pageIndex))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.KeyboardDoubleArrowDown"
+                                               Disabled="@(pageIndex == GetChapterEndIndex(pageIndex))"
+                                               Size="Size.Small"
+                                               Variant="Variant.Text"
+                                               Color="Color.Primary"
+                                               Title="Move to chapter end"
+                                               OnClick="@(() => OnMoveToChapterEnd(pageIndex))" />
+                                @if (VolumeStartIndices.Count > 1)
+                                {
+                                    <MudIconButton Icon="@Icons.Material.Filled.VerticalAlignTop"
+                                                   Disabled="@(pageIndex == GetVolumeStartIndex(pageIndex))"
+                                                   Size="Size.Small"
+                                                   Variant="Variant.Text"
+                                                   Color="Color.Secondary"
+                                                   Title="Move to volume start"
+                                                   OnClick="@(() => OnMoveToVolumeStart(pageIndex))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.VerticalAlignBottom"
+                                                   Disabled="@(pageIndex == GetVolumeEndIndex(pageIndex))"
+                                                   Size="Size.Small"
+                                                   Variant="Variant.Text"
+                                                   Color="Color.Secondary"
+                                                   Title="Move to volume end"
+                                                   OnClick="@(() => OnMoveToVolumeEnd(pageIndex))" />
+                                }
+                            </MudStack>
+                        }
                     </MudStack>
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
@@ -66,12 +104,26 @@
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
                     @if (UseChapterTags)
                     {
-                        <MudChip T="string"
-                                 Color="@(IsChapterStart(pageIndex) ? Color.Primary : Color.Default)"
-                                 Size="Size.Small"
-                                 Variant="Variant.Outlined">
-                            Ch. @GetChapterNumber(pageIndex)
-                        </MudChip>
+                        @if (VolumeStartIndices.Count > 0)
+                        {
+                            var vol = GetVolumeNumberForPage(pageIndex);
+                            var ch = GetChapterWithinVolumeNumber(pageIndex);
+                            <MudChip T="string"
+                                     Color="@(IsChapterStart(pageIndex) ? Color.Primary : Color.Default)"
+                                     Size="Size.Small"
+                                     Variant="Variant.Outlined">
+                                @(vol.HasValue ? $"V{vol} " : "")Ch@(ch)
+                            </MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string"
+                                     Color="@(IsChapterStart(pageIndex) ? Color.Primary : Color.Default)"
+                                     Size="Size.Small"
+                                     Variant="Variant.Outlined">
+                                Ch. @GetChapterNumber(pageIndex)
+                            </MudChip>
+                        }
                     }
                     else
                     {
@@ -84,30 +136,69 @@
                     <MudStack Spacing="1">
                         @if (UseChapterTags)
                         {
-                            @if (pageIndex == 0)
+                            @if (IsVolumeStart(pageIndex))
+                            {
+                                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">Vol.</MudText>
+                                    <MudNumericField T="int"
+                                                     Value="@VolumeStartIndices[pageIndex]"
+                                                     ValueChanged="@((int v) => OnVolumeNumberEdited(pageIndex, v))"
+                                                     Immediate="true"
+                                                     Min="1"
+                                                     Variant="Variant.Outlined"
+                                                     Margin="Margin.Dense"
+                                                     Style="max-width:70px;" />
+                                    @if (pageIndex > 0)
+                                    {
+                                        <MudIconButton Size="Size.Small"
+                                                       Icon="@Icons.Material.Filled.Close"
+                                                       Color="Color.Error"
+                                                       Variant="Variant.Text"
+                                                       Title="Remove volume start"
+                                                       OnClick="@(() => OnRemoveVolumeStart(pageIndex))" />
+                                    }
+                                </MudStack>
+                            }
+                            else if (pageIndex == 0)
                             {
                                 <MudText Typo="Typo.caption" Color="Color.Tertiary">Start</MudText>
                             }
                             else if (IsChapterStart(pageIndex))
                             {
-                                <MudButton Size="Size.Small"
-                                           Color="Color.Error"
-                                           Variant="Variant.Text"
-                                           OnClick="@(() => OnRemoveChapterStart(pageIndex))">
-                                    Remove Chapter
-                                </MudButton>
+                                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                    <MudButton Size="Size.Small"
+                                               Color="Color.Error"
+                                               Variant="Variant.Text"
+                                               OnClick="@(() => OnRemoveChapterStart(pageIndex))">
+                                        Remove Chapter
+                                    </MudButton>
+                                    <MudIconButton Size="Size.Small"
+                                                   Icon="@Icons.Material.Filled.Upgrade"
+                                                   Color="Color.Secondary"
+                                                   Variant="Variant.Text"
+                                                   Title="Promote to volume start"
+                                                   OnClick="@(() => OnAddVolumeStart(pageIndex))" />
+                                </MudStack>
                             }
                             else
                             {
-                                <MudButton Size="Size.Small"
-                                           Color="Color.Primary"
-                                           Variant="Variant.Outlined"
-                                           OnClick="@(() => OnAddChapterStart(pageIndex))">
-                                    New Chapter
-                                </MudButton>
+                                <MudStack Row="true" Spacing="1">
+                                    <MudButton Size="Size.Small"
+                                               Color="Color.Primary"
+                                               Variant="Variant.Outlined"
+                                               OnClick="@(() => OnAddChapterStart(pageIndex))">
+                                        New Chapter
+                                    </MudButton>
+                                    <MudButton Size="Size.Small"
+                                               Color="Color.Secondary"
+                                               Variant="Variant.Outlined"
+                                               OnClick="@(() => OnAddVolumeStart(pageIndex))">
+                                        New Volume
+                                    </MudButton>
+                                </MudStack>
                             }
                         }
-                        @if (pageIndex > 0 && (!UseChapterTags || !IsChapterStart(pageIndex)))
+                        @if (pageIndex > 0 && (!UseChapterTags || (!IsChapterStart(pageIndex) && !IsVolumeStart(pageIndex))))
                         {
                             @if (context.GapBefore > 0)
                             {
@@ -188,6 +279,18 @@
     public EventCallback<int> OnPageGapRemoved { get; set; }
 
     [Parameter]
+    public Dictionary<int, int> VolumeStartIndices { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<(int PageIndex, int VolumeNumber)> OnVolumeStartAdded { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnVolumeStartRemoved { get; set; }
+
+    [Parameter]
+    public EventCallback<(int PageIndex, int VolumeNumber)> OnVolumeNumberChanged { get; set; }
+
+    [Parameter]
     public EventCallback OnImport { get; set; }
 
     [Parameter]
@@ -196,19 +299,75 @@
     private int? _draggedPageIndex;
 
     private string ChapterPlacementHint => UseChapterTags
-        ? "Drag pages (or use arrows) to reorder \u2014 page numbers update automatically. Use \u2018New Chapter\u2019 to mark chapter boundaries and \u2018+ Gap\u2019 to indicate a missing source page (shifts all subsequent page numbers in the chapter)."
+        ? "Drag pages (or use arrows) to reorder \u2014 page numbers update automatically. Use \u2018New Chapter\u2019 / \u2018New Volume\u2019 to mark boundaries and \u2018+ Gap\u2019 to indicate a missing source page. Double arrows jump to chapter/volume boundaries."
         : "Chapter tags are disabled. Drag pages to reorder. Use \u2018+ Gap\u2019 if a source page is missing to keep tag numbering accurate.";
 
     private string ChapterSummary => UseChapterTags
-        ? $"{ChapterStartIndices.Count} chapter(s)"
+        ? VolumeStartIndices.Count > 0
+            ? $"{VolumeStartIndices.Count} volume(s) \u00b7 {ChapterStartIndices.Count} chapter(s)"
+            : $"{ChapterStartIndices.Count} chapter(s)"
         : "flat pages";
 
     private bool IsChapterStart(int pageIndex) => ChapterStartIndices.Contains(pageIndex);
+
+    private bool IsVolumeStart(int pageIndex) => VolumeStartIndices.ContainsKey(pageIndex);
 
     private int GetChapterNumber(int pageIndex)
     {
         var sorted = ChapterStartIndices.OrderBy(i => i).ToList();
         return sorted.Count(s => s <= pageIndex);
+    }
+
+    private int GetChapterWithinVolumeNumber(int pageIndex)
+    {
+        if (!UseChapterTags || ChapterStartIndices.Count == 0) return 1;
+        var chapterStart = ChapterStartIndices.Where(s => s <= pageIndex).DefaultIfEmpty(0).Max();
+        var volumeStart = VolumeStartIndices.Count > 0
+            ? VolumeStartIndices.Keys.Where(k => k <= chapterStart).DefaultIfEmpty(0).Max()
+            : 0;
+        return ChapterStartIndices.Count(s => s >= volumeStart && s <= chapterStart);
+    }
+
+    private int? GetVolumeNumberForPage(int pageIndex)
+    {
+        if (VolumeStartIndices.Count == 0) return null;
+        return VolumeStartIndices
+            .Where(kv => kv.Key <= pageIndex)
+            .OrderByDescending(kv => kv.Key)
+            .Select(kv => kv.Value)
+            .Cast<int?>()
+            .FirstOrDefault();
+    }
+
+    private int SuggestNextVolumeNumber()
+        => VolumeStartIndices.Count == 0 ? 1 : VolumeStartIndices.Values.Max() + 1;
+
+    // ─── Jump-target helpers ────────────────────────────────────
+
+    private int GetChapterStartIndex(int pageIndex)
+    {
+        if (!UseChapterTags || ChapterStartIndices.Count == 0) return 0;
+        return ChapterStartIndices.Where(s => s <= pageIndex).DefaultIfEmpty(0).Max();
+    }
+
+    private int GetChapterEndIndex(int pageIndex)
+    {
+        if (!UseChapterTags || ChapterStartIndices.Count == 0) return Pages.Count - 1;
+        var next = ChapterStartIndices.Where(s => s > pageIndex).OrderBy(s => s).Cast<int?>().FirstOrDefault();
+        return next.HasValue ? next.Value - 1 : Pages.Count - 1;
+    }
+
+    private int GetVolumeStartIndex(int pageIndex)
+    {
+        if (VolumeStartIndices.Count == 0) return 0;
+        return VolumeStartIndices.Keys.Where(k => k <= pageIndex).DefaultIfEmpty(0).Max();
+    }
+
+    private int GetVolumeEndIndex(int pageIndex)
+    {
+        if (VolumeStartIndices.Count == 0) return Pages.Count - 1;
+        var next = VolumeStartIndices.Keys.Where(k => k > pageIndex).OrderBy(k => k).Cast<int?>().FirstOrDefault();
+        return next.HasValue ? next.Value - 1 : Pages.Count - 1;
     }
 
     private void OnDragStart(int pageIndex)
@@ -242,6 +401,49 @@
         }
 
         await OnPageMoved.InvokeAsync((fromIndex, toIndex));
+    }
+
+    private async Task OnMoveToChapterStart(int pageIndex)
+    {
+        var target = GetChapterStartIndex(pageIndex);
+        if (target != pageIndex)
+            await OnPageMoved.InvokeAsync((pageIndex, target));
+    }
+
+    private async Task OnMoveToChapterEnd(int pageIndex)
+    {
+        var target = GetChapterEndIndex(pageIndex);
+        if (target != pageIndex)
+            await OnPageMoved.InvokeAsync((pageIndex, target));
+    }
+
+    private async Task OnMoveToVolumeStart(int pageIndex)
+    {
+        var target = GetVolumeStartIndex(pageIndex);
+        if (target != pageIndex)
+            await OnPageMoved.InvokeAsync((pageIndex, target));
+    }
+
+    private async Task OnMoveToVolumeEnd(int pageIndex)
+    {
+        var target = GetVolumeEndIndex(pageIndex);
+        if (target != pageIndex)
+            await OnPageMoved.InvokeAsync((pageIndex, target));
+    }
+
+    private async Task OnAddVolumeStart(int pageIndex)
+    {
+        await OnVolumeStartAdded.InvokeAsync((pageIndex, SuggestNextVolumeNumber()));
+    }
+
+    private async Task OnRemoveVolumeStart(int pageIndex)
+    {
+        await OnVolumeStartRemoved.InvokeAsync(pageIndex);
+    }
+
+    private async Task OnVolumeNumberEdited(int pageIndex, int volumeNumber)
+    {
+        await OnVolumeNumberChanged.InvokeAsync((pageIndex, volumeNumber));
     }
 
     private async Task OnAddPageGap(int pageIndex)

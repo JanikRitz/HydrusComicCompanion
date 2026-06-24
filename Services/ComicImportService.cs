@@ -143,14 +143,16 @@ public sealed class ComicImportService : IComicImportService
                 titleTag
             };
 
-            if (request.VolumeNumber.HasValue)
+            var effectiveVolumeNumber = GetVolumeForPage(i, request);
+            if (effectiveVolumeNumber.HasValue)
             {
-                tags.Add(BuildTag(settings.VolumeNamespace, request.VolumeNumber.Value.ToString()));
+                tags.Add(BuildTag(settings.VolumeNamespace, effectiveVolumeNumber.Value.ToString()));
             }
 
             if (chapterStarts.Count > 0)
             {
-                var (chapterNumber, fallbackPageNumber) = GetChapterAndPage(i, chapterStarts);
+                var (_, fallbackPageNumber) = GetChapterAndPage(i, chapterStarts);
+                var chapterNumber = GetChapterWithinVolume(i, chapterStarts, request.VolumeStarts);
                 var pageNumber = ResolvePageNumber(request.Pages[i].PageNumber, fallbackPageNumber);
                 tags.Add(BuildTag(settings.ChapterNamespace, chapterNumber.ToString()));
                 tags.Add(BuildTag(settings.PageNamespace, pageNumber.ToString()));
@@ -359,17 +361,18 @@ public sealed class ComicImportService : IComicImportService
                 });
             }
 
+            var flatVolumeNumber = GetVolumeForPage(0, request);
             var existingChapter = series.Chapters.FirstOrDefault(ch =>
-                ch.VolumeNumber == request.VolumeNumber &&
+                ch.VolumeNumber == flatVolumeNumber &&
                 ch.ChapterNumber == null);
 
             if (existingChapter == null)
             {
                 var chapter = new ChapterRecord
                 {
-                    VolumeNumber = request.VolumeNumber,
+                    VolumeNumber = flatVolumeNumber,
                     ChapterNumber = null,
-                    Title = request.VolumeNumber.HasValue ? $"Vol. {request.VolumeNumber.Value}" : null,
+                    Title = flatVolumeNumber.HasValue ? $"Vol. {flatVolumeNumber.Value}" : null,
                     Pages = incomingPages
                 };
 
@@ -378,7 +381,7 @@ public sealed class ComicImportService : IComicImportService
             else if (!HasSamePages(existingChapter, incomingPages))
             {
                 throw new InvalidOperationException(
-                    $"Cannot merge import for series '{request.SeriesName}': conflicting content for volume {request.VolumeNumber?.ToString() ?? "(none)"}, chapter (none).");
+                    $"Cannot merge import for series '{request.SeriesName}': conflicting content for volume {flatVolumeNumber?.ToString() ?? "(none)"}, chapter (none).");
             }
         }
         else
@@ -387,7 +390,8 @@ public sealed class ComicImportService : IComicImportService
             {
                 var chapterStartIdx = chapterStarts[ci];
                 var nextChapterStartIdx = ci + 1 < chapterStarts.Count ? chapterStarts[ci + 1] : request.Pages.Count;
-                var chapterNumber = (decimal?)(ci + 1);
+                var chapterVolumeNumber = GetVolumeForPage(chapterStartIdx, request);
+                var chapterNumber = (decimal?)GetChapterWithinVolume(chapterStartIdx, chapterStarts, request.VolumeStarts);
 
                 var incomingPages = new List<PageRecord>();
                 var fallbackPageNumber = 1;
@@ -402,14 +406,14 @@ public sealed class ComicImportService : IComicImportService
                 }
 
                 var existingChapter = series.Chapters.FirstOrDefault(ch =>
-                    ch.VolumeNumber == request.VolumeNumber &&
+                    ch.VolumeNumber == chapterVolumeNumber &&
                     ch.ChapterNumber == chapterNumber);
 
                 if (existingChapter == null)
                 {
                     var chapter = new ChapterRecord
                     {
-                        VolumeNumber = request.VolumeNumber,
+                        VolumeNumber = chapterVolumeNumber,
                         ChapterNumber = chapterNumber,
                         Title = $"Ch. {chapterNumber}",
                         Pages = incomingPages
@@ -422,7 +426,7 @@ public sealed class ComicImportService : IComicImportService
                 if (!HasSamePages(existingChapter, incomingPages))
                 {
                     throw new InvalidOperationException(
-                        $"Cannot merge import for series '{request.SeriesName}': conflicting content for volume {request.VolumeNumber?.ToString() ?? "(none)"}, chapter {chapterNumber}.");
+                        $"Cannot merge import for series '{request.SeriesName}': conflicting content for volume {chapterVolumeNumber?.ToString() ?? "(none)"}, chapter {chapterNumber}.");
                 }
             }
         }
@@ -473,6 +477,51 @@ public sealed class ComicImportService : IComicImportService
 
         var pageNumber = pageIndex - chapterStart + 1;
         return (chapterNumber, pageNumber);
+    }
+
+    /// <summary>
+    /// Returns the effective volume number for the given page index.
+    /// Uses per-page <see cref="VolumeStartEntry"/> data when available; falls back to
+    /// <see cref="ComicImportRequest.VolumeNumber"/> for single-volume imports.
+    /// </summary>
+    private static int? GetVolumeForPage(int pageIndex, ComicImportRequest request)
+    {
+        if (request.VolumeStarts.Count == 0)
+        {
+            return request.VolumeNumber;
+        }
+
+        var entry = request.VolumeStarts
+            .Where(vs => vs.PageIndex <= pageIndex)
+            .OrderByDescending(vs => vs.PageIndex)
+            .FirstOrDefault();
+
+        return entry?.VolumeNumber ?? request.VolumeNumber;
+    }
+
+    /// <summary>
+    /// Returns the 1-based chapter number within its volume for the chapter containing
+    /// <paramref name="pageIndex"/>. Resets to 1 at each volume start.
+    /// Falls back to sequential global numbering when no volume starts are defined.
+    /// </summary>
+    private static int GetChapterWithinVolume(int pageIndex, List<int> chapterStarts, List<VolumeStartEntry> volumeStarts)
+    {
+        if (volumeStarts.Count == 0)
+        {
+            // No volume boundaries — use global sequential chapter number (original behaviour).
+            var chapterStart = chapterStarts.Where(s => s <= pageIndex).DefaultIfEmpty(0).Max();
+            return chapterStarts.Count(s => s <= chapterStart);
+        }
+
+        var chapterPageStart = chapterStarts.Where(s => s <= pageIndex).DefaultIfEmpty(0).Max();
+        var volumePageStart = volumeStarts
+            .Where(vs => vs.PageIndex <= chapterPageStart)
+            .OrderByDescending(vs => vs.PageIndex)
+            .Select(vs => (int?)vs.PageIndex)
+            .FirstOrDefault() ?? 0;
+
+        // Count chapter starts from the volume boundary up to and including this chapter.
+        return chapterStarts.Count(s => s >= volumePageStart && s <= chapterPageStart);
     }
 
     private static int ResolvePageNumber(int? pageNumber, int fallback)

@@ -56,12 +56,30 @@ public sealed class ComicMetadata
 }
 
 /// <summary>
+/// Marks the page index where a new volume begins, carrying the user-specified volume number.
+/// A volume start is always implicitly also a chapter start.
+/// </summary>
+public sealed class VolumeStartEntry
+{
+    /// <summary>0-based page index where the volume begins.</summary>
+    public int PageIndex { get; set; }
+
+    /// <summary>User-specified volume number for this volume.</summary>
+    public int VolumeNumber { get; set; }
+}
+
+/// <summary>
 /// Full configuration for an import operation submitted by the user.
 /// </summary>
 public sealed class ComicImportRequest
 {
     public string SeriesName { get; set; } = string.Empty;
     public string? Creator { get; set; }
+
+    /// <summary>
+    /// Volume number for single-volume imports.
+    /// Ignored when <see cref="VolumeStarts"/> is non-empty.
+    /// </summary>
     public int? VolumeNumber { get; set; }
     public List<ImportPage> Pages { get; set; } = [];
     public List<string> CustomTags { get; set; } = [];
@@ -71,6 +89,12 @@ public sealed class ComicImportRequest
     /// Leave empty for chapterless imports.
     /// </summary>
     public List<int> ChapterStartPageIndices { get; set; } = [];
+
+    /// <summary>
+    /// Per-volume start entries for multi-volume imports.
+    /// When non-empty, overrides <see cref="VolumeNumber"/> and resets chapter numbering at each entry.
+    /// </summary>
+    public List<VolumeStartEntry> VolumeStarts { get; set; } = [];
 }
 
 /// <summary>

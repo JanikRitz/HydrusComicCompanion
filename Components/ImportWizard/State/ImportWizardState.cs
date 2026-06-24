@@ -32,6 +32,7 @@ public class ImportWizardState
     // ─── Extracted Data ─────────────────────────────────────────────────
     public List<ImportPage> Pages { get; set; } = [];
     public HashSet<int> ChapterStartIndices { get; set; } = [0];
+    public Dictionary<int, int> VolumeStartIndices { get; set; } = [];
     public Dictionary<int, string> PageThumbnailDataUrls { get; set; } = [];
     public bool ThumbnailPreloadQueued { get; set; }
     public bool IsPreloadingThumbnails { get; set; }
@@ -74,6 +75,7 @@ public class ImportWizardState
         else if (!UseChapterTags)
         {
             ChapterStartIndices.Clear();
+            VolumeStartIndices.Clear();
         }
 
         CurrentStep = Step.Chapters;
@@ -154,6 +156,7 @@ public class ImportWizardState
         Pages.Insert(toIndex, movedPage);
 
         RemapChapterStartsAfterMove(fromIndex, toIndex);
+        RemapVolumeStartsAfterMove(fromIndex, toIndex);
         ReindexPages();
 
         PageThumbnailDataUrls = [];
@@ -243,6 +246,79 @@ public class ImportWizardState
         }
     }
 
+    // ─── Volume Management ──────────────────────────────────────────────
+
+    /// <summary>Returns true when the page at <paramref name="pageIndex"/> is a volume start marker.</summary>
+    public bool IsVolumeStart(int pageIndex) => VolumeStartIndices.ContainsKey(pageIndex);
+
+    /// <summary>
+    /// Marks <paramref name="pageIndex"/> as the start of a new volume with <paramref name="volumeNumber"/>.
+    /// Also adds it as a chapter start.
+    /// </summary>
+    public void AddVolumeStart(int pageIndex, int volumeNumber)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        VolumeStartIndices[pageIndex] = volumeNumber;
+        ChapterStartIndices.Add(pageIndex);
+    }
+
+    /// <summary>
+    /// Removes the volume start marker from <paramref name="pageIndex"/>.
+    /// For page indices &gt; 0 also removes the chapter start (one marker does both).
+    /// Page 0 always remains a chapter start.
+    /// </summary>
+    public void RemoveVolumeStart(int pageIndex)
+    {
+        VolumeStartIndices.Remove(pageIndex);
+        if (pageIndex != 0)
+        {
+            ChapterStartIndices.Remove(pageIndex);
+        }
+    }
+
+    /// <summary>Updates the volume number stored for an existing volume start at <paramref name="pageIndex"/>.</summary>
+    public void UpdateVolumeNumber(int pageIndex, int volumeNumber)
+    {
+        if (VolumeStartIndices.ContainsKey(pageIndex))
+        {
+            VolumeStartIndices[pageIndex] = volumeNumber;
+        }
+    }
+
+    private void RemapVolumeStartsAfterMove(int fromIndex, int toIndex)
+    {
+        var remapped = new Dictionary<int, int>();
+
+        foreach (var (key, value) in VolumeStartIndices)
+        {
+            int newKey;
+            if (key == fromIndex)
+            {
+                newKey = toIndex;
+            }
+            else if (fromIndex < toIndex && key > fromIndex && key <= toIndex)
+            {
+                newKey = key - 1;
+            }
+            else if (toIndex < fromIndex && key >= toIndex && key < fromIndex)
+            {
+                newKey = key + 1;
+            }
+            else
+            {
+                newKey = key;
+            }
+
+            remapped[newKey] = value;
+        }
+
+        VolumeStartIndices = remapped;
+    }
+
     private void RemapChapterStartsAfterMove(int fromIndex, int toIndex)
     {
         var remapped = new HashSet<int>();
@@ -291,6 +367,7 @@ public class ImportWizardState
         Pages = [];
         UseChapterTags = true;
         ChapterStartIndices = [0];
+        VolumeStartIndices = [];
         PageThumbnailDataUrls = [];
         ThumbnailPreloadQueued = false;
         IsPreloadingThumbnails = false;
@@ -312,6 +389,7 @@ public class ImportWizardState
         Pages = [];
         UseChapterTags = true;
         ChapterStartIndices = [0];
+        VolumeStartIndices = [];
         PageThumbnailDataUrls = [];
         ThumbnailPreloadQueued = false;
         IsPreloadingThumbnails = false;
@@ -365,6 +443,9 @@ public class ImportWizardState
                     .Distinct(StringComparer.OrdinalIgnoreCase)],
             ChapterStartPageIndices = UseChapterTags
                 ? [.. ChapterStartIndices.Where(i => i >= 0 && i < Pages.Count).OrderBy(i => i)]
+                : [],
+            VolumeStarts = VolumeStartIndices.Count > 0
+                ? [.. VolumeStartIndices.OrderBy(kv => kv.Key).Select(kv => new VolumeStartEntry { PageIndex = kv.Key, VolumeNumber = kv.Value })]
                 : []
         };
     }

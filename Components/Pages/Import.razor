@@ -69,11 +69,15 @@
                                   PageThumbnails="@_state.PageThumbnailDataUrls"
                                   ChapterStartIndices="@_state.ChapterStartIndices"
                                   UseChapterTags="@_state.UseChapterTags"
+                                  VolumeStartIndices="@_state.VolumeStartIndices"
                                   OnChapterStartAdded="@HandleChapterStartAdded"
                                   OnChapterStartRemoved="@HandleChapterStartRemoved"
                                   OnPageMoved="@HandlePageMoved"
                                   OnPageGapAdded="@HandlePageGapAdded"
                                   OnPageGapRemoved="@HandlePageGapRemoved"
+                                  OnVolumeStartAdded="@HandleVolumeStartAdded"
+                                  OnVolumeStartRemoved="@HandleVolumeStartRemoved"
+                                  OnVolumeNumberChanged="@HandleVolumeNumberChanged"
                                   OnImport="@StartImportAsync"
                                   OnBack="@_state.GoToMetadata" />
             break;
@@ -222,6 +226,21 @@
     private void HandlePageGapRemoved(int pageIndex)
     {
         _state.RemovePageGap(pageIndex);
+    }
+
+    private void HandleVolumeStartAdded((int PageIndex, int VolumeNumber) args)
+    {
+        _state.AddVolumeStart(args.PageIndex, args.VolumeNumber);
+    }
+
+    private void HandleVolumeStartRemoved(int pageIndex)
+    {
+        _state.RemoveVolumeStart(pageIndex);
+    }
+
+    private void HandleVolumeNumberChanged((int PageIndex, int VolumeNumber) args)
+    {
+        _state.UpdateVolumeNumber(args.PageIndex, args.VolumeNumber);
     }
 
     // ─── Import Execution ───────────────────────────────────────────────
