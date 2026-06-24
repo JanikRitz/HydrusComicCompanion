@@ -1,0 +1,61 @@
+<MudPaper Class="pa-4" Outlined="true">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.h6">Step 2 — Enter Hydrus Title</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            Enter the title of the comic to load from Hydrus, then edit metadata and chapters.
+        </MudText>
+
+        <MudTextField @bind-Value="TitleInput"
+                      Label="Title"
+                      Placeholder="title:the sandman or the sandman"
+                      Immediate="true"
+                      Disabled="@IsProcessing"
+                      HelperText="With or without namespace prefix" />
+
+        <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+            <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked">Back</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       OnClick="OnLoadClickedAsync"
+                       Disabled="@(IsProcessing || string.IsNullOrWhiteSpace(TitleInput))"
+                       StartIcon="@Icons.Material.Filled.Download">
+                @if (IsProcessing)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <span style="margin-left: 8px;">Loading...</span>
+                }
+                else
+                {
+                    <span>Load & Continue</span>
+                }
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public string TitleInput { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> TitleInputChanged { get; set; }
+
+    [Parameter]
+    public bool IsProcessing { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnLoadTitle { get; set; }
+
+    [Parameter]
+    public EventCallback OnBack { get; set; }
+
+    private async Task OnLoadClickedAsync()
+    {
+        await OnLoadTitle.InvokeAsync(TitleInput);
+    }
+
+    private async Task OnBackClicked()
+    {
+        await OnBack.InvokeAsync();
+    }
+}

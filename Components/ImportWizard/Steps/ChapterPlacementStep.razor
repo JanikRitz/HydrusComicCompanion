@@ -1,0 +1,161 @@
+@using HydrusComicCompanion.Models
+
+<MudPaper Class="pa-4" Outlined="true" Style="height: calc(100dvh - 220px);">
+    <MudStack Spacing="2" Style="height: 100%; min-height: 0;">
+        <MudText Typo="Typo.h6">Step 4 — Chapter Placement</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            @ChapterPlacementHint
+        </MudText>
+
+        <MudText Typo="Typo.caption" Color="Color.Secondary">
+            @Pages.Count pages · @ChapterSummary
+        </MudText>
+
+        <MudTable Items="@Pages" Dense="true" Hover="true" FixedHeader="true" Height="100%" Style="flex: 1 1 auto; min-height: 0;">
+            <HeaderContent>
+                <MudTh>Preview</MudTh>
+                <MudTh>Page</MudTh>
+                <MudTh>File</MudTh>
+                <MudTh>Chapter</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>
+                    @if (PageThumbnails.TryGetValue(context.Index, out var thumbnailUrl))
+                    {
+                        <img src="@thumbnailUrl"
+                             alt="@($"Preview for page {context.Index + 1}")"
+                             loading="lazy"
+                             decoding="async"
+                             style="width: 64px; height: 64px; object-fit: cover; border-radius: 4px; display:block;" />
+                    }
+                    else
+                    {
+                        <MudSkeleton Width="64px" Height="64px" Animation="Animation.Wave" />
+                    }
+                </MudTd>
+                <MudTd>@(context.Index + 1)</MudTd>
+                <MudTd Style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    @System.IO.Path.GetFileName(context.ArchiveFileName)
+                </MudTd>
+                <MudTd>
+                    @if (UseChapterTags)
+                    {
+                        <MudChip T="string"
+                                 Color="@(IsChapterStart(context.Index) ? Color.Primary : Color.Default)"
+                                 Size="Size.Small"
+                                 Variant="Variant.Outlined">
+                            Ch. @GetChapterNumber(context.Index)
+                        </MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Color="Color.Default" Size="Size.Small" Variant="Variant.Outlined">
+                            Flat
+                        </MudChip>
+                    }
+                </MudTd>
+                <MudTd>
+                    @if (!UseChapterTags)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">No chapter tags</MudText>
+                    }
+                    else if (context.Index == 0)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Tertiary">Start</MudText>
+                    }
+                    else if (IsChapterStart(context.Index))
+                    {
+                        <MudButton Size="Size.Small"
+                                   Color="Color.Error"
+                                   Variant="Variant.Text"
+                                   OnClick="@(() => OnRemoveChapterStart(context.Index))">
+                            Remove
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small"
+                                   Color="Color.Primary"
+                                   Variant="Variant.Outlined"
+                                   OnClick="@(() => OnAddChapterStart(context.Index))">
+                            New Chapter
+                        </MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+
+        <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+            <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked">Back</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Success"
+                       StartIcon="@Icons.Material.Filled.CloudUpload"
+                       OnClick="OnImportClicked">
+                Import
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public List<ImportPage> Pages { get; set; } = [];
+
+    [Parameter]
+    public Dictionary<int, string> PageThumbnails { get; set; } = [];
+
+    [Parameter]
+    public HashSet<int> ChapterStartIndices { get; set; } = [0];
+
+    [Parameter]
+    public bool UseChapterTags { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnChapterStartAdded { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnChapterStartRemoved { get; set; }
+
+    [Parameter]
+    public EventCallback OnImport { get; set; }
+
+    [Parameter]
+    public EventCallback OnBack { get; set; }
+
+    private string ChapterPlacementHint => UseChapterTags
+        ? "Page 1 always starts Chapter 1. Click New Chapter on any page to begin a new chapter there. Click again (or Remove) to undo."
+        : "Chapter tags are disabled. Pages will be imported as one flat section without chapter tags.";
+
+    private string ChapterSummary => UseChapterTags
+        ? $"{ChapterStartIndices.Count} chapter(s)"
+        : "flat pages";
+
+    private bool IsChapterStart(int pageIndex) => ChapterStartIndices.Contains(pageIndex);
+
+    private int GetChapterNumber(int pageIndex)
+    {
+        var sorted = ChapterStartIndices.OrderBy(i => i).ToList();
+        return sorted.Count(s => s <= pageIndex);
+    }
+
+    private async Task OnAddChapterStart(int pageIndex)
+    {
+        await OnChapterStartAdded.InvokeAsync(pageIndex);
+    }
+
+    private async Task OnRemoveChapterStart(int pageIndex)
+    {
+        await OnChapterStartRemoved.InvokeAsync(pageIndex);
+    }
+
+    private async Task OnImportClicked()
+    {
+        await OnImport.InvokeAsync();
+    }
+
+    private async Task OnBackClicked()
+    {
+        await OnBack.InvokeAsync();
+    }
+}

@@ -1,0 +1,31 @@
+@inject NavigationManager NavigationManager
+
+<MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+    Import complete! Title imported successfully.
+</MudAlert>
+<MudStack Row="true" Spacing="2">
+    <MudButton Variant="Variant.Filled"
+               Color="Color.Primary"
+               OnClick="OnViewTitleClicked">
+        View Title
+    </MudButton>
+    <MudButton Variant="Variant.Outlined" OnClick="OnImportAnotherClicked">Import Another</MudButton>
+</MudStack>
+
+@code {
+    [Parameter]
+    public int ImportedSeriesId { get; set; }
+
+    [Parameter]
+    public EventCallback OnImportAnother { get; set; }
+
+    private void OnViewTitleClicked()
+    {
+        NavigationManager.NavigateTo($"/comic/{ImportedSeriesId}");
+    }
+
+    private async Task OnImportAnotherClicked()
+    {
+        await OnImportAnother.InvokeAsync();
+    }
+}

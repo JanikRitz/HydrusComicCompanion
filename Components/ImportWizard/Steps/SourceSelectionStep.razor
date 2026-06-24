@@ -1,0 +1,86 @@
+@using HydrusComicCompanion.Services.Abstractions
+
+<MudPaper Class="pa-4" Outlined="true">
+    <MudStack Spacing="3">
+        <MudText Typo="Typo.h6">Step 1 — Choose Import Source</MudText>
+
+        <MudRadioGroup T="ImportSource" Value="@SelectedSource" ValueChanged="@OnSourceChanged">
+            <MudStack Spacing="2">
+                <MudRadio T="ImportSource" Value="ImportSource.Archive" Color="Color.Primary">
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2">
+                            <strong>Comic Archive (.CBZ / .CBR)</strong>
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Upload and organize pages from a local archive file
+                        </MudText>
+                    </MudStack>
+                </MudRadio>
+
+                <MudRadio T="ImportSource" Value="ImportSource.Title" Color="Color.Primary">
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2">
+                            <strong>Import Hydrus Title</strong>
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Load an existing comic from Hydrus and continue through the shared workflow
+                        </MudText>
+                    </MudStack>
+                </MudRadio>
+
+                <MudRadio T="ImportSource" Value="ImportSource.OpenHydrusPage" Color="Color.Primary" Disabled="true">
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2">
+                            <strong>Open Hydrus Page</strong>
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Import from an open Hydrus search page (coming soon)
+                        </MudText>
+                    </MudStack>
+                </MudRadio>
+
+                <MudRadio T="ImportSource" Value="ImportSource.CalibreBook" Color="Color.Primary" Disabled="true">
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2">
+                            <strong>Calibre Book</strong>
+                        </MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Import a book from your Calibre library (coming soon)
+                        </MudText>
+                    </MudStack>
+                </MudRadio>
+            </MudStack>
+        </MudRadioGroup>
+
+        <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="@(SelectedSource == ImportSource.OpenHydrusPage || SelectedSource == ImportSource.CalibreBook)"
+                       OnClick="OnContinueClicked">
+                Continue
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public ImportSource SelectedSource { get; set; }
+
+    [Parameter]
+    public EventCallback<ImportSource> SelectedSourceChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnContinue { get; set; }
+
+    private async Task OnSourceChanged(ImportSource source)
+    {
+        SelectedSource = source;
+        await SelectedSourceChanged.InvokeAsync(source);
+    }
+
+    private async Task OnContinueClicked()
+    {
+        await OnContinue.InvokeAsync();
+    }
+}

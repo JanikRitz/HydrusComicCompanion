@@ -1,0 +1,54 @@
+@using Microsoft.AspNetCore.Components.Forms
+
+<MudPaper Class="pa-4" Outlined="true">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.h6">Step 2 — Select Archive</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            Choose a <strong>.cbz</strong> or <strong>.cbr</strong> file. Any <code>ComicInfo.xml</code> found inside
+            will be used to pre-fill the metadata fields.
+        </MudText>
+
+        <InputFile id="archiveInput" OnChange="OnFileChangedAsync" accept=".cbz,.cbr" style="display:none" />
+        <MudButton HtmlTag="label"
+                   Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.FolderOpen"
+                   for="archiveInput"
+                   Disabled="@IsProcessing">
+            Choose File
+        </MudButton>
+
+        @if (IsProcessing)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <MudText>Extracting archive…</MudText>
+            </MudStack>
+        }
+
+        <MudStack Row="true" Justify="Justify.FlexStart" Spacing="2">
+            <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked">Back</MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public bool IsProcessing { get; set; }
+
+    [Parameter]
+    public EventCallback<IBrowserFile> OnFileSelected { get; set; }
+
+    [Parameter]
+    public EventCallback OnBack { get; set; }
+
+    private async Task OnFileChangedAsync(InputFileChangeEventArgs e)
+    {
+        await OnFileSelected.InvokeAsync(e.File);
+    }
+
+    private async Task OnBackClicked()
+    {
+        await OnBack.InvokeAsync();
+    }
+}

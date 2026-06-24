@@ -1,0 +1,34 @@
+<MudPaper Class="pa-4" Outlined="true">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.h6">Importing…</MudText>
+
+        @if (Total > 0)
+        {
+            <MudProgressLinear Value="@((Current * 100.0) / Total)"
+                               Color="Color.Primary"
+                               Rounded="true"
+                               Size="Size.Large" />
+            <MudText Typo="Typo.body2">@Current / @Total</MudText>
+        }
+        else
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@Message</MudText>
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public int Current { get; set; }
+
+    [Parameter]
+    public int Total { get; set; }
+
+    [Parameter]
+    public string Message { get; set; } = string.Empty;
+}

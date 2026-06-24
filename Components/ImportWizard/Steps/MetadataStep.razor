@@ -1,0 +1,78 @@
+<MudPaper Class="pa-4" Outlined="true">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.h6">Step 3 — Metadata</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            Review and edit the title information. Fields are pre-filled from source metadata where available.
+        </MudText>
+
+        <MudTextField @bind-Value="TitleName"
+                      Label="Title Name"
+                      Required="true"
+                      Immediate="true"
+                      HelperText="e.g. The Sandman" />
+
+        <MudTextField @bind-Value="Creator"
+                      Label="Creator"
+                      Immediate="true"
+                      HelperText="e.g. Neil Gaiman (optional)" />
+
+        <MudSwitch @bind-Value="UseChapterTags" Color="Color.Primary" Label="Use chapter tags" />
+
+        <MudNumericField T="int?" @bind-Value="VolumeNumber"
+                         Label="Volume Number"
+                         Clearable="true"
+                         HelperText="Optional" />
+
+        <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+            <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked">Back</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Disabled="@string.IsNullOrWhiteSpace(TitleName)"
+                       OnClick="OnContinueClicked">
+                Next: Place Chapters
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public string TitleName { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> TitleNameChanged { get; set; }
+
+    [Parameter]
+    public string Creator { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> CreatorChanged { get; set; }
+
+    [Parameter]
+    public bool UseChapterTags { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> UseChapterTagsChanged { get; set; }
+
+    [Parameter]
+    public int? VolumeNumber { get; set; }
+
+    [Parameter]
+    public EventCallback<int?> VolumeNumberChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnContinue { get; set; }
+
+    [Parameter]
+    public EventCallback OnBack { get; set; }
+
+    private async Task OnContinueClicked()
+    {
+        await OnContinue.InvokeAsync();
+    }
+
+    private async Task OnBackClicked()
+    {
+        await OnBack.InvokeAsync();
+    }
+}

@@ -1,7 +1,12 @@
 @page "/import"
+@using HydrusComicCompanion.Components.ImportWizard.State
+@using HydrusComicCompanion.Components.ImportWizard.Steps
+@using HydrusComicCompanion.Components.ImportWizard.Services
 @using HydrusComicCompanion.Models
 @using HydrusComicCompanion.Services
 @using HydrusComicCompanion.Services.Abstractions
+@using HydrusComicCompanion.Services.ImportSourceHandlers
+@using Microsoft.AspNetCore.Components.Forms
 @inject IComicImportService ComicImportService
 @inject IHydrusMediaService HydrusMediaService
 @inject IHydrusSyncService SyncService
@@ -17,658 +22,215 @@
         </MudText>
     </div>
 
-    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    @if (!string.IsNullOrWhiteSpace(_state.ErrorMessage))
     {
-        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true">@_errorMessage</MudAlert>
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true">@_state.ErrorMessage</MudAlert>
     }
 
-    @* ─── Step 1: Source Selection ────────────────────────────────────── *@
-    @if (_step == ImportStep.SourceSelection)
+    @switch (_state.CurrentStep)
     {
-        <MudPaper Class="pa-4" Outlined="true">
-            <MudStack Spacing="3">
-                <MudText Typo="Typo.h6">Step 1 — Choose Import Source</MudText>
+        case ImportWizardState.Step.SourceSelection:
+            <SourceSelectionStep SelectedSource="@_state.SelectedSource"
+                                 SelectedSourceChanged="@((source) => _state.SelectedSource = source)"
+                                 OnContinue="@_state.GoToSourceSpecific" />
+            break;
 
-                <MudRadioGroup T="ImportSource" @bind-Value="_selectedSource">
-                    <MudStack Spacing="2">
-                        <MudRadio T="ImportSource" Value="ImportSource.Archive" Color="Color.Primary">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">
-                                    <strong>Comic Archive (.CBZ / .CBR)</strong>
-                                </MudText>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                    Upload and organize pages from a local archive file
-                                </MudText>
-                            </MudStack>
-                        </MudRadio>
+        case ImportWizardState.Step.SourceSpecific:
+            @if (_state.SelectedSource == ImportSource.Archive)
+            {
+                <ArchiveSourceStep IsProcessing="@_state.IsExtracting"
+                                   OnFileSelected="@OnFileSelectedAsync"
+                                   OnBack="@_state.ResetToSourceSelection" />
+            }
+            else if (_state.SelectedSource == ImportSource.Title)
+            {
+                <TitleSourceStep TitleInput="@_state.TitleInput"
+                                 TitleInputChanged="@((value) => _state.TitleInput = value)"
+                                 IsProcessing="@_state.IsSyncing"
+                                 OnLoadTitle="@LoadHydrusTitleAsync"
+                                 OnBack="@_state.ResetToSourceSelection" />
+            }
+            break;
 
-                        <MudRadio T="ImportSource" Value="ImportSource.Title" Color="Color.Primary">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">
-                                    <strong>Import Hydrus Title</strong>
-                                </MudText>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                    Load an existing comic from Hydrus and continue through the shared workflow
-                                </MudText>
-                            </MudStack>
-                        </MudRadio>
+        case ImportWizardState.Step.Metadata:
+            <MetadataStep TitleName="@_state.TitleName"
+                          TitleNameChanged="@((value) => _state.TitleName = value)"
+                          Creator="@_state.Creator"
+                          CreatorChanged="@((value) => _state.Creator = value)"
+                          UseChapterTags="@_state.UseChapterTags"
+                          UseChapterTagsChanged="@((value) => _state.UseChapterTags = value)"
+                          VolumeNumber="@_state.VolumeNumber"
+                          VolumeNumberChanged="@((value) => _state.VolumeNumber = value)"
+                          OnContinue="@OnMetadataContinue"
+                          OnBack="@_state.ResetToSourceSpecific" />
+            break;
 
-                        <MudRadio T="ImportSource" Value="ImportSource.OpenHydrusPage" Color="Color.Primary" Disabled="true">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">
-                                    <strong>Open Hydrus Page</strong>
-                                </MudText>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                    Import from an open Hydrus search page (coming soon)
-                                </MudText>
-                            </MudStack>
-                        </MudRadio>
+        case ImportWizardState.Step.Chapters:
+            <ChapterPlacementStep Pages="@_state.Pages"
+                                  PageThumbnails="@_state.PageThumbnailDataUrls"
+                                  ChapterStartIndices="@_state.ChapterStartIndices"
+                                  UseChapterTags="@_state.UseChapterTags"
+                                  OnChapterStartAdded="@HandleChapterStartAdded"
+                                  OnChapterStartRemoved="@HandleChapterStartRemoved"
+                                  OnImport="@StartImportAsync"
+                                  OnBack="@_state.GoToMetadata" />
+            break;
 
-                        <MudRadio T="ImportSource" Value="ImportSource.CalibreBook" Color="Color.Primary" Disabled="true">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">
-                                    <strong>Calibre Book</strong>
-                                </MudText>
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                    Import a book from your Calibre library (coming soon)
-                                </MudText>
-                            </MudStack>
-                        </MudRadio>
-                    </MudStack>
-                </MudRadioGroup>
+        case ImportWizardState.Step.Progress:
+            <ProgressStep Current="@_state.ProgressCurrent"
+                          Total="@_state.ProgressTotal"
+                          Message="@_state.ProgressMessage" />
+            break;
 
-                <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               Disabled="@(_selectedSource == ImportSource.OpenHydrusPage || _selectedSource == ImportSource.CalibreBook)"
-                               OnClick="GoToSourceStep">
-                        Continue
-                    </MudButton>
-                </MudStack>
-            </MudStack>
-        </MudPaper>
-    }
-
-    @* ─── Step 2: Source-Specific (Archive Upload or Title Input) ──────── *@
-    @if (_step == ImportStep.SourceSpecific)
-    {
-        @if (_selectedSource == ImportSource.Archive)
-        {
-            <MudPaper Class="pa-4" Outlined="true">
-                <MudStack Spacing="2">
-                    <MudText Typo="Typo.h6">Step 2 — Select Archive</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        Choose a <strong>.cbz</strong> or <strong>.cbr</strong> file. Any <code>ComicInfo.xml</code> found inside
-                        will be used to pre-fill the metadata fields.
-                    </MudText>
-
-                    <InputFile id="archiveInput" OnChange="OnFileSelectedAsync" accept=".cbz,.cbr" style="display:none" />
-                    <MudButton HtmlTag="label"
-                               Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.FolderOpen"
-                               for="archiveInput"
-                               Disabled="@_isExtracting">
-                        Choose File
-                    </MudButton>
-
-                    @if (_isExtracting)
-                    {
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                            <MudText>Extracting archive…</MudText>
-                        </MudStack>
-                    }
-
-                    <MudStack Row="true" Justify="Justify.FlexStart" Spacing="2">
-                        <MudButton Variant="Variant.Outlined" OnClick="ResetToSourceSelection">Back</MudButton>
-                    </MudStack>
-                </MudStack>
-            </MudPaper>
-        }
-        else if (_selectedSource == ImportSource.Title)
-        {
-            <MudPaper Class="pa-4" Outlined="true">
-                <MudStack Spacing="2">
-                    <MudText Typo="Typo.h6">Step 2 — Enter Hydrus Title</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        Enter the title of the comic to load from Hydrus, then edit metadata and chapters.
-                    </MudText>
-
-                    <MudTextField @bind-Value="_titleInput"
-                                  Label="Title"
-                                  Placeholder="title:the sandman or the sandman"
-                                  Immediate="true"
-                                  Disabled="@_isSyncing"
-                                  HelperText="With or without namespace prefix" />
-
-                    <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
-                        <MudButton Variant="Variant.Outlined" OnClick="ResetToSourceSelection">Back</MudButton>
-                        <MudButton Variant="Variant.Filled"
-                                   Color="Color.Primary"
-                                   OnClick="LoadHydrusTitleAsync"
-                                   Disabled="@(_isSyncing || string.IsNullOrWhiteSpace(_titleInput))"
-                                   StartIcon="@Icons.Material.Filled.Download">
-                            @if (_isSyncing)
-                            {
-                                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                                <span style="margin-left: 8px;">Loading...</span>
-                            }
-                            else
-                            {
-                                <span>Load & Continue</span>
-                            }
-                        </MudButton>
-                    </MudStack>
-                </MudStack>
-            </MudPaper>
-        }
-    }
-
-    @* ─── Step 3: Metadata ───────────────────────────────────────────── *@
-    @if (_step == ImportStep.Metadata)
-    {
-        <MudPaper Class="pa-4" Outlined="true">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Step 3 — Metadata</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    Review and edit the title information. Fields are pre-filled from source metadata where available.
-                </MudText>
-
-                <MudTextField @bind-Value="_titleName"
-                              Label="Title Name"
-                              Required="true"
-                              Immediate="true"
-                              HelperText="e.g. The Sandman" />
-
-                <MudTextField @bind-Value="_creator"
-                              Label="Creator"
-                              Immediate="true"
-                              HelperText="e.g. Neil Gaiman (optional)" />
-
-                <MudSwitch @bind-Value="_useChapterTags" Color="Color.Primary" Label="Use chapter tags" />
-
-                <MudNumericField T="int?" @bind-Value="_volumeNumber"
-                                 Label="Volume Number"
-                                 Clearable="true"
-                                 HelperText="Optional" />
-
-                <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
-                    <MudButton Variant="Variant.Outlined" OnClick="ResetToSourceStep">Back</MudButton>
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Primary"
-                               Disabled="@string.IsNullOrWhiteSpace(_titleName)"
-                               OnClick="GoToChapterStep">
-                        Next: Place Chapters
-                    </MudButton>
-                </MudStack>
-            </MudStack>
-        </MudPaper>
-    }
-
-    @* ─── Step 4: Chapter Placement ──────────────────────────────────── *@
-    @if (_step == ImportStep.Chapters)
-    {
-        <MudPaper Class="pa-4" Outlined="true" Style="height: calc(100dvh - 220px);">
-            <MudStack Spacing="2" Style="height: 100%; min-height: 0;">
-                <MudText Typo="Typo.h6">Step 4 — Chapter Placement</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    @_chapterPlacementHint
-                </MudText>
-
-                <MudText Typo="Typo.caption" Color="Color.Secondary">
-                    @_pages.Count pages · @_chapterSummary
-                </MudText>
-
-                <MudTable Items="@_pages" Dense="true" Hover="true" FixedHeader="true" Height="100%" Style="flex: 1 1 auto; min-height: 0;">
-                    <HeaderContent>
-                        <MudTh>Preview</MudTh>
-                        <MudTh>Page</MudTh>
-                        <MudTh>File</MudTh>
-                        <MudTh>Chapter</MudTh>
-                        <MudTh></MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd>
-                            @if (_pageThumbnailDataUrls.TryGetValue(context.Index, out var thumbnailUrl))
-                            {
-                                <img src="@thumbnailUrl"
-                                     alt="@($"Preview for page {context.Index + 1}")"
-                                     loading="lazy"
-                                     decoding="async"
-                                     style="width: 64px; height: 64px; object-fit: cover; border-radius: 4px; display:block;" />
-                            }
-                            else
-                            {
-                                <MudSkeleton Width="64px" Height="64px" Animation="Animation.Wave" />
-                            }
-                        </MudTd>
-                        <MudTd>@(context.Index + 1)</MudTd>
-                        <MudTd Style="max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                            @System.IO.Path.GetFileName(context.ArchiveFileName)
-                        </MudTd>
-                        <MudTd>
-                            @if (_useChapterTags)
-                            {
-                                <MudChip T="string"
-                                         Color="@(IsChapterStart(context.Index) ? Color.Primary : Color.Default)"
-                                         Size="Size.Small"
-                                         Variant="Variant.Outlined">
-                                    Ch. @GetChapterNumber(context.Index)
-                                </MudChip>
-                            }
-                            else
-                            {
-                                <MudChip T="string" Color="Color.Default" Size="Size.Small" Variant="Variant.Outlined">
-                                    Flat
-                                </MudChip>
-                            }
-                        </MudTd>
-                        <MudTd>
-                            @if (!_useChapterTags)
-                            {
-                                <MudText Typo="Typo.caption" Color="Color.Secondary">No chapter tags</MudText>
-                            }
-                            else if (context.Index == 0)
-                            {
-                                <MudText Typo="Typo.caption" Color="Color.Tertiary">Start</MudText>
-                            }
-                            else if (IsChapterStart(context.Index))
-                            {
-                                <MudButton Size="Size.Small"
-                                           Color="Color.Error"
-                                           Variant="Variant.Text"
-                                           OnClick="@(() => RemoveChapterStart(context.Index))">
-                                    Remove
-                                </MudButton>
-                            }
-                            else
-                            {
-                                <MudButton Size="Size.Small"
-                                           Color="Color.Primary"
-                                           Variant="Variant.Outlined"
-                                           OnClick="@(() => AddChapterStart(context.Index))">
-                                    New Chapter
-                                </MudButton>
-                            }
-                        </MudTd>
-                    </RowTemplate>
-                </MudTable>
-
-                <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
-                    <MudButton Variant="Variant.Outlined" OnClick="GoToMetadataStep">Back</MudButton>
-                    <MudButton Variant="Variant.Filled"
-                               Color="Color.Success"
-                               StartIcon="@Icons.Material.Filled.CloudUpload"
-                               OnClick="StartImportAsync">
-                        Import
-                    </MudButton>
-                </MudStack>
-            </MudStack>
-        </MudPaper>
-    }
-
-    @* ─── Step 5: Progress ───────────────────────────────────────────── *@
-    @if (_step == ImportStep.Progress)
-    {
-        <MudPaper Class="pa-4" Outlined="true">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Importing…</MudText>
-
-                @if (_progressTotal > 0)
-                {
-                    <MudProgressLinear Value="@((_progressCurrent * 100.0) / _progressTotal)"
-                                       Color="Color.Primary"
-                                       Rounded="true"
-                                       Size="Size.Large" />
-                    <MudText Typo="Typo.body2">@_progressCurrent / @_progressTotal</MudText>
-                }
-                else
-                {
-                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                }
-
-                @if (!string.IsNullOrEmpty(_progressMessage))
-                {
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">@_progressMessage</MudText>
-                }
-            </MudStack>
-        </MudPaper>
-    }
-
-    @* ─── Step 6: Done ───────────────────────────────────────────────── *@
-    @if (_step == ImportStep.Done)
-    {
-        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
-            Import complete! Title imported successfully.
-        </MudAlert>
-        <MudStack Row="true" Spacing="2">
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       OnClick="@(() => NavigationManager.NavigateTo($"/comic/{_importedSeriesId}"))">
-                View Title
-            </MudButton>
-            <MudButton Variant="Variant.Outlined" OnClick="ResetToSourceSelection">Import Another</MudButton>
-        </MudStack>
+        case ImportWizardState.Step.Done:
+            <CompletedStep ImportedSeriesId="@_state.ImportedSeriesId"
+                           OnImportAnother="@_state.ResetToSourceSelection" />
+            break;
     }
 </MudStack>
 
 @code {
-    private enum ImportStep { SourceSelection, SourceSpecific, Metadata, Chapters, Progress, Done }
+    private readonly ImportWizardState _state = new();
+    private ThumbnailPreloadService? _thumbnailService;
 
-    private ImportStep _step = ImportStep.SourceSelection;
-    private ImportSource _selectedSource = ImportSource.Archive;
-
-    // Source-specific state
-    private bool _isExtracting;
-    private bool _isSyncing;
-    private string _titleInput = string.Empty;
-
-    // Extracted data
-    private List<ImportPage> _pages = [];
-    private HashSet<int> _chapterStartIndices = [0];
-    private Dictionary<int, string> _pageThumbnailDataUrls = [];
-    private bool _thumbnailPreloadQueued;
-    private bool _isPreloadingThumbnails;
-    private bool _useChapterTags = true;
-
-    // Metadata fields
-    private string _titleName = string.Empty;
-    private string _creator = string.Empty;
-    private int? _volumeNumber;
-
-    // Progress and errors
-    private int _progressCurrent;
-    private int _progressTotal;
-    private string _progressMessage = string.Empty;
-    private string _errorMessage = string.Empty;
-
-    // Result
-    private int _importedSeriesId;
-
-    // Constants
     private const long MaxArchiveSizeBytes = 2L * 1024 * 1024 * 1024; // 2 GB
-    private const int ThumbnailPreloadBatchSize = 8;
 
-    // ─── Step 1: Source Selection ────────────────────────────────────────
-
-    private void GoToSourceStep()
+    protected override void OnInitialized()
     {
-        _step = ImportStep.SourceSpecific;
-        _errorMessage = string.Empty;
+        _thumbnailService = new ThumbnailPreloadService(HydrusMediaService);
     }
 
-    // ─── Step 2: Source-Specific ────────────────────────────────────────
+    // ─── Source-Specific Handlers ───────────────────────────────────────
 
-    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    private async Task OnFileSelectedAsync(IBrowserFile file)
     {
-        _errorMessage = string.Empty;
-        _isExtracting = true;
+        _state.ErrorMessage = string.Empty;
+        _state.IsExtracting = true;
 
         try
         {
-            var file = e.File;
             await using var stream = file.OpenReadStream(maxAllowedSize: MaxArchiveSizeBytes);
 
             var preparation = await ComicImportService.ExtractArchiveAsync(stream, file.Name);
             if (preparation.Pages.Count == 0)
             {
-                _errorMessage = "No image pages were found in the archive.";
+                _state.ErrorMessage = "No image pages were found in the archive.";
                 return;
             }
 
-            ApplyPreparation(preparation);
-            _step = ImportStep.Metadata;
+            _state.ApplyPreparation(preparation);
+            _state.GoToMetadata();
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Failed to read archive: {ex.Message}";
+            _state.ErrorMessage = $"Failed to read archive: {ex.Message}";
         }
         finally
         {
-            _isExtracting = false;
+            _state.IsExtracting = false;
         }
     }
 
-    private async Task LoadHydrusTitleAsync()
+    private async Task LoadHydrusTitleAsync(string titleInput)
     {
-        _isSyncing = true;
-        _errorMessage = string.Empty;
+        _state.IsSyncing = true;
+        _state.ErrorMessage = string.Empty;
 
         try
         {
-            var preparation = await SyncService.ExtractTitleAsync(_titleInput);
+            var preparation = await SyncService.ExtractTitleAsync(titleInput);
             if (preparation.Pages.Count == 0)
             {
-                _errorMessage = "No matching files found for that title.";
-                _step = ImportStep.SourceSpecific;
+                _state.ErrorMessage = "No matching files found for that title.";
+                _state.CurrentStep = ImportWizardState.Step.SourceSpecific;
                 return;
             }
 
-            ApplyPreparation(preparation);
-            _step = ImportStep.Metadata;
+            _state.ApplyPreparation(preparation);
+            _state.GoToMetadata();
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Failed to load Hydrus title: {ex.Message}";
-            _step = ImportStep.SourceSpecific;
+            _state.ErrorMessage = $"Failed to load Hydrus title: {ex.Message}";
+            _state.CurrentStep = ImportWizardState.Step.SourceSpecific;
         }
         finally
         {
-            _isSyncing = false;
+            _state.IsSyncing = false;
         }
     }
 
-    private void ApplyPreparation(ComicImportPreparation preparation)
+    // ─── Metadata Step ──────────────────────────────────────────────────
+
+    private void OnMetadataContinue()
     {
-        _pages = preparation.Pages;
-        _titleName = preparation.Metadata?.Series?.Trim() ?? string.Empty;
-        _creator = preparation.Metadata?.Creator?.Trim() ?? string.Empty;
-        _volumeNumber = preparation.Metadata?.VolumeNumber;
-        _chapterStartIndices = preparation.ChapterStartPageIndices.Count > 0
-            ? [.. preparation.ChapterStartPageIndices.Distinct().OrderBy(i => i)]
-            : [0];
-        _useChapterTags = _chapterStartIndices.Count > 0;
-        _pageThumbnailDataUrls = [];
-        _thumbnailPreloadQueued = false;
-        _isPreloadingThumbnails = false;
+        _state.GoToChapters();
     }
 
-    // ─── Step 3: Metadata ───────────────────────────────────────────────
-
-    private void GoToChapterStep()
-    {
-        if (_useChapterTags)
-        {
-            if (!_chapterStartIndices.Contains(0))
-            {
-                _chapterStartIndices.Add(0);
-            }
-        }
-        else
-        {
-            _chapterStartIndices.Clear();
-        }
-
-        _step = ImportStep.Chapters;
-        _thumbnailPreloadQueued = true;
-    }
-
-    private void GoToMetadataStep() => _step = ImportStep.Metadata;
-
-    // ─── Step 4: Chapter Placement ──────────────────────────────────────
-
-    private bool IsChapterStart(int pageIndex) => _chapterStartIndices.Contains(pageIndex);
+    // ─── Chapter Placement Step ─────────────────────────────────────────
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_step != ImportStep.Chapters || !_thumbnailPreloadQueued || _isPreloadingThumbnails)
+        if (_state.CurrentStep != ImportWizardState.Step.Chapters 
+            || !_state.ThumbnailPreloadQueued 
+            || _state.IsPreloadingThumbnails 
+            || _thumbnailService is null)
         {
             return;
         }
 
-        _thumbnailPreloadQueued = false;
-        _isPreloadingThumbnails = true;
+        _state.ThumbnailPreloadQueued = false;
+        _state.IsPreloadingThumbnails = true;
 
         try
         {
-            await PreloadThumbnailsAsync();
+            await _thumbnailService.PreloadThumbnailsAsync(
+                _state.Pages,
+                _state.PageThumbnailDataUrls,
+                async () => await InvokeAsync(StateHasChanged),
+                () => _state.CurrentStep == ImportWizardState.Step.Chapters
+            );
         }
         finally
         {
-            _isPreloadingThumbnails = false;
+            _state.IsPreloadingThumbnails = false;
         }
     }
 
-    private async Task PreloadThumbnailsAsync()
+    private void HandleChapterStartAdded(int pageIndex)
     {
-        var processed = 0;
-
-        foreach (var page in _pages)
-        {
-            if (_step != ImportStep.Chapters)
-            {
-                break;
-            }
-
-            if (_pageThumbnailDataUrls.ContainsKey(page.Index))
-            {
-                continue;
-            }
-
-            _pageThumbnailDataUrls[page.Index] = BuildThumbnailSrc(page);
-            processed++;
-
-            if (processed % ThumbnailPreloadBatchSize == 0)
-            {
-                await InvokeAsync(StateHasChanged);
-                await Task.Yield();
-            }
-        }
-
-        await InvokeAsync(StateHasChanged);
+        _state.AddChapterStart(pageIndex);
     }
 
-    private string BuildThumbnailSrc(ImportPage page)
+    private void HandleChapterStartRemoved(int pageIndex)
     {
-        if (page.Data is { Length: > 0 })
-        {
-            var mimeType = string.IsNullOrWhiteSpace(page.MimeType) ? "image/jpeg" : page.MimeType;
-            return $"data:{mimeType};base64,{Convert.ToBase64String(page.Data)}";
-        }
-
-        if (!string.IsNullOrWhiteSpace(page.Sha256Hash))
-        {
-            return HydrusMediaService.BuildThumbnailUrl(page.Sha256Hash);
-        }
-
-        return string.Empty;
+        _state.RemoveChapterStart(pageIndex);
     }
 
-    private int GetChapterNumber(int pageIndex)
-    {
-        var sorted = _chapterStartIndices.OrderBy(i => i).ToList();
-        return sorted.Count(s => s <= pageIndex);
-    }
-
-    private void AddChapterStart(int pageIndex)
-    {
-        _chapterStartIndices.Add(pageIndex);
-    }
-
-    private void RemoveChapterStart(int pageIndex)
-    {
-        if (pageIndex != 0)
-        {
-            _chapterStartIndices.Remove(pageIndex);
-        }
-    }
-
-    // ─── Step 5: Progress ───────────────────────────────────────────────
+    // ─── Import Execution ───────────────────────────────────────────────
 
     private async Task StartImportAsync()
     {
-        _step = ImportStep.Progress;
-        _errorMessage = string.Empty;
-        _progressCurrent = 0;
-        _progressTotal = _pages.Count;
-        _progressMessage = string.Empty;
+        _state.GoToProgress();
 
-        var request = new ComicImportRequest
-        {
-            SeriesName = _titleName.Trim(),
-            Creator = string.IsNullOrWhiteSpace(_creator) ? null : _creator.Trim(),
-            VolumeNumber = _volumeNumber,
-            Pages = _pages,
-            ChapterStartPageIndices = _useChapterTags ? _chapterStartIndices.OrderBy(i => i).ToList() : []
-        };
+        var request = _state.BuildImportRequest();
 
         var progress = new Progress<ImportProgressUpdate>(update =>
         {
-            _progressCurrent = update.Current;
-            _progressTotal = update.Total;
-            _progressMessage = update.Message;
+            _state.UpdateProgress(update);
             InvokeAsync(StateHasChanged);
         });
 
         try
         {
-            _importedSeriesId = await ComicImportService.ImportComicAsync(request, progress);
-            _step = ImportStep.Done;
+            _state.ImportedSeriesId = await ComicImportService.ImportComicAsync(request, progress);
+            _state.GoToDone();
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Import failed: {ex.Message}";
-            _step = ImportStep.Chapters;
-            _thumbnailPreloadQueued = true;
+            _state.ErrorMessage = $"Import failed: {ex.Message}";
+            _state.CurrentStep = ImportWizardState.Step.Chapters;
+            _state.ThumbnailPreloadQueued = true;
         }
     }
-
-    // ─── Reset ──────────────────────────────────────────────────────────
-
-    private void ResetToSourceSelection()
-    {
-        _step = ImportStep.SourceSelection;
-        _pages = [];
-        _useChapterTags = true;
-        _chapterStartIndices = [0];
-        _pageThumbnailDataUrls = [];
-        _thumbnailPreloadQueued = false;
-        _isPreloadingThumbnails = false;
-        _titleName = string.Empty;
-        _creator = string.Empty;
-        _volumeNumber = null;
-        _titleInput = string.Empty;
-        _errorMessage = string.Empty;
-        _progressCurrent = 0;
-        _progressTotal = 0;
-        _progressMessage = string.Empty;
-        _importedSeriesId = 0;
-    }
-
-    private void ResetToSourceStep()
-    {
-        _step = ImportStep.SourceSpecific;
-        _pages = [];
-        _useChapterTags = true;
-        _chapterStartIndices = [0];
-        _pageThumbnailDataUrls = [];
-        _thumbnailPreloadQueued = false;
-        _isPreloadingThumbnails = false;
-        _titleName = string.Empty;
-        _creator = string.Empty;
-        _volumeNumber = null;
-        _errorMessage = string.Empty;
-        _progressCurrent = 0;
-        _progressTotal = 0;
-        _progressMessage = string.Empty;
-    }
-
-    private string _chapterPlacementHint => _useChapterTags
-        ? "Page 1 always starts Chapter 1. Click New Chapter on any page to begin a new chapter there. Click again (or Remove) to undo."
-        : "Chapter tags are disabled. Pages will be imported as one flat section without chapter tags.";
-
-    private string _chapterSummary => _useChapterTags
-        ? $"{_chapterStartIndices.Count} chapter(s)"
-        : "flat pages";
 }
