@@ -1,7 +1,5 @@
 ﻿@page "/"
-@using HydrusComicCompanion.Data
 @using HydrusComicCompanion.Services
-@using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
 @inject IHydrusSyncService SyncService
@@ -77,15 +75,15 @@
                 @foreach (var series in _series)
                 {
                     <MudItem xs="12" sm="6" md="4" lg="3">
-                        <ComicSeriesCard
+                        <ComicCard
                             Title="@series.Title"
                             CoverFileHash="@series.CoverFileHash"
                             LastSyncedAt="@series.LastSyncedAt"
                             ChapterCount="@series.ChapterCount"
                             MetadataCount="@series.MetadataCount"
                             TotalPageCount="@series.TotalPageCount"
-                            OnClick="() => OpenSeries(series.Id)"
-                            OnDelete="() => DeleteSeriesAsync(series.Id, series.Title)" />
+                            OnClick="() => OpenComic(series.Id)"
+                            OnDelete="() => DeleteComicAsync(series.Id, series.Title)" />
                     </MudItem>
                 }
             </MudGrid>
@@ -229,7 +227,7 @@
         await LoadSeriesAsync();
     }
 
-    private async Task DeleteSeriesAsync(int seriesId, string title)
+    private async Task DeleteComicAsync(int seriesId, string title)
     {
         var parameters = new DialogParameters
         {
@@ -256,7 +254,7 @@
         await LoadSeriesAsync();
     }
 
-    private void OpenSeries(int comicId)
+    private void OpenComic(int comicId)
     {
         NavigationManager.NavigateTo($"/comic/{comicId}");
     }
