@@ -62,5 +62,5 @@ public interface IHydrusSyncService
     /// <param name="seriesId">The local cached series identifier.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True when the series existed and was deleted; otherwise false.</returns>
-    Task<bool> DeleteSeriesAsync(int seriesId, CancellationToken cancellationToken = default);
+    Task<bool> DeleteComicAsync(int seriesId, CancellationToken cancellationToken = default);
 }

@@ -79,7 +79,7 @@ public class HydrusSyncService : IHydrusSyncService
             _logger.LogInformation("Starting existing libraries sync");
 
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            var existingSeriesNames = await dbContext.Series
+            var existingSeriesNames = await dbContext.Comic
                 .AsNoTracking()
                 .Select(s => s.Title)
                 .Where(title => !string.IsNullOrWhiteSpace(title))
@@ -235,7 +235,7 @@ public class HydrusSyncService : IHydrusSyncService
             var discoveredSeries = await _apiService.DiscoverTitlesAsync(cancellationToken);
 
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            var syncedSeries = await dbContext.Series
+            var syncedSeries = await dbContext.Comic
                 .Where(s => s.LastSyncedAt != null)
                 .Select(s => s.Title)
                 .ToListAsync(cancellationToken);
@@ -256,7 +256,7 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Deletes a cached series and all of its related cached records.
     /// </summary>
-    public async Task<bool> DeleteSeriesAsync(int seriesId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteComicAsync(int seriesId, CancellationToken cancellationToken = default)
     {
         if (seriesId <= 0)
         {
@@ -265,7 +265,7 @@ public class HydrusSyncService : IHydrusSyncService
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var series = await dbContext.Series
+        var series = await dbContext.Comic
             .SingleOrDefaultAsync(x => x.Id == seriesId, cancellationToken);
 
         if (series is null)
@@ -273,7 +273,7 @@ public class HydrusSyncService : IHydrusSyncService
             return false;
         }
 
-        dbContext.Series.Remove(series);
+        dbContext.Comic.Remove(series);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Deleted cached series {SeriesId} ({Title})", seriesId, series.Title);
@@ -422,7 +422,7 @@ public class HydrusSyncService : IHydrusSyncService
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         // Find or create series
-        var series = await dbContext.Series
+        var series = await dbContext.Comic
             .Include(s => s.Chapters)
             .ThenInclude(c => c.Pages)
             .Include(s => s.Metadata)
@@ -430,8 +430,8 @@ public class HydrusSyncService : IHydrusSyncService
 
         if (series == null)
         {
-            series = new SeriesRecord { Title = seriesName };
-            dbContext.Series.Add(series);
+            series = new ComicsRecord { Title = seriesName };
+            dbContext.Comic.Add(series);
         }
 
         // Clear existing chapters to rebuild them
@@ -491,7 +491,7 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Updates series metadata from file tags
     /// </summary>
-    private void UpdateSeriesMetadata(SeriesRecord series, List<FileMetadata> fileMetadata, HydrusSettings settings)
+    private void UpdateSeriesMetadata(ComicsRecord comics, List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
         var metadataDict = new Dictionary<string, HashSet<string>>();
 
@@ -525,12 +525,12 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         // Clear and rebuild metadata records
-        series.Metadata.Clear();
+        comics.Metadata.Clear();
         foreach (var (key, values) in metadataDict)
         {
             foreach (var value in values)
             {
-                series.Metadata.Add(new MetadataRecord { Key = key, Value = value });
+                comics.Metadata.Add(new MetadataRecord { Key = key, Value = value });
             }
         }
     }

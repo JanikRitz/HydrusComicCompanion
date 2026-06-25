@@ -10,5 +10,5 @@ public sealed class MetadataRecord
 
     public string Value { get; set; } = string.Empty;
 
-    public SeriesRecord Series { get; set; } = null!;
+    public ComicsRecord Comics { get; set; } = null!;
 }

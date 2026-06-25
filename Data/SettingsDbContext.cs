@@ -6,7 +6,7 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
 {
     public DbSet<HydrusSettingsRecord> HydrusSettings => Set<HydrusSettingsRecord>();
 
-    public DbSet<SeriesRecord> Series => Set<SeriesRecord>();
+    public DbSet<ComicsRecord> Comic => Set<ComicsRecord>();
 
     public DbSet<ChapterRecord> Chapters => Set<ChapterRecord>();
 
@@ -35,7 +35,7 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.CoverPageTag).IsRequired();
         });
 
-        modelBuilder.Entity<SeriesRecord>(entity =>
+        modelBuilder.Entity<ComicsRecord>(entity =>
         {
             entity.ToTable("Series");
             entity.HasKey(x => x.Id);
@@ -45,12 +45,12 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.LastSyncedAt);
 
             entity.HasMany(x => x.Chapters)
-                .WithOne(x => x.Series)
+                .WithOne(x => x.Comics)
                 .HasForeignKey(x => x.SeriesId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasMany(x => x.Metadata)
-                .WithOne(x => x.Series)
+                .WithOne(x => x.Comics)
                 .HasForeignKey(x => x.SeriesId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

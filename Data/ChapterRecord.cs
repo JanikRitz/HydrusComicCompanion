@@ -12,7 +12,7 @@ public sealed class ChapterRecord
 
     public string? Title { get; set; }
 
-    public SeriesRecord Series { get; set; } = null!;
+    public ComicsRecord Comics { get; set; } = null!;
 
     public ICollection<PageRecord> Pages { get; set; } = [];
 }

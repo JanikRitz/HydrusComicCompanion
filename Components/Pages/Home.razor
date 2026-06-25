@@ -43,11 +43,11 @@
         </MudAlert>
     }
 
-    @if (_syncedSeriesCount.HasValue)
+    @if (_syncedComicsCount.HasValue)
     {
         <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
             <MudStack Spacing="1">
-                <div>Sync completed successfully! Synced <strong>@_syncedSeriesCount</strong> titles.</div>
+                <div>Sync completed successfully! Synced <strong>@_syncedComicsCount</strong> titles.</div>
                 @if (_lastSyncTime.HasValue)
                 {
                     <div style="font-size: 0.9em; color: var(--mud-palette-text-secondary);">
@@ -62,7 +62,7 @@
     {
         <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
     }
-    else if (_series.Count == 0)
+    else if (_comics.Count == 0)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
             No titles are cached yet. Use the settings page to connect Hydrus, then add the discovery and sync flow.
@@ -72,18 +72,18 @@
     {
         <MudStack Spacing="2">
             <MudGrid Spacing="3">
-                @foreach (var series in _series)
+                @foreach (var comic in _comics)
                 {
                     <MudItem xs="12" sm="6" md="4" lg="3">
                         <ComicCard
-                            Title="@series.Title"
-                            CoverFileHash="@series.CoverFileHash"
-                            LastSyncedAt="@series.LastSyncedAt"
-                            ChapterCount="@series.ChapterCount"
-                            MetadataCount="@series.MetadataCount"
-                            TotalPageCount="@series.TotalPageCount"
-                            OnClick="() => OpenComic(series.Id)"
-                            OnDelete="() => DeleteComicAsync(series.Id, series.Title)" />
+                            Title="@comic.Title"
+                            CoverFileHash="@comic.CoverFileHash"
+                            LastSyncedAt="@comic.LastSyncedAt"
+                            ChapterCount="@comic.ChapterCount"
+                            MetadataCount="@comic.MetadataCount"
+                            TotalPageCount="@comic.TotalPageCount"
+                            OnClick="() => OpenComic(comic.Id)"
+                            OnDelete="() => DeleteComicAsync(comic.Id, comic.Title)" />
                     </MudItem>
                 }
             </MudGrid>
@@ -92,7 +92,7 @@
             {
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="gap: 12px;">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        Showing @StartItemIndex-@EndItemIndex of @_totalSeriesCount titles
+                        Showing @StartItemIndex-@EndItemIndex of @_totalComicsCount titles
                     </MudText>
                     <MudPagination Count="@TotalPages"
                                    Selected="@_currentPage"
@@ -104,7 +104,7 @@
 </MudStack>
 
 @code {
-    private sealed class SeriesCardItem
+    private sealed class ComicsCardItem
     {
         public int Id { get; init; }
         public string Title { get; init; } = string.Empty;
@@ -118,48 +118,48 @@
     private const int PageSize = 12;
     private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
 
-    private List<SeriesCardItem> _series = [];
+    private List<ComicsCardItem> _comics = [];
     private bool _isLoading = true;
     private bool _isSyncing = false;
     private string? _syncError = null;
-    private int? _syncedSeriesCount = null;
+    private int? _syncedComicsCount = null;
     private DateTime? _lastSyncTime = null;
     private int _currentPage = 1;
-    private int _totalSeriesCount = 0;
+    private int _totalComicsCount = 0;
 
-    private int TotalPages => _totalSeriesCount == 0
+    private int TotalPages => _totalComicsCount == 0
         ? 0
-        : (int)Math.Ceiling(_totalSeriesCount / (double)PageSize);
+        : (int)Math.Ceiling(_totalComicsCount / (double)PageSize);
 
-    private int StartItemIndex => _totalSeriesCount == 0 ? 0 : ((_currentPage - 1) * PageSize) + 1;
+    private int StartItemIndex => _totalComicsCount == 0 ? 0 : ((_currentPage - 1) * PageSize) + 1;
 
-    private int EndItemIndex => Math.Min(_currentPage * PageSize, _totalSeriesCount);
+    private int EndItemIndex => Math.Min(_currentPage * PageSize, _totalComicsCount);
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadSeriesAsync();
+        await LoadComicsAsync();
     }
 
-    private async Task LoadSeriesAsync()
+    private async Task LoadComicsAsync()
     {
         try
         {
             _isLoading = true;
             await using var context = await DbContextFactory.CreateDbContextAsync();
 
-            _totalSeriesCount = await context.Series
+            _totalComicsCount = await context.Comic
                 .AsNoTracking()
                 .CountAsync();
 
-            if (_totalSeriesCount == 0)
+            if (_totalComicsCount == 0)
             {
                 _currentPage = 1;
-                _series = [];
+                _comics = [];
                 _isLoading = false;
                 return;
             }
 
-            var totalPages = (int)Math.Ceiling(_totalSeriesCount / (double)PageSize);
+            var totalPages = (int)Math.Ceiling(_totalComicsCount / (double)PageSize);
             if (_currentPage > totalPages)
             {
                 _currentPage = totalPages;
@@ -167,12 +167,12 @@
 
             var skip = (_currentPage - 1) * PageSize;
 
-            _series = await context.Series
+            _comics = await context.Comic
                 .AsNoTracking()
                 .OrderBy(x => x.Title)
                 .Skip(skip)
                 .Take(PageSize)
-                .Select(x => new SeriesCardItem
+                .Select(x => new ComicsCardItem
                 {
                     Id = x.Id,
                     Title = x.Title,
@@ -197,14 +197,14 @@
     {
         _isSyncing = true;
         _syncError = null;
-        _syncedSeriesCount = null;
+        _syncedComicsCount = null;
 
         try
         {
-            _syncedSeriesCount = await SyncService.SyncExistingLibrariesAsync();
+            _syncedComicsCount = await SyncService.SyncExistingLibrariesAsync();
             _lastSyncTime = DateTime.Now;
             _currentPage = 1;
-            await LoadSeriesAsync();
+            await LoadComicsAsync();
         }
         catch (Exception ex)
         {
@@ -224,17 +224,17 @@
         }
 
         _currentPage = page;
-        await LoadSeriesAsync();
+        await LoadComicsAsync();
     }
 
-    private async Task DeleteComicAsync(int seriesId, string title)
+    private async Task DeleteComicAsync(int comicId, string title)
     {
         var parameters = new DialogParameters
         {
-            [nameof(DeleteSeriesDialog.TitleName)] = title
+            [nameof(DeleteComicDialog.Comic)] = title
         };
 
-        var dialog = await DialogService.ShowAsync<DeleteSeriesDialog>("Delete title", parameters, _topCenter);
+        var dialog = await DialogService.ShowAsync<DeleteComicDialog>("Delete comic", parameters, _topCenter);
         var result = await dialog.Result;
 
         if (result.Canceled || result.Data is not bool confirmed || !confirmed)
@@ -242,16 +242,16 @@
             return;
         }
 
-        var deleted = await SyncService.DeleteSeriesAsync(seriesId);
+        var deleted = await SyncService.DeleteComicAsync(comicId);
         if (!deleted)
         {
             Snackbar.Add("Title was already removed.", Severity.Warning);
-            await LoadSeriesAsync();
+            await LoadComicsAsync();
             return;
         }
 
         Snackbar.Add($"Deleted '{title}' from cache.", Severity.Success);
-        await LoadSeriesAsync();
+        await LoadComicsAsync();
     }
 
     private void OpenComic(int comicId)

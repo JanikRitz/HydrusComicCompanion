@@ -15,7 +15,7 @@
 else if (_comic is null)
 {
     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-        This title is not in the local cache yet.
+        This comic is not in the local cache yet.
     </MudAlert>
     <MudButton Variant="Variant.Text" OnClick="GoHome">Back to Library</MudButton>
 }
@@ -89,7 +89,7 @@ else
 
     private const int ChapterPageSize = 12;
 
-    private SeriesRecord? _comic;
+    private ComicsRecord? _comic;
     private List<ChapterRecord> _orderedChapters = [];
     private bool _isLoading = true;
     private int _chapterPage = 1;
@@ -100,7 +100,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         await using var context = await DbContextFactory.CreateDbContextAsync();
-        _comic = await context.Series
+        _comic = await context.Comic
             .AsNoTracking()
             .Include(x => x.Metadata)
             .Include(x => x.Chapters)
@@ -138,9 +138,9 @@ else
         .Skip((_chapterPage - 1) * ChapterPageSize)
         .Take(ChapterPageSize);
 
-    private static int GetTotalPageCount(SeriesRecord series)
+    private static int GetTotalPageCount(ComicsRecord comics)
     {
-        return series.Chapters.Sum(chapter => chapter.Pages.Count);
+        return comics.Chapters.Sum(chapter => chapter.Pages.Count);
     }
 
     private static string? GetChapterPreviewHash(ChapterRecord chapter)
@@ -181,10 +181,10 @@ else
 
         var parameters = new DialogParameters
         {
-            [nameof(DeleteSeriesDialog.TitleName)] = _comic.Title
+            [nameof(DeleteComicDialog.Comic)] = _comic.Title
         };
 
-        var dialog = await DialogService.ShowAsync<DeleteSeriesDialog>("Delete title", parameters, _topCenter);
+        var dialog = await DialogService.ShowAsync<DeleteComicDialog>("Delete title", parameters, _topCenter);
         var result = await dialog.Result;
 
         if (result.Canceled || result.Data is not bool confirmed || !confirmed)
@@ -192,10 +192,10 @@ else
             return;
         }
 
-        var deleted = await SyncService.DeleteSeriesAsync(_comic.Id);
+        var deleted = await SyncService.DeleteComicAsync(_comic.Id);
         if (!deleted)
         {
-            Snackbar.Add("Title was already removed.", Severity.Warning);
+            Snackbar.Add("Comic was already removed.", Severity.Warning);
         }
         else
         {

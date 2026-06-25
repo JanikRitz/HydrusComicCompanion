@@ -1,6 +1,6 @@
 namespace HydrusComicCompanion.Data;
 
-public sealed class SeriesRecord
+public sealed class ComicsRecord
 {
     public int Id { get; set; }
 

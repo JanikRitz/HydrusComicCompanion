@@ -336,15 +336,15 @@ public sealed class ComicImportService : IComicImportService
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var series = await db.Series
+        var series = await db.Comic
             .Include(s => s.Chapters).ThenInclude(c => c.Pages)
             .Include(s => s.Metadata)
             .FirstOrDefaultAsync(s => s.Title == request.SeriesName, cancellationToken);
 
         if (series == null)
         {
-            series = new SeriesRecord { Title = request.SeriesName };
-            db.Series.Add(series);
+            series = new ComicsRecord { Title = request.SeriesName };
+            db.Comic.Add(series);
         }
 
         // Merge chapters into existing series and reject conflicting overlaps.

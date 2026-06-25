@@ -88,7 +88,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
     public int PageNumber { get; set; }
 
     private ElementReference _readerSurface;
-    private SeriesRecord? _series;
+    private ComicsRecord? _series;
     private ChapterRecord? _chapter;
     private IReadOnlyList<PageRecord> _pages = Array.Empty<PageRecord>();
     private PageRecord? _currentPage;
@@ -149,7 +149,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         {
             await using var context = await DbContextFactory.CreateDbContextAsync();
 
-            _series = await context.Series
+            _series = await context.Comic
                 .AsNoTracking()
                 .Include(x => x.Chapters)
                     .ThenInclude(x => x.Pages)
