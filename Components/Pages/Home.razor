@@ -13,9 +13,6 @@
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
             <div>
                 <MudText Typo="Typo.h4" GutterBottom="true">Library</MudText>
-                <MudText Typo="Typo.body1" Color="Color.Secondary">
-                    Browse your cached Hydrus comics.
-                </MudText>
             </div>
             <MudButton 
                 Variant="Variant.Filled" 
@@ -58,6 +55,51 @@
         </MudAlert>
     }
 
+    <MudExpansionPanels>
+        <MudExpansionPanel Text="Search and filters">
+            <MudStack Spacing="2">
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="6">
+                        <MudTextField T="string"
+                                      Label="Title contains"
+                                      @bind-Value="_titleFilter"
+                                      Clearable="true"/>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField T="string"
+                                      Label="Tag contains"
+                                      HelperText="Supports namespace:value and partial matches"
+                                      @bind-Value="_tagFilter"
+                                      Clearable="true"/>
+                    </MudItem>
+                    <MudItem xs="6" md="2">
+                        <MudNumericField T="int?" Label="Min volumes" @bind-Value="_minVolumes" Min="0" Clearable="true"/>
+                    </MudItem>
+                    <MudItem xs="6" md="2">
+                        <MudNumericField T="int?" Label="Max volumes" @bind-Value="_maxVolumes" Min="0" Clearable="true"/>
+                    </MudItem>
+                    <MudItem xs="6" md="2">
+                        <MudNumericField T="int?" Label="Min chapters" @bind-Value="_minChapters" Min="0" Clearable="true"/>
+                    </MudItem>
+                    <MudItem xs="6" md="2">
+                        <MudNumericField T="int?" Label="Max chapters" @bind-Value="_maxChapters" Min="0" Clearable="true"/>
+                    </MudItem>
+                    <MudItem xs="6" md="2">
+                        <MudNumericField T="int?" Label="Min pages" @bind-Value="_minTotalPages" Min="0" Clearable="true"/>
+                    </MudItem>
+                    <MudItem xs="6" md="2">
+                        <MudNumericField T="int?" Label="Max pages" @bind-Value="_maxTotalPages" Min="0" Clearable="true"/>
+                    </MudItem>
+                </MudGrid>
+
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ApplyFiltersAsync">Apply filters</MudButton>
+                    <MudButton Variant="Variant.Outlined" OnClick="ResetFiltersAsync" Disabled="@(!HasActiveFilters)">Reset</MudButton>
+                </MudStack>
+            </MudStack>
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+
     @if (_isLoading)
     {
         <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
@@ -65,7 +107,7 @@
     else if (_comics.Count == 0)
     {
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            No titles are cached yet. Use the settings page to connect Hydrus, then add the discovery and sync flow.
+            @EmptyStateMessage
         </MudAlert>
     }
     else
@@ -126,6 +168,15 @@
     private DateTime? _lastSyncTime = null;
     private int _currentPage = 1;
     private int _totalComicsCount = 0;
+    private int _totalLibraryComicsCount = 0;
+    private string _titleFilter = string.Empty;
+    private string _tagFilter = string.Empty;
+    private int? _minVolumes;
+    private int? _maxVolumes;
+    private int? _minChapters;
+    private int? _maxChapters;
+    private int? _minTotalPages;
+    private int? _maxTotalPages;
 
     private int TotalPages => _totalComicsCount == 0
         ? 0
@@ -134,6 +185,20 @@
     private int StartItemIndex => _totalComicsCount == 0 ? 0 : ((_currentPage - 1) * PageSize) + 1;
 
     private int EndItemIndex => Math.Min(_currentPage * PageSize, _totalComicsCount);
+
+    private bool HasActiveFilters =>
+        !string.IsNullOrWhiteSpace(_titleFilter) ||
+        !string.IsNullOrWhiteSpace(_tagFilter) ||
+        _minVolumes.HasValue ||
+        _maxVolumes.HasValue ||
+        _minChapters.HasValue ||
+        _maxChapters.HasValue ||
+        _minTotalPages.HasValue ||
+        _maxTotalPages.HasValue;
+
+    private string EmptyStateMessage => _totalLibraryComicsCount == 0
+        ? "No titles are cached yet. Use the settings page to connect Hydrus, then add the discovery and sync flow."
+        : "No titles matched your current search and filters.";
 
     protected override async Task OnInitializedAsync()
     {
@@ -147,9 +212,82 @@
             _isLoading = true;
             await using var context = await DbContextFactory.CreateDbContextAsync();
 
-            _totalComicsCount = await context.Comic
-                .AsNoTracking()
-                .CountAsync();
+            var query = context.Comic.AsNoTracking();
+            _totalLibraryComicsCount = await query.CountAsync();
+
+            if (!string.IsNullOrWhiteSpace(_titleFilter))
+            {
+                var titleFilter = _titleFilter.Trim();
+                query = query.Where(x => EF.Functions.Like(x.Title, $"%{titleFilter}%"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_tagFilter))
+            {
+                var tagFilter = _tagFilter.Trim();
+                var separatorIndex = tagFilter.IndexOf(':');
+
+                if (separatorIndex > 0 && separatorIndex < tagFilter.Length - 1)
+                {
+                    var namespaceFilter = tagFilter[..separatorIndex].Trim();
+                    var valueFilter = tagFilter[(separatorIndex + 1)..].Trim();
+
+                    query = query.Where(x => x.Metadata.Any(m =>
+                        EF.Functions.Like(m.Key, $"%{namespaceFilter}%") &&
+                        EF.Functions.Like(m.Value, $"%{valueFilter}%")));
+                }
+                else
+                {
+                    query = query.Where(x => x.Metadata.Any(m =>
+                        EF.Functions.Like(m.Key, $"%{tagFilter}%") ||
+                        EF.Functions.Like(m.Value, $"%{tagFilter}%")));
+                }
+            }
+
+            if (_minVolumes.HasValue)
+            {
+                var minVolumes = _minVolumes.Value;
+                query = query.Where(x => x.Chapters
+                    .Where(c => c.VolumeNumber.HasValue)
+                    .Select(c => c.VolumeNumber!.Value)
+                    .Distinct()
+                    .Count() >= minVolumes);
+            }
+
+            if (_maxVolumes.HasValue)
+            {
+                var maxVolumes = _maxVolumes.Value;
+                query = query.Where(x => x.Chapters
+                    .Where(c => c.VolumeNumber.HasValue)
+                    .Select(c => c.VolumeNumber!.Value)
+                    .Distinct()
+                    .Count() <= maxVolumes);
+            }
+
+            if (_minChapters.HasValue)
+            {
+                var minChapters = _minChapters.Value;
+                query = query.Where(x => x.Chapters.Count() >= minChapters);
+            }
+
+            if (_maxChapters.HasValue)
+            {
+                var maxChapters = _maxChapters.Value;
+                query = query.Where(x => x.Chapters.Count() <= maxChapters);
+            }
+
+            if (_minTotalPages.HasValue)
+            {
+                var minPages = _minTotalPages.Value;
+                query = query.Where(x => x.Chapters.SelectMany(c => c.Pages).Count() >= minPages);
+            }
+
+            if (_maxTotalPages.HasValue)
+            {
+                var maxPages = _maxTotalPages.Value;
+                query = query.Where(x => x.Chapters.SelectMany(c => c.Pages).Count() <= maxPages);
+            }
+
+            _totalComicsCount = await query.CountAsync();
 
             if (_totalComicsCount == 0)
             {
@@ -167,8 +305,7 @@
 
             var skip = (_currentPage - 1) * PageSize;
 
-            _comics = await context.Comic
-                .AsNoTracking()
+            _comics = await query
                 .OrderBy(x => x.Title)
                 .Skip(skip)
                 .Take(PageSize)
@@ -191,6 +328,26 @@
             _isLoading = false;
             _syncError = $"Error loading titles: {ex.Message}";
         }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        _currentPage = 1;
+        await LoadComicsAsync();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        _titleFilter = string.Empty;
+        _tagFilter = string.Empty;
+        _minVolumes = null;
+        _maxVolumes = null;
+        _minChapters = null;
+        _maxChapters = null;
+        _minTotalPages = null;
+        _maxTotalPages = null;
+        _currentPage = 1;
+        await LoadComicsAsync();
     }
 
     private async Task SyncNow()
