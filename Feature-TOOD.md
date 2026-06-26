@@ -23,10 +23,14 @@ filter by
 
 ## Import
 
+Add Full Title + comment to import metadata step
+
 - calibre
   - read metadata, like creator + series/volume
   - additional info
   - how do we access the data, CLI interface or directly reading the DB?
+- other tag services, show thumbnails of possible ones (using cover or page 1) or even do a queue from them.
+  automatically add creator + series, or even better a list of configured namespaces to the import
 
 ## UI
 
@@ -38,6 +42,19 @@ show more info on Comic card (favorite, series, creator, ...)
 
 already mentioned in the plan.md is the export as CBZ for reading on device
 
+## OCR
+
+add a "scan OCR' button that checks for sidecar files and ingests them if there are
+
+writing the data to cache + Hydrus note (configured name) . This only adds a plain text variant keeping the full OCR in the sidecar 
+
+should ignore files with OCR notes already (?)
+
+
+enable option in Reader to overlay the OCR data (will need to read the sidecar file for full OCR)
+
+
+enable full text search, optionally with highlight of which page(s)
 
 ## OCR data format
 
