@@ -24,6 +24,12 @@ public sealed class HydrusSettings
 
     public string CoverPageTag { get; set; } = "meta:cover page";
 
+    public string FullTitleNoteName { get; set; } = "title";
+
+    public string ComicCommentNoteName { get; set; } = "comment";
+
+    public string OcrTextNoteName { get; set; } = "ocr";
+
     public int BackgroundSyncIntervalMinutes { get; set; } = 15;
 
     public HydrusSettings Clone()
@@ -41,6 +47,9 @@ public sealed class HydrusSettings
             ChapterNamespace = ChapterNamespace,
             PageNamespace = PageNamespace,
             CoverPageTag = CoverPageTag,
+            FullTitleNoteName = FullTitleNoteName,
+            ComicCommentNoteName = ComicCommentNoteName,
+            OcrTextNoteName = OcrTextNoteName,
             BackgroundSyncIntervalMinutes = BackgroundSyncIntervalMinutes
         };
     }

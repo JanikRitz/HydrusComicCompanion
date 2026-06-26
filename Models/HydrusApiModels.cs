@@ -80,6 +80,9 @@ public class FileMetadata
     [JsonPropertyName("tags")]
     public Dictionary<string, ServiceTagBucket> Tags { get; set; } = new();
 
+    [JsonPropertyName("notes")]
+    public Dictionary<string, string> Notes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     /*
      * The tags structure is similar to the /add_tags/add_tags scheme, excepting that the status numbers are:
        0 - current
@@ -182,6 +185,30 @@ public class AddTagsRequest
 
     [JsonPropertyName("service_keys_to_tags")]
     public Dictionary<string, List<string>> ServiceKeysToTags { get; set; } = new();
+}
+
+public sealed class SetNotesRequest
+{
+    [JsonPropertyName("hash")]
+    public string Hash { get; set; } = string.Empty;
+
+    [JsonPropertyName("notes")]
+    public Dictionary<string, string> Notes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    [JsonPropertyName("merge_cleverly")]
+    public bool MergeCleverly { get; set; }
+
+    [JsonPropertyName("extend_existing_note_if_possible")]
+    public bool ExtendExistingNoteIfPossible { get; set; } = true;
+
+    [JsonPropertyName("conflict_resolution")]
+    public int ConflictResolution { get; set; } = 3;
+}
+
+public sealed class SetNotesResponse
+{
+    [JsonPropertyName("notes")]
+    public Dictionary<string, string> Notes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>

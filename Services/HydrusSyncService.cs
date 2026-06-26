@@ -154,7 +154,7 @@ public class HydrusSyncService : IHydrusSyncService
             };
         }
 
-        var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken);
+        var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken: cancellationToken);
         return BuildImportPreparation(normalizedSeriesName, fileMetadata, settings);
     }
 
@@ -204,7 +204,7 @@ public class HydrusSyncService : IHydrusSyncService
             _logger.LogInformation("Found {Count} files for title {TitleName}", fileIds.Count, normalizedSeriesName);
 
             // Step 2: Get metadata for all files
-            var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken);
+            var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, includeNotes: true, cancellationToken: cancellationToken);
 
             // Step 3: Parse metadata and structure into volume/chapter/page hierarchy
             var chapters = ParseFilesIntoChapters(fileMetadata, settings);
@@ -437,6 +437,8 @@ public class HydrusSyncService : IHydrusSyncService
         // Clear existing chapters to rebuild them
         series.Chapters.Clear();
 
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+
         // Add chapters from parsed data
         foreach (var ((volumeNumber, chapterNumber), pages) in chapters
                      .OrderBy(c => c.Key.Volume ?? 0)
@@ -456,7 +458,8 @@ public class HydrusSyncService : IHydrusSyncService
                 {
                     FileHash = fileMetadata.Hash,
                     PageNumber = pageNumber,
-                    MimeType = fileMetadata.MimeType
+                    MimeType = fileMetadata.MimeType,
+                    OcrText = ExtractNoteValue(fileMetadata, settings.OcrTextNoteName)
                 };
                 chapter.Pages.Add(page);
             }
@@ -465,20 +468,21 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         // Update series metadata (creators, genres, etc.)
-        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
         UpdateSeriesMetadata(series, allFileMetadata, settings);
 
-        // Set cover image to the first page of the first chapter if not already set
-        if (string.IsNullOrEmpty(series.CoverFileHash) && chapters.Count > 0)
-        {
-            var firstChapterPages = chapters
-                .OrderBy(c => c.Key.Volume ?? 0)
-                .ThenBy(c => c.Key.Chapter ?? 0m)
-                .SelectMany(c => c.Value)
-                .OrderBy(p => p.PageNumber)
-                .First();
-            series.CoverFileHash = firstChapterPages.Metadata.Hash;
-        }
+        // Set cover to configured cover tag file, or fallback to the lowest page number.
+        series.CoverFileHash = ResolveCoverFileHash(chapters, allFileMetadata, settings);
+
+        var coverFile = allFileMetadata.FirstOrDefault(file =>
+            !string.IsNullOrWhiteSpace(series.CoverFileHash) &&
+            string.Equals(file.Hash, series.CoverFileHash, StringComparison.OrdinalIgnoreCase));
+
+        series.DisplayTitle = coverFile is null
+            ? null
+            : ExtractNoteValue(coverFile, settings.FullTitleNoteName);
+        series.Comment = coverFile is null
+            ? null
+            : ExtractNoteValue(coverFile, settings.ComicCommentNoteName);
 
         // Update sync timestamp
         series.LastSyncedAt = DateTimeOffset.UtcNow;
@@ -655,5 +659,55 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         return null;
+    }
+
+    private static string? ExtractNoteValue(FileMetadata metadata, string noteName)
+    {
+        if (string.IsNullOrWhiteSpace(noteName) || metadata.Notes.Count == 0)
+        {
+            return null;
+        }
+
+        if (!metadata.Notes.TryGetValue(noteName.Trim(), out var noteValue))
+        {
+            return null;
+        }
+
+        var trimmed = noteValue.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static string? ResolveCoverFileHash(
+        Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>> chapters,
+        List<FileMetadata> allFileMetadata,
+        HydrusSettings settings)
+    {
+        var coverTag = settings.CoverPageTag.Trim();
+
+        if (!string.IsNullOrWhiteSpace(coverTag))
+        {
+            var taggedCover = allFileMetadata.FirstOrDefault(file =>
+                file.GetAllStorageTags().Contains(coverTag, StringComparer.OrdinalIgnoreCase));
+
+            if (taggedCover is not null)
+            {
+                return taggedCover.Hash;
+            }
+        }
+
+        if (chapters.Count == 0)
+        {
+            return null;
+        }
+
+        var fallbackCover = chapters
+            .OrderBy(c => c.Key.Volume ?? 0)
+            .ThenBy(c => c.Key.Chapter ?? 0m)
+            .SelectMany(c => c.Value)
+            .OrderBy(page => page.PageNumber)
+            .ThenBy(page => page.Metadata.FileId)
+            .FirstOrDefault();
+
+        return fallbackCover.Metadata?.Hash;
     }
 }

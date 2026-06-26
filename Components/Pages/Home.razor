@@ -118,14 +118,14 @@
                 {
                     <MudItem xs="12" sm="6" md="4" lg="3">
                         <ComicCard
-                            Title="@comic.Title"
+                            Title="@GetComicCardTitle(comic)"
                             CoverFileHash="@comic.CoverFileHash"
                             LastSyncedAt="@comic.LastSyncedAt"
                             ChapterCount="@comic.ChapterCount"
                             MetadataCount="@comic.MetadataCount"
                             TotalPageCount="@comic.TotalPageCount"
                             OnClick="() => OpenComic(comic.Id)"
-                            OnDelete="() => DeleteComicAsync(comic.Id, comic.Title)" />
+                            OnDelete="() => DeleteComicAsync(comic.Id, GetComicCardTitle(comic))" />
                     </MudItem>
                 }
             </MudGrid>
@@ -150,6 +150,7 @@
     {
         public int Id { get; init; }
         public string Title { get; init; } = string.Empty;
+        public string? DisplayTitle { get; init; }
         public string? CoverFileHash { get; init; }
         public DateTimeOffset? LastSyncedAt { get; init; }
         public int ChapterCount { get; init; }
@@ -313,6 +314,7 @@
                 {
                     Id = x.Id,
                     Title = x.Title,
+                    DisplayTitle = x.DisplayTitle,
                     CoverFileHash = x.CoverFileHash,
                     LastSyncedAt = x.LastSyncedAt,
                     ChapterCount = x.Chapters.Count(),
@@ -382,6 +384,13 @@
 
         _currentPage = page;
         await LoadComicsAsync();
+    }
+
+    private string GetComicCardTitle(ComicsCardItem comic)
+    {
+        return string.IsNullOrWhiteSpace(comic.DisplayTitle)
+            ? comic.Title
+            : comic.DisplayTitle;
     }
 
     private async Task DeleteComicAsync(int comicId, string title)

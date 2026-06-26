@@ -59,7 +59,7 @@ public class HydrusApiService : IHydrusApiService
                 return titleNames;
             }
 
-            var fileMetadata = await GetFileMetadataAsync(fileIds, cancellationToken);
+            var fileMetadata = await GetFileMetadataAsync(fileIds, cancellationToken: cancellationToken);
 
             foreach (var metadata in fileMetadata)
             {
@@ -120,7 +120,7 @@ public class HydrusApiService : IHydrusApiService
     /// <summary>
     /// Gets detailed metadata for files, including their tags
     /// </summary>
-    public async Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, CancellationToken cancellationToken = default)
+    public async Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, bool includeNotes = false, CancellationToken cancellationToken = default)
     {
         var metadata = new List<FileMetadata>();
 
@@ -145,7 +145,7 @@ public class HydrusApiService : IHydrusApiService
                     ["detailed_url_information"] = "false",
                     ["include_blurhash"] = "false",
                     ["include_milliseconds"] = "true",
-                    ["include_notes"] = "false",
+                    ["include_notes"] = includeNotes ? "true" : "false",
                     ["include_services_object"] = "false"
                 };
 
@@ -336,6 +336,74 @@ public class HydrusApiService : IHydrusApiService
     }
 
     // TODO add a way to add + remove tags to update the metadata when import needs to change it (e.g. removing old page:1 and setting it to page:2)
+
+    public async Task<Dictionary<string, string>> SetNotesAsync(
+        string hash,
+        Dictionary<string, string> notes,
+        bool mergeCleverly = false,
+        bool extendExistingNoteIfPossible = true,
+        int conflictResolution = 3,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            throw new ArgumentException("Hash is required.", nameof(hash));
+        }
+
+        if (notes.Count == 0)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/add_notes/set_notes";
+
+            var request = new SetNotesRequest
+            {
+                Hash = hash,
+                Notes = notes,
+                MergeCleverly = mergeCleverly,
+                ExtendExistingNoteIfPossible = extendExistingNoteIfPossible,
+                ConflictResolution = conflictResolution
+            };
+
+            var jsonContent = JsonSerializer.Serialize(request);
+            var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = httpContent
+            };
+
+            AddApiKeyHeader(httpRequest, settings);
+
+            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError(
+                    "Hydrus set notes request failed. Status: {StatusCode}. URL: {RequestUrl}. Response: {ResponseBody}",
+                    (int)response.StatusCode,
+                    url,
+                    errorContent);
+                response.EnsureSuccessStatusCode();
+            }
+
+            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            var setNotesResponse = JsonSerializer.Deserialize<SetNotesResponse>(responseJson);
+            var writtenNotes = setNotesResponse?.Notes ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            _logger.LogInformation("Updated {Count} notes for file {Hash}", writtenNotes.Count, hash);
+            return writtenNotes;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting notes for file {Hash} in Hydrus", hash);
+            throw;
+        }
+    }
 
     /// <summary>
     /// Tests the Hydrus API connection

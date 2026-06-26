@@ -25,5 +25,11 @@ public sealed class HydrusSettingsRecord
 
     public string CoverPageTag { get; set; } = string.Empty;
 
+    public string FullTitleNoteName { get; set; } = string.Empty;
+
+    public string ComicCommentNoteName { get; set; } = string.Empty;
+
+    public string OcrTextNoteName { get; set; } = string.Empty;
+
     public int BackgroundSyncIntervalMinutes { get; set; }
 }

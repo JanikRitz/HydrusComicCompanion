@@ -33,6 +33,9 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.ChapterNamespace).IsRequired();
             entity.Property(x => x.PageNamespace).IsRequired();
             entity.Property(x => x.CoverPageTag).IsRequired();
+            entity.Property(x => x.FullTitleNoteName).IsRequired();
+            entity.Property(x => x.ComicCommentNoteName).IsRequired();
+            entity.Property(x => x.OcrTextNoteName).IsRequired();
         });
 
         modelBuilder.Entity<ComicsRecord>(entity =>
@@ -41,6 +44,8 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.HasKey(x => x.Id);
 
             entity.Property(x => x.Title).IsRequired();
+            entity.Property(x => x.DisplayTitle);
+            entity.Property(x => x.Comment);
             entity.Property(x => x.CoverFileHash);
             entity.Property(x => x.LastSyncedAt);
 
@@ -80,6 +85,7 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.FileHash).IsRequired();
             entity.Property(x => x.PageNumber).IsRequired();
             entity.Property(x => x.MimeType);
+            entity.Property(x => x.OcrText);
 
             entity.HasIndex(x => x.ChapterId);
         });

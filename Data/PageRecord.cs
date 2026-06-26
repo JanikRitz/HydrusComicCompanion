@@ -12,5 +12,7 @@ public sealed class PageRecord
 
     public string? MimeType { get; set; }
 
+    public string? OcrText { get; set; }
+
     public ChapterRecord Chapter { get; set; } = null!;
 }

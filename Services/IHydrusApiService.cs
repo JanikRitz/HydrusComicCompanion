@@ -29,11 +29,12 @@ public interface IHydrusApiService
     Task<List<long>> SearchFilesAsync(List<string> tags, string? fileDomain = null, bool skipTagService = false, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Gets detailed metadata for files, including their tags
+    /// Gets detailed metadata for files, including their tags.
     /// </summary>
     /// <param name="fileIds">List of file IDs to get metadata for</param>
+    /// <param name="includeNotes">Whether to include Hydrus notes in the metadata payload.</param>
     /// <returns>List of file metadata objects</returns>
-    Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, CancellationToken cancellationToken = default);
+    Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, bool includeNotes = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the raw file bytes from Hydrus.
@@ -97,6 +98,23 @@ public interface IHydrusApiService
     /// <param name="mimeType">MIME type of the file (e.g. "image/jpeg").</param>
     /// <returns>Result containing the Hydrus hash and import status.</returns>
     Task<HydrusAddFileResult> AddFileAsync(byte[] content, string mimeType, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Adds or updates notes associated with a file in Hydrus.
+    /// </summary>
+    /// <param name="hash">File hash</param>
+    /// <param name="notes">Notes map of name to text.</param>
+    /// <param name="mergeCleverly">Whether Hydrus should merge notes using duplicate resolution logic.</param>
+    /// <param name="extendExistingNoteIfPossible">Hydrus merge setting for extending existing notes.</param>
+    /// <param name="conflictResolution">Hydrus conflict mode: 0 replace, 1 ignore, 2 append, 3 rename.</param>
+    /// <returns>The notes Hydrus reports as written in this operation.</returns>
+    Task<Dictionary<string, string>> SetNotesAsync(
+        string hash,
+        Dictionary<string, string> notes,
+        bool mergeCleverly = false,
+        bool extendExistingNoteIfPossible = true,
+        int conflictResolution = 3,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tests the Hydrus API connection

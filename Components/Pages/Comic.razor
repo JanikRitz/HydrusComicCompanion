@@ -5,6 +5,8 @@
 @inject IHydrusSyncService SyncService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject IHydrusApiService ApiService
+@inject IHydrusSettingsService SettingsService
 
 <PageTitle>Title</PageTitle>
 
@@ -22,6 +24,52 @@ else if (_comic is null)
 else
 {
     <MudStack Spacing="3" Class="pa-4">
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.h6">Comic Details</MudText>
+                    @if (!_isEditingDetails)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                       aria-label="edit"
+                                       Size="Size.Small"
+                                       OnClick="BeginEditDetails" />
+                    }
+                </MudStack>
+                @if (_isEditingDetails)
+                {
+                    <MudTextField @bind-Value="_displayTitleInput"
+                                  Label="Full Title"
+                                  Immediate="true"
+                                  ReadOnly="@(!_isEditingDetails)" />
+                    <MudTextField @bind-Value="_commentInput"
+                                  Label="Comment"
+                                  Lines="4"
+                                  Immediate="true"
+                                  ReadOnly="@(!_isEditingDetails)" />
+                    <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="1">
+                        <MudButton Variant="Variant.Outlined"
+                                   Disabled="@_isSavingDetails"
+                                   OnClick="CancelEditDetails">
+                            Cancel
+                        </MudButton>
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   Disabled="@_isSavingDetails"
+                                   OnClick="SaveDetailsAsync">
+                            @(_isSavingDetails ? "Saving..." : "Save Details")
+                        </MudButton>
+                    </MudStack>
+                }
+                else
+                {
+                    <MudText Typo="@Typo.caption">Title</MudText>
+                    <MudText>@_displayTitleInput</MudText>
+                    <MudText Typo="@Typo.caption">Comments</MudText>
+                    <MudText>@_commentInput</MudText>
+                }
+            </MudStack>
+        </MudPaper>
         <MudPaper Class="pa-4" Outlined="true">
             <MudStack Spacing="2">
                 <MudText Typo="Typo.h6">Metadata</MudText>
@@ -95,6 +143,10 @@ else
     private int _chapterPage = 1;
     private bool _showVolumeInLabel;
     private bool _showChapterInLabel;
+    private bool _isEditingDetails;
+    private bool _isSavingDetails;
+    private string _displayTitleInput = string.Empty;
+    private string _commentInput = string.Empty;
     private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
 
     protected override async Task OnInitializedAsync()
@@ -111,6 +163,9 @@ else
             .OrderBy(x => x.VolumeNumber ?? int.MinValue)
             .ThenBy(x => x.ChapterNumber ?? decimal.MinValue)
             .ToList() ?? [];
+
+        _displayTitleInput = _comic?.DisplayTitle ?? string.Empty;
+        _commentInput = _comic?.Comment ?? string.Empty;
 
         _showVolumeInLabel = _orderedChapters
             .Select(x => x.VolumeNumber)
@@ -170,6 +225,103 @@ else
         }
 
         return string.Join(" · ", labelParts);
+    }
+
+    private void BeginEditDetails()
+    {
+        _isEditingDetails = true;
+    }
+
+    private void CancelEditDetails()
+    {
+        if (_comic is null)
+        {
+            return;
+        }
+
+        _displayTitleInput = _comic.DisplayTitle ?? string.Empty;
+        _commentInput = _comic.Comment ?? string.Empty;
+        _isEditingDetails = false;
+    }
+
+    private async Task SaveDetailsAsync()
+    {
+        if (_comic is null)
+        {
+            return;
+        }
+
+        _isSavingDetails = true;
+
+        try
+        {
+            var settings = await SettingsService.GetSettingsAsync();
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+
+            var series = await context.Comic
+                .Include(x => x.Chapters)
+                .ThenInclude(x => x.Pages)
+                .SingleOrDefaultAsync(x => x.Id == _comic.Id);
+
+            if (series is null)
+            {
+                Snackbar.Add("Comic not found in local cache.", Severity.Error);
+                return;
+            }
+
+            var fallbackCoverHash = series.Chapters
+                .SelectMany(chapter => chapter.Pages)
+                .OrderBy(page => page.PageNumber)
+                .ThenBy(page => page.Id)
+                .Select(page => page.FileHash)
+                .FirstOrDefault();
+
+            var coverHash = string.IsNullOrWhiteSpace(series.CoverFileHash)
+                ? fallbackCoverHash
+                : series.CoverFileHash;
+
+            if (string.IsNullOrWhiteSpace(coverHash))
+            {
+                Snackbar.Add("No cover page found to store title/comment notes.", Severity.Warning);
+                return;
+            }
+
+            var displayTitle = _displayTitleInput.Trim();
+            var comment = _commentInput.Trim();
+
+            await ApiService.SetNotesAsync(
+                coverHash,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [settings.FullTitleNoteName] = displayTitle,
+                    [settings.ComicCommentNoteName] = comment
+                },
+                mergeCleverly: false,
+                cancellationToken: CancellationToken.None);
+
+            series.DisplayTitle = string.IsNullOrWhiteSpace(displayTitle) ? null : displayTitle;
+            series.Comment = string.IsNullOrWhiteSpace(comment) ? null : comment;
+            series.CoverFileHash = coverHash;
+
+            await context.SaveChangesAsync();
+
+            _comic.DisplayTitle = series.DisplayTitle;
+            _comic.Comment = series.Comment;
+            _comic.CoverFileHash = series.CoverFileHash;
+            _displayTitleInput = _comic.DisplayTitle ?? string.Empty;
+            _commentInput = _comic.Comment ?? string.Empty;
+            _isEditingDetails = false;
+
+            Snackbar.Add("Comic details saved.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to save comic details: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isSavingDetails = false;
+        }
     }
 
     private async Task DeleteSeriesAsync()

@@ -40,6 +40,9 @@ public sealed class HydrusSettingsService(
         settings.ChapterNamespace = stored.ChapterNamespace;
         settings.PageNamespace = stored.PageNamespace;
         settings.CoverPageTag = stored.CoverPageTag;
+        settings.FullTitleNoteName = stored.FullTitleNoteName;
+        settings.ComicCommentNoteName = stored.ComicCommentNoteName;
+        settings.OcrTextNoteName = stored.OcrTextNoteName;
         settings.BackgroundSyncIntervalMinutes = stored.BackgroundSyncIntervalMinutes;
 
         if (TryUnprotectApiAccessKey(stored.ProtectedApiAccessKey, out var apiAccessKey))
@@ -74,6 +77,9 @@ public sealed class HydrusSettingsService(
         stored.ChapterNamespace = normalized.ChapterNamespace;
         stored.PageNamespace = normalized.PageNamespace;
         stored.CoverPageTag = normalized.CoverPageTag;
+        stored.FullTitleNoteName = normalized.FullTitleNoteName;
+        stored.ComicCommentNoteName = normalized.ComicCommentNoteName;
+        stored.OcrTextNoteName = normalized.OcrTextNoteName;
         stored.BackgroundSyncIntervalMinutes = normalized.BackgroundSyncIntervalMinutes;
 
         await context.SaveChangesAsync(cancellationToken);
@@ -135,6 +141,9 @@ public sealed class HydrusSettingsService(
         normalized.ChapterNamespace = NormalizeNamespace(normalized.ChapterNamespace, "chapter:");
         normalized.PageNamespace = NormalizeNamespace(normalized.PageNamespace, "page:");
         normalized.CoverPageTag = NormalizeCoverPageTag(normalized.CoverPageTag, "meta:cover page");
+        normalized.FullTitleNoteName = NormalizeNoteName(normalized.FullTitleNoteName, "title");
+        normalized.ComicCommentNoteName = NormalizeNoteName(normalized.ComicCommentNoteName, "comment");
+        normalized.OcrTextNoteName = NormalizeNoteName(normalized.OcrTextNoteName, "ocr");
         normalized.BackgroundSyncIntervalMinutes = Math.Max(0, normalized.BackgroundSyncIntervalMinutes);
 
         return normalized;
@@ -152,6 +161,12 @@ public sealed class HydrusSettingsService(
     }
 
     private static string NormalizeCoverPageTag(string value, string fallback)
+    {
+        var trimmed = value.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
+    }
+
+    private static string NormalizeNoteName(string value, string fallback)
     {
         var trimmed = value.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;
