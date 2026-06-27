@@ -1,24 +1,22 @@
 
 ## Metadata
 
-store additional data as notes in page:1 / meta:cover page images
-
-what about OCR data, I already have a tool + format that stores the data
-
-(should the OCR data be cached for search?)
-
-store favorites (maybe also as info on the cover page in Hydrus using the rating system already provided by Hydrus which would mean we need this configured in settings)
+- [X] store additional data as notes in page:1 / meta:cover page images
+- [ ] what about OCR data, I already have a tool + format that stores the data
+  (should the OCR data be cached for search?)
+- [ ] store favorites (maybe also as info on the cover page in Hydrus using the rating system already provided by Hydrus which would mean we need this configured in settings)
 
 ## Search
 
 search by
-- Title
-- Tags
-- OCR (?) / full text search where available
+
+- [X] Title
+- [X] Tags
+- [ ] OCR (?) / full text search where available
 
 filter by
-- length (pages, chapters, ...)
-- tags
+- [X] length (pages, chapters, ...)
+- [X] tags
 
 
 ## Import

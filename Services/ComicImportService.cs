@@ -173,7 +173,24 @@ public sealed class ComicImportService : IComicImportService
             await _apiService.AddTagsAsync(pageHashes[i], settings.TagServiceKey, tags, cancellationToken);
         }
 
-        // Step 3: Persist to local cache
+        // Step 3: Apply optional notes to cover page
+        var notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(request.DisplayTitle) && !string.IsNullOrWhiteSpace(settings.FullTitleNoteName))
+        {
+            notes[settings.FullTitleNoteName.Trim()] = request.DisplayTitle.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Comment) && !string.IsNullOrWhiteSpace(settings.ComicCommentNoteName))
+        {
+            notes[settings.ComicCommentNoteName.Trim()] = request.Comment.Trim();
+        }
+
+        if (notes.Count > 0)
+        {
+            await _apiService.SetNotesAsync(pageHashes[0], notes, cancellationToken: cancellationToken);
+        }
+
+        // Step 4: Persist to local cache
         progress?.Report(new ImportProgressUpdate
         {
             Current = total,
@@ -444,6 +461,9 @@ public sealed class ComicImportService : IComicImportService
                 series.Metadata.Add(new MetadataRecord { Key = "creator", Value = creator });
             }
         }
+
+        series.DisplayTitle = string.IsNullOrWhiteSpace(request.DisplayTitle) ? null : request.DisplayTitle.Trim();
+        series.Comment = string.IsNullOrWhiteSpace(request.Comment) ? null : request.Comment.Trim();
 
         if (string.IsNullOrEmpty(series.CoverFileHash) && pageHashes.Length > 0)
         {

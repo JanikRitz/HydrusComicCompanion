@@ -74,6 +74,8 @@ public sealed class VolumeStartEntry
 public sealed class ComicImportRequest
 {
     public string SeriesName { get; set; } = string.Empty;
+    public string? DisplayTitle { get; set; }
+    public string? Comment { get; set; }
     public string? Creator { get; set; }
 
     /// <summary>

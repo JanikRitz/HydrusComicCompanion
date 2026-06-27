@@ -40,6 +40,8 @@ public class ImportWizardState
 
     // ─── Metadata Fields ────────────────────────────────────────────────
     public string TitleName { get; set; } = string.Empty;
+    public string DisplayTitle { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
     public string Creator { get; set; } = string.Empty;
     public string CustomTags { get; set; } = string.Empty;
     public int? VolumeNumber { get; set; }
@@ -104,6 +106,8 @@ public class ImportWizardState
         ReindexPages();
 
         TitleName = preparation.Metadata?.Series?.Trim() ?? string.Empty;
+        DisplayTitle = TitleName;
+        Comments = string.Empty;
         Creator = preparation.Metadata?.Creator?.Trim() ?? string.Empty;
         VolumeNumber = preparation.Metadata?.VolumeNumber;
         ChapterStartIndices = preparation.ChapterStartPageIndices.Count > 0
@@ -372,6 +376,8 @@ public class ImportWizardState
         ThumbnailPreloadQueued = false;
         IsPreloadingThumbnails = false;
         TitleName = string.Empty;
+        DisplayTitle = string.Empty;
+        Comments = string.Empty;
         Creator = string.Empty;
         CustomTags = string.Empty;
         VolumeNumber = null;
@@ -394,6 +400,8 @@ public class ImportWizardState
         ThumbnailPreloadQueued = false;
         IsPreloadingThumbnails = false;
         TitleName = string.Empty;
+        DisplayTitle = string.Empty;
+        Comments = string.Empty;
         Creator = string.Empty;
         CustomTags = string.Empty;
         VolumeNumber = null;
@@ -433,6 +441,8 @@ public class ImportWizardState
         return new ComicImportRequest
         {
             SeriesName = TitleName.Trim(),
+            DisplayTitle = string.IsNullOrWhiteSpace(DisplayTitle) ? null : DisplayTitle.Trim(),
+            Comment = string.IsNullOrWhiteSpace(Comments) ? null : Comments.Trim(),
             Creator = string.IsNullOrWhiteSpace(Creator) ? null : Creator.Trim(),
             VolumeNumber = VolumeNumber,
             Pages = pagesWithNumbers,

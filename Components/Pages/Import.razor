@@ -52,6 +52,10 @@
         case ImportWizardState.Step.Metadata:
             <MetadataStep TitleName="@_state.TitleName"
                           TitleNameChanged="@((value) => _state.TitleName = value)"
+                          DisplayTitle="@_state.DisplayTitle"
+                          DisplayTitleChanged="@((value) => _state.DisplayTitle = value)"
+                          Comments="@_state.Comments"
+                          CommentsChanged="@((value) => _state.Comments = value)"
                           Creator="@_state.Creator"
                           CreatorChanged="@((value) => _state.Creator = value)"
                           CustomTags="@_state.CustomTags"
