@@ -1,0 +1,76 @@
+@if (ShouldShowHoverPreview)
+{
+    <MudTooltip Placement="@HoverPlacement">
+        <ChildContent>
+            <img @attributes="AdditionalAttributes"
+                 src="@Src"
+                 alt="@Alt"
+                 loading="@Loading"
+                 decoding="@Decoding"
+                 draggable="@Draggable"
+                 style="@ComputedStyle" />
+        </ChildContent>
+        <TooltipContent >
+            <img src="@HoverPreviewSource"
+                 alt="@Alt"
+                 loading="eager"
+                 decoding="async"
+                 style="@HoverPreviewStyle" />
+        </TooltipContent>
+    </MudTooltip>
+}
+else
+{
+    <img @attributes="AdditionalAttributes"
+         src="@Src"
+         alt="@Alt"
+         loading="@Loading"
+         decoding="@Decoding"
+         draggable="@Draggable"
+         style="@ComputedStyle" />
+}
+
+@code {
+    private const string DefaultImageStyle = "width: 100%; height: 100%; display: block; object-fit: contain; object-position: center center;";
+
+    [Parameter, EditorRequired]
+    public string Src { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Alt { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Style { get; set; }
+
+    [Parameter]
+    public string Loading { get; set; } = "lazy";
+
+    [Parameter]
+    public string Decoding { get; set; } = "async";
+
+    [Parameter]
+    public bool? Draggable { get; set; }
+
+    [Parameter]
+    public bool ShowHoverPreview { get; set; }
+
+    [Parameter]
+    public string? FullImageSrc { get; set; }
+
+    [Parameter]
+    public Placement HoverPlacement { get; set; } = Placement.Top;
+
+    [Parameter]
+    public string HoverPreviewStyle { get; set; } = "max-width: min(90vw, 1200px); max-height: 80vh; object-fit: contain; display: block;";
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private bool ShouldShowHoverPreview => ShowHoverPreview && !string.IsNullOrWhiteSpace(HoverPreviewSource);
+
+    private string HoverPreviewSource => string.IsNullOrWhiteSpace(FullImageSrc) ? Src : FullImageSrc!;
+
+    private string ComputedStyle => string.IsNullOrWhiteSpace(Style)
+        ? DefaultImageStyle
+        : $"{DefaultImageStyle} {Style}";
+}

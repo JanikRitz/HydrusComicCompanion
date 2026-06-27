@@ -6,10 +6,11 @@
         <div class="chapter-card__media-wrap">
             @if (!string.IsNullOrWhiteSpace(PreviewFileHash))
             {
-                <img class="chapter-card__media"
-                     src="@MediaService.BuildRenderUrl(PreviewFileHash, width: RenderWidth, height: RenderHeight)"
-                     alt="@($"Preview for {ChapterLabel}")"
-                     loading="lazy" />
+                <HydrusImage Src="@MediaService.BuildRenderUrl(PreviewFileHash, width: RenderWidth, height: RenderHeight)"
+                             FullImageSrc="@MediaService.BuildRenderUrl(PreviewFileHash)"
+                             Alt="@($"Preview for {ChapterLabel}")"
+                             ShowHoverPreview="false"
+                             Loading="lazy" />
             }
             else
             {

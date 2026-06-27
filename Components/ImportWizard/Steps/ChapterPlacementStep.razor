@@ -1,4 +1,6 @@
 @using HydrusComicCompanion.Models
+@using HydrusComicCompanion.Services
+@inject IHydrusMediaService MediaService
 
 <MudPaper Class="pa-4" Outlined="true" Style="height: calc(100dvh - 220px);">
     <MudStack Spacing="2" Style="height: 100%; min-height: 0;">
@@ -79,20 +81,22 @@
                     </MudStack>
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
-                    <MudTooltip Text="@System.IO.Path.GetFileName(context.ArchiveFileName)" Placement="Placement.Right">
-                        @if (PageThumbnails.TryGetValue(pageIndex, out var thumbnailUrl))
-                        {
-                            <img src="@thumbnailUrl"
-                                 alt="@System.IO.Path.GetFileName(context.ArchiveFileName)"
-                                 loading="lazy"
-                                 decoding="async"
-                                 style="width: 64px; height: 64px; object-fit: contain; border-radius: 4px; display:block; cursor:default;" />
-                        }
-                        else
-                        {
-                            <MudSkeleton Width="64px" Height="64px" Animation="Animation.Wave" />
-                        }
-                    </MudTooltip>
+                    @if (PageThumbnails.TryGetValue(pageIndex, out var thumbnailUrl))
+                    {
+                        <HydrusImage Src="@thumbnailUrl"
+                                     FullImageSrc="@GetFullImageSource(context, thumbnailUrl)"
+                                     Alt="@System.IO.Path.GetFileName(context.ArchiveFileName)"
+                                     Loading="lazy"
+                                     Decoding="async"
+                                     ShowHoverPreview="true"
+                                     HoverPlacement="Placement.Right"
+                                     title="@System.IO.Path.GetFileName(context.ArchiveFileName)"
+                                     Style="width: 64px; height: 64px; object-fit: contain; border-radius: 4px; display:block; cursor:default;" />
+                    }
+                    else
+                    {
+                        <MudSkeleton Width="64px" Height="64px" Animation="Animation.Wave" />
+                    }
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
                     <MudText Typo="Typo.body1">@ComputeFinalPageNumber(pageIndex)</MudText>
@@ -307,6 +311,16 @@
             ? $"{VolumeStartIndices.Count} volume(s) \u00b7 {ChapterStartIndices.Count} chapter(s)"
             : $"{ChapterStartIndices.Count} chapter(s)"
         : "flat pages";
+
+    private string GetFullImageSource(ImportPage page, string fallbackSource)
+    {
+        if (!string.IsNullOrWhiteSpace(page.Sha256Hash))
+        {
+            return MediaService.BuildRenderUrl(page.Sha256Hash);
+        }
+
+        return fallbackSource;
+    }
 
     private bool IsChapterStart(int pageIndex) => ChapterStartIndices.Contains(pageIndex);
 

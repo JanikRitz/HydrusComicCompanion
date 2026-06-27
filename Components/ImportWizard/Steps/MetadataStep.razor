@@ -66,9 +66,11 @@
                         @if (HasPreviewImages)
                         {
                             <MudPaper Outlined="true" Class="pa-2 d-flex align-center justify-center" Style="min-height: 100%;">
-                                <img src="@PrimaryPreviewImageSource"
-                                     alt="@PreviewImageAlt"
-                                     style="width: 100%; max-width: 100%; max-height: 720px; object-fit: contain; display: block;"/>
+                                <HydrusImage Src="@PrimaryPreviewImageSource"
+                                             Alt="@PreviewImageAlt"
+                                             Style="width: 100%; max-width: 100%; max-height: 720px; object-fit: contain; display: block;"
+                                             ShowHoverPreview="true"
+                                             HoverPlacement="Placement.Left" />
                             </MudPaper>
                         }
                         @if (ThumbnailPreviewSources.Length > 0)
@@ -78,9 +80,11 @@
                                 {
                                     <MudItem xs="6">
                                         <MudPaper Outlined="true" Class="pa-1 d-flex align-center justify-center">
-                                            <img src="@thumbnail"
-                                                 alt="More page preview"
-                                                 style="width: 100%; max-height: 140px; object-fit: contain; display: block;" />
+                                            <HydrusImage Src="@thumbnail"
+                                                         Alt="More page preview"
+                                                         Style="width: 100%; max-height: 140px; object-fit: contain; display: block;"
+                                                         ShowHoverPreview="true"
+                                                         HoverPlacement="Placement.Left"/>
                                         </MudPaper>
                                     </MudItem>
                                 }

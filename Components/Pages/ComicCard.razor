@@ -8,10 +8,13 @@
         <div class="comic-card__media-wrap">
             @if (!string.IsNullOrWhiteSpace(CoverFileHash))
             {
-                <img class="comic-card__media"
-                     src="@MediaService.BuildRenderUrl(CoverFileHash, width: RenderWidth, height: RenderHeight)"
-                     alt="@($"Cover image for {Title}")"
-                     loading="lazy" />
+                <div class="comic-card__media">
+                    <HydrusImage Src="@MediaService.BuildRenderUrl(CoverFileHash, width: RenderWidth, height: RenderHeight)"
+                                 FullImageSrc="@MediaService.BuildRenderUrl(CoverFileHash)"
+                                 Alt="@($"Cover image for {Title}")"
+                                 ShowHoverPreview="false"
+                                 Loading="lazy" />
+                </div>
             }
             else
             {
