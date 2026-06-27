@@ -154,6 +154,34 @@ public sealed class ImportProgressUpdate
 }
 
 /// <summary>
+/// A book entry discovered in a Calibre library via calibredb.
+/// </summary>
+public sealed class CalibreBookEntry
+{
+    public int Id { get; init; }
+    public string Title { get; init; } = string.Empty;
+    public string Authors { get; init; } = string.Empty;
+    public IReadOnlyList<string> Formats { get; init; } = [];
+
+    public string DisplayName => string.IsNullOrWhiteSpace(Authors)
+        ? $"#{Id} — {Title}"
+        : $"#{Id} — {Title} ({Authors})";
+}
+
+/// <summary>
+/// Metadata for a Calibre book parsed from its OPF metadata via calibredb show_metadata.
+/// </summary>
+public sealed class CalibreMetadataSnapshot
+{
+    public string Title { get; set; } = string.Empty;
+    public string Series { get; set; } = string.Empty;
+    public string Creator { get; set; } = string.Empty;
+    public string Comments { get; set; } = string.Empty;
+    public int? VolumeNumber { get; set; }
+    public IReadOnlyList<string> Tags { get; set; } = [];
+}
+
+/// <summary>
 /// Result of uploading a single file to Hydrus via POST /add_files/add_file.
 /// </summary>
 public sealed class HydrusAddFileResult

@@ -45,6 +45,7 @@ builder.Services.AddScoped<IHydrusApiService, HydrusApiService>();
 builder.Services.AddScoped<IHydrusSyncService, HydrusSyncService>();
 builder.Services.AddScoped<IHydrusMediaService, HydrusMediaService>();
 builder.Services.AddScoped<IComicImportService, ComicImportService>();
+builder.Services.AddScoped<ICalibreService, CalibreService>();
 
 // Add import source handlers for extensible import workflow
 builder.Services.AddScoped<ArchiveImportHandler>();

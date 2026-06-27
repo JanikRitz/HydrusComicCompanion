@@ -6,6 +6,7 @@
 @using HydrusComicCompanion.Services
 @using HydrusComicCompanion.Services.Abstractions
 @inject IComicImportService ComicImportService
+@inject ICalibreService CalibreService
 @inject IHydrusMediaService HydrusMediaService
 @inject IHydrusSyncService SyncService
 
@@ -70,6 +71,23 @@
                                  OnBegin="@BeginQueueAsync"
                                  OnBack="@OnSourceSpecificBack" />
             }
+            else if (_state.SelectedSource is ImportSource.CalibreBook)
+            {
+                <CalibreSourceStep LibraryPath="@_calibreLibraryPath"
+                                   LibraryPathChanged="@((v) => _calibreLibraryPath = v)"
+                                   SearchQuery="@_calibreSearchQuery"
+                                   SearchQueryChanged="@((v) => _calibreSearchQuery = v)"
+                                   DiscoveredBooks="@_calibreDiscoveredBooks"
+                                   QueuedItems="@_state.Queue"
+                                   IsProcessing="@_state.IsExtracting"
+                                   OnDiscover="DiscoverCalibreBooksAsync"
+                                   OnAddBook="AddCalibreBookToQueue"
+                                   OnQueueAll="QueueAllCalibreBooks"
+                                   OnUnqueueAll="UnqueueAllCalibreBooks"
+                                   OnRemoveItem="OnRemoveQueueItem"
+                                   OnBegin="BeginQueueAsync"
+                                   OnBack="OnSourceSpecificBack" />
+            }
             break;
 
         case ImportWizardState.Step.Metadata:
@@ -130,6 +148,10 @@
 @code {
     private readonly ImportWizardState _state = new();
     private ThumbnailPreloadService? _thumbnailService;
+
+    private readonly List<CalibreBookEntry> _calibreDiscoveredBooks = [];
+    private string _calibreLibraryPath = string.Empty;
+    private string _calibreSearchQuery = "formats:true";
 
     private const long MaxArchiveSizeBytes = 2L * 1024 * 1024 * 1024; // 2 GB
 
@@ -249,6 +271,51 @@
         return null;
     }
 
+    private async Task<(ComicImportPreparation Preparation, CalibreMetadataSnapshot Metadata)> ExtractCalibreBookAsync(ImportWizardState.QueuedComic item, CancellationToken cancellationToken)
+    {
+        var bookId = ParseCalibreBookId(item.Title);
+        if (!bookId.HasValue)
+        {
+            throw new InvalidOperationException($"Invalid Calibre book id in queue item: {item.Title}");
+        }
+
+        var libraryPath = (_calibreLibraryPath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(libraryPath))
+        {
+            throw new InvalidOperationException("Calibre library path is not set.");
+        }
+
+        return await CalibreService.ExtractBookAsync(bookId.Value, libraryPath, cancellationToken);
+    }
+
+    private static int? ParseCalibreBookId(string rawValue)
+    {
+        return int.TryParse((rawValue ?? string.Empty).Trim(), out var parsedId) ? parsedId : null;
+    }
+
+    private void ApplyCalibreMetadata(CalibreMetadataSnapshot metadata)
+    {
+        var seriesOrTitle = !string.IsNullOrWhiteSpace(metadata.Series) ? metadata.Series.Trim() : metadata.Title.Trim();
+        if (!string.IsNullOrWhiteSpace(seriesOrTitle))
+        {
+            _state.TitleName = seriesOrTitle;
+        }
+
+        if (!string.IsNullOrWhiteSpace(metadata.Title))
+        {
+            _state.DisplayTitle = metadata.Title.Trim();
+        }
+
+        _state.Creator = metadata.Creator;
+        _state.Comments = metadata.Comments;
+        _state.VolumeNumber = metadata.VolumeNumber;
+
+        if (metadata.Tags.Count > 0)
+        {
+            _state.CustomTags = string.Join(", ", metadata.Tags);
+        }
+    }
+
     // ─── Queue Building ─────────────────────────────────────────────────
 
     private void OnArchivesSelected(IReadOnlyList<IBrowserFile> files)
@@ -261,6 +328,78 @@
     {
         _state.ErrorMessage = string.Empty;
         _state.AddTitleToQueue(title);
+    }
+
+    private async Task DiscoverCalibreBooksAsync()
+    {
+        _state.ErrorMessage = string.Empty;
+
+        var libraryPath = (_calibreLibraryPath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(libraryPath))
+        {
+            _state.ErrorMessage = "A Calibre library path is required.";
+            return;
+        }
+
+        if (!Directory.Exists(libraryPath))
+        {
+            _state.ErrorMessage = $"The Calibre library path was not found: {libraryPath}";
+            return;
+        }
+
+        _state.IsExtracting = true;
+
+        try
+        {
+            var searchQuery = string.IsNullOrWhiteSpace(_calibreSearchQuery) ? null : _calibreSearchQuery.Trim();
+            var books = await CalibreService.DiscoverBooksAsync(libraryPath, searchQuery);
+
+            _calibreDiscoveredBooks.Clear();
+            _calibreDiscoveredBooks.AddRange(books);
+
+            _state.ErrorMessage = _calibreDiscoveredBooks.Count == 0
+                ? "No Calibre books with CBZ/CBR formats matched your query."
+                : $"Discovered {_calibreDiscoveredBooks.Count} Calibre books ready for queueing.";
+        }
+        catch (Exception ex)
+        {
+            _state.ErrorMessage = $"Calibre discovery failed: {ex.Message}";
+        }
+        finally
+        {
+            _state.IsExtracting = false;
+        }
+    }
+
+    private void AddCalibreBookToQueue(CalibreBookEntry book)
+    {
+        _state.ErrorMessage = string.Empty;
+
+        if (_state.Queue.Any(item => item.Source == ImportSource.CalibreBook
+            && string.Equals(item.Title, book.Id.ToString(), StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        _state.Queue.Add(new ImportWizardState.QueuedComic
+        {
+            Source = ImportSource.CalibreBook,
+            Title = book.Id.ToString(),
+            DisplayName = book.DisplayName
+        });
+    }
+
+    private void QueueAllCalibreBooks()
+    {
+        foreach (var book in _calibreDiscoveredBooks)
+        {
+            AddCalibreBookToQueue(book);
+        }
+    }
+
+    private void UnqueueAllCalibreBooks()
+    {
+        _state.Queue.RemoveAll(item => item.Source == ImportSource.CalibreBook);
     }
 
     private void OnRemoveQueueItem(ImportWizardState.QueuedComic item)
@@ -307,6 +446,7 @@
         try
         {
             ComicImportPreparation preparation;
+            CalibreMetadataSnapshot? calibreMetadata = null;
 
             if (item.Source == ImportSource.Archive)
             {
@@ -321,6 +461,11 @@
                 await using var stream = item.ArchiveFile.OpenReadStream(maxAllowedSize: MaxArchiveSizeBytes);
                 preparation = await ComicImportService.ExtractArchiveAsync(stream, item.ArchiveFile.Name);
             }
+            else if (item.Source == ImportSource.CalibreBook)
+            {
+                _state.IsExtracting = true;
+                (preparation, calibreMetadata) = await ExtractCalibreBookAsync(item, CancellationToken.None);
+            }
             else
             {
                 _state.IsSyncing = true;
@@ -330,14 +475,23 @@
 
             if (preparation.Pages.Count == 0)
             {
-                _state.MarkCurrentFailed(item.Source == ImportSource.Archive
-                    ? "No image pages were found in the archive."
-                    : "No matching files found for that title.");
+                _state.MarkCurrentFailed(item.Source switch
+                {
+                    ImportSource.Archive => "No image pages were found in the archive.",
+                    ImportSource.CalibreBook => "No image pages were extracted from the selected Calibre archive format.",
+                    _ => "No matching files found for that title."
+                });
                 await AdvanceOrFinishAsync();
                 return;
             }
 
             _state.ApplyPreparation(preparation);
+
+            if (calibreMetadata is not null)
+            {
+                ApplyCalibreMetadata(calibreMetadata);
+            }
+
             _state.GoToMetadata();
         }
         catch (Exception ex)
@@ -491,3 +645,4 @@
         }
     }
 }
+

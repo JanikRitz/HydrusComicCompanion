@@ -1,0 +1,253 @@
+@using HydrusComicCompanion.Components.ImportWizard.State
+@using HydrusComicCompanion.Models
+@using HydrusComicCompanion.Services.Abstractions
+
+<MudPaper Class="pa-4" Outlined="true">
+    <MudStack Spacing="3">
+        <MudText Typo="Typo.h6">Step 2 — Discover Calibre Books</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            Select a Calibre library path, discover books that contain CBZ/CBR formats, then queue the books you want to import.
+        </MudText>
+
+        <MudTextField Value="@LibraryPath"
+                      ValueChanged="@((string v) => LibraryPathChanged.InvokeAsync(v))"
+                      Label="Calibre library path"
+                      Placeholder="D:\Books\Calibre Library"
+                      Immediate="true"
+                      Disabled="@IsProcessing"
+                      HelperText="Required. This path is passed to calibredb --with-library." />
+
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+            <MudTextField Value="@SearchQuery"
+                          ValueChanged="@((string v) => SearchQueryChanged.InvokeAsync(v))"
+                          Label="Calibre search query"
+                          Placeholder="formats:true"
+                          Immediate="true"
+                          Disabled="@IsProcessing"
+                          HelperText="Optional calibre search filter. Leave empty to search all books."
+                          Class="flex-grow-1" />
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Secondary"
+                       OnClick="OnDiscoverClickedAsync"
+                       Disabled="@(IsProcessing || string.IsNullOrWhiteSpace(LibraryPath))"
+                       StartIcon="@Icons.Material.Filled.Search">
+                Discover
+            </MudButton>
+        </MudStack>
+
+        @if (DiscoveredBooks.Count > 0)
+        {
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    @DiscoveredBooks.Count book(s) found with archive formats.
+                </MudText>
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Size="Size.Small"
+                               Variant="Variant.Outlined"
+                               Disabled="@IsProcessing"
+                               OnClick="OnQueueAllClickedAsync">
+                        Queue all
+                    </MudButton>
+                    <MudButton Size="Size.Small"
+                               Variant="Variant.Outlined"
+                               Disabled="@(IsProcessing || !HasQueuedCalibreItems)"
+                               OnClick="OnUnqueueAllClickedAsync">
+                        Unqueue all
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+
+            <MudDataGrid T="CalibreBookEntry"
+                         Items="@DiscoveredBooks"
+                         Filterable="true"
+                         QuickFilter="@DiscoveredBooksQuickFilter"
+                         Dense="true"
+                         Hover="true"
+                         Height="300px"
+                         Style="flex: 1 1 auto; min-height: 0;">
+                <ToolBarContent>
+                    <MudText Typo="Typo.subtitle2">Discovered books</MudText>
+                    <MudSpacer />
+                    <MudTextField @bind-Value="_discoveredSearch"
+                                  Placeholder="Filter books"
+                                  Adornment="Adornment.Start"
+                                  Immediate="true"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  IconSize="Size.Medium"
+                                  Disabled="@IsProcessing"
+                                  Class="mt-0" />
+                </ToolBarContent>
+                <Columns>
+                    <PropertyColumn Property="x => x.DisplayName" Title="Book" />
+                    <PropertyColumn Property="x => x.Formats" Title="Formats" Sortable="false" Filterable="false">
+                        <CellTemplate>
+                            @string.Join(", ", context.Item.Formats)
+                        </CellTemplate>
+                    </PropertyColumn>
+                    <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                        <CellTemplate>
+                            @{ var alreadyQueued = IsAlreadyQueued(context.Item); }
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       Size="Size.Small"
+                                       Disabled="@(alreadyQueued || IsProcessing)"
+                                       OnClick="@(() => OnAddBook.InvokeAsync(context.Item))">
+                                @(alreadyQueued ? "Queued" : "Add")
+                            </MudButton>
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <PagerContent>
+                    <MudDataGridPager T="CalibreBookEntry" />
+                </PagerContent>
+            </MudDataGrid>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary">No Calibre books discovered yet.</MudText>
+        }
+
+        @if (QueuedItems.Count > 0)
+        {
+            <MudDivider />
+            <MudDataGrid T="ImportWizardState.QueuedComic"
+                         Items="@QueuedItems"
+                         Filterable="true"
+                         QuickFilter="@QueuedItemsQuickFilter"
+                         Dense="true"
+                         Hover="true"
+                         Height="220px">
+                <ToolBarContent>
+                    <MudText Typo="Typo.subtitle2">Queued imports</MudText>
+                    <MudSpacer />
+                    <MudTextField @bind-Value="_queuedSearch"
+                                  Placeholder="Filter queued"
+                                  Adornment="Adornment.Start"
+                                  Immediate="true"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  IconSize="Size.Medium"
+                                  Disabled="@IsProcessing"
+                                  Class="mt-0" />
+                </ToolBarContent>
+                <Columns>
+                    <PropertyColumn Property="x => x.DisplayName" Title="Queue item" />
+                    <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                        <CellTemplate>
+                            <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                           Size="Size.Small"
+                                           Disabled="@IsProcessing"
+                                           OnClick="@(() => OnRemoveItem.InvokeAsync(context.Item))" />
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <PagerContent>
+                    <MudDataGridPager T="ImportWizardState.QueuedComic" />
+                </PagerContent>
+            </MudDataGrid>
+        }
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Spacing="2">
+            <MudButton Variant="Variant.Outlined" OnClick="OnBackClickedAsync" Disabled="@IsProcessing">Back</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       OnClick="OnBeginClickedAsync"
+                       Disabled="@(IsProcessing || QueuedItems.Count == 0)"
+                       StartIcon="@Icons.Material.Filled.PlayArrow">
+                @if (IsProcessing)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <span style="margin-left: 8px;">Working…</span>
+                }
+                else
+                {
+                    <span>Start Import (@QueuedItems.Count)</span>
+                }
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public string LibraryPath { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> LibraryPathChanged { get; set; }
+
+    [Parameter]
+    public string SearchQuery { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> SearchQueryChanged { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<CalibreBookEntry> DiscoveredBooks { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<ImportWizardState.QueuedComic> QueuedItems { get; set; } = [];
+
+    [Parameter]
+    public bool IsProcessing { get; set; }
+
+    [Parameter]
+    public EventCallback OnDiscover { get; set; }
+
+    [Parameter]
+    public EventCallback<CalibreBookEntry> OnAddBook { get; set; }
+
+    [Parameter]
+    public EventCallback OnQueueAll { get; set; }
+
+    [Parameter]
+    public EventCallback OnUnqueueAll { get; set; }
+
+    [Parameter]
+    public EventCallback<ImportWizardState.QueuedComic> OnRemoveItem { get; set; }
+
+    [Parameter]
+    public EventCallback OnBegin { get; set; }
+
+    [Parameter]
+    public EventCallback OnBack { get; set; }
+
+    private string _discoveredSearch = string.Empty;
+    private string _queuedSearch = string.Empty;
+
+    private Func<CalibreBookEntry, bool> DiscoveredBooksQuickFilter => book =>
+    {
+        if (string.IsNullOrWhiteSpace(_discoveredSearch))
+        {
+            return true;
+        }
+
+        return book.DisplayName.Contains(_discoveredSearch, StringComparison.OrdinalIgnoreCase)
+            || book.Title.Contains(_discoveredSearch, StringComparison.OrdinalIgnoreCase)
+            || book.Authors.Contains(_discoveredSearch, StringComparison.OrdinalIgnoreCase)
+            || book.Formats.Any(format => format.Contains(_discoveredSearch, StringComparison.OrdinalIgnoreCase))
+            || book.Id.ToString().Contains(_discoveredSearch, StringComparison.OrdinalIgnoreCase);
+    };
+
+    private Func<ImportWizardState.QueuedComic, bool> QueuedItemsQuickFilter => item =>
+    {
+        if (string.IsNullOrWhiteSpace(_queuedSearch))
+        {
+            return true;
+        }
+
+        return item.DisplayName.Contains(_queuedSearch, StringComparison.OrdinalIgnoreCase)
+            || item.Title.Contains(_queuedSearch, StringComparison.OrdinalIgnoreCase);
+    };
+
+    private bool HasQueuedCalibreItems =>
+        QueuedItems.Any(q => q.Source == ImportSource.CalibreBook);
+
+    private bool IsAlreadyQueued(CalibreBookEntry book) =>
+        QueuedItems.Any(item => item.Source == ImportSource.CalibreBook
+            && string.Equals(item.Title, book.Id.ToString(), StringComparison.Ordinal));
+
+    private async Task OnDiscoverClickedAsync() => await OnDiscover.InvokeAsync();
+    private async Task OnQueueAllClickedAsync() => await OnQueueAll.InvokeAsync();
+    private async Task OnUnqueueAllClickedAsync() => await OnUnqueueAll.InvokeAsync();
+    private async Task OnBeginClickedAsync() => await OnBegin.InvokeAsync();
+    private async Task OnBackClickedAsync() => await OnBack.InvokeAsync();
+}
