@@ -192,11 +192,24 @@ public class HydrusApiService : IHydrusApiService
     /// <summary>
     /// Gets detailed metadata for files, including their tags
     /// </summary>
-    public async Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, bool includeNotes = false, CancellationToken cancellationToken = default)
+    public Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, bool includeNotes = false, CancellationToken cancellationToken = default)
+        => GetFileMetadataInternalAsync("file_ids", fileIds.Select(id => id.ToString()).ToList(), includeNotes, cancellationToken);
+
+    /// <summary>
+    /// Gets detailed metadata for files by hash, including their tags.
+    /// </summary>
+    public Task<List<FileMetadata>> GetFileMetadataByHashesAsync(List<string> hashes, bool includeNotes = false, CancellationToken cancellationToken = default)
+        => GetFileMetadataInternalAsync("hashes", hashes, includeNotes, cancellationToken);
+
+    private async Task<List<FileMetadata>> GetFileMetadataInternalAsync(
+        string queryKey,
+        IReadOnlyCollection<string> queryValues,
+        bool includeNotes,
+        CancellationToken cancellationToken)
     {
         var metadata = new List<FileMetadata>();
 
-        if (fileIds.Count == 0)
+        if (queryValues.Count == 0)
         {
             return metadata;
         }
@@ -206,11 +219,15 @@ public class HydrusApiService : IHydrusApiService
             var settings = await _settingsService.GetSettingsAsync(cancellationToken);
             var url = $"{settings.ApiUrl}/get_files/file_metadata";
 
-            foreach (var batch in fileIds.Chunk(256))
+            foreach (var batch in queryValues.Chunk(256))
             {
+                var serializedBatch = queryKey == "file_ids"
+                    ? JsonSerializer.Serialize(batch.Select(long.Parse).ToArray())
+                    : JsonSerializer.Serialize(batch);
+
                 var queryParams = new Dictionary<string, string>
                 {
-                    ["file_ids"] = JsonSerializer.Serialize(batch),
+                    [queryKey] = serializedBatch,
                     ["create_new_file_ids"] = "false",
                     ["only_return_identifiers"] = "false",
                     ["only_return_basic_information"] = "false",
@@ -249,11 +266,11 @@ public class HydrusApiService : IHydrusApiService
                 }
             }
 
-            _logger.LogInformation("Retrieved metadata for {Count} files", metadata.Count);
+            _logger.LogInformation("Retrieved metadata for {Count} files using {QueryKey}", metadata.Count, queryKey);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error retrieving file metadata from Hydrus for {Count} file IDs", fileIds.Count);
+            _logger.LogError(ex, "Error retrieving file metadata from Hydrus for {Count} {QueryKey}", queryValues.Count, queryKey);
             throw;
         }
 

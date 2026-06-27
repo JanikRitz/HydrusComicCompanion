@@ -2,6 +2,7 @@
 @using HydrusComicCompanion.Services
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
+@inject IHydrusApiService ApiService
 @inject IHydrusMediaService MediaService
 
 <PageTitle>Reader</PageTitle>
@@ -38,10 +39,27 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
         <MudPaper Class="reader-topbar" Elevation="4">
             <div class="reader-topbar__title">
-                <MudText Typo="Typo.subtitle1">@_series.Title</MudText>
-                <MudText Typo="Typo.body2" Color="Color.Secondary">
-                    @GetChapterSummary(_chapter)
-                </MudText>
+                @if (_currentPageTags.Count > 0)
+                {
+                    <MudExpansionPanels>
+                        <MudExpansionPanel Text="@($"{_series.Title} {GetChapterSummary(_chapter)}")" @bind-Expanded="ShowTags">
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="reader-topbar__tags">
+                                @foreach (var tag in _currentPageTags)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@tag</MudChip>
+                                }
+                            </MudStack>
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
+
+                }
+                else
+                {
+                    <MudText Typo="Typo.subtitle1">@_series.Title</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        @GetChapterSummary(_chapter)
+                    </MudText>
+                }
             </div>
 
             <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="reader-topbar__controls">
@@ -79,19 +97,21 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
     [Parameter]
     public int ComicId { get; set; }
 
-    // TODO also handle volume
-
     [Parameter]
     public int ChapterId { get; set; }
 
     [Parameter]
     public int PageNumber { get; set; }
 
+    [Parameter]
+    public bool ShowTags { get; set; }
+
     private ElementReference _readerSurface;
     private ComicsRecord? _series;
     private ChapterRecord? _chapter;
     private IReadOnlyList<PageRecord> _pages = Array.Empty<PageRecord>();
     private PageRecord? _currentPage;
+    private IReadOnlyList<string> _currentPageTags = Array.Empty<string>();
     private bool _isLoading = true;
     private string? _errorMessage;
     private int _currentPageNumber;
@@ -201,6 +221,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
             _currentPage = _pages[targetPageNumber - 1];
             _currentPageNumber = targetPageNumber;
+            _currentPageTags = await LoadCurrentPageTagsAsync(_currentPage.FileHash);
 
             _syncedSeriesId = _series.Id;
             _syncedChapterId = _chapter.Id;
@@ -343,6 +364,22 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         }
 
         return $"{_series.Title} - {GetChapterSummary(_chapter)} Page {_currentPageNumber}";
+    }
+
+    private async Task<IReadOnlyList<string>> LoadCurrentPageTagsAsync(string fileHash)
+    {
+        try
+        {
+            var metadata = await ApiService.GetFileMetadataByHashesAsync(new List<string> { fileHash });
+            var pageMetadata = metadata.FirstOrDefault();
+            return pageMetadata is null
+                ? Array.Empty<string>()
+                : pageMetadata.GetAllStorageTags().OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
     }
 
     private static string GetChapterSummary(ChapterRecord chapter)

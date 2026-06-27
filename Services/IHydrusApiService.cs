@@ -56,6 +56,14 @@ public interface IHydrusApiService
     Task<List<FileMetadata>> GetFileMetadataAsync(List<long> fileIds, bool includeNotes = false, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets detailed metadata for files by hash, including their tags.
+    /// </summary>
+    /// <param name="hashes">List of file hashes to get metadata for.</param>
+    /// <param name="includeNotes">Whether to include Hydrus notes in the metadata payload.</param>
+    /// <returns>List of file metadata objects.</returns>
+    Task<List<FileMetadata>> GetFileMetadataByHashesAsync(List<string> hashes, bool includeNotes = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets the raw file bytes from Hydrus.
     /// </summary>
     /// <param name="hash">The file hash to retrieve.</param>
