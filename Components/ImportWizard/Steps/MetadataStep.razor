@@ -5,44 +5,91 @@
             Review and edit the metadata. The title tag is added as a Hydrus tag, while display title and comments are saved as Hydrus notes.
         </MudText>
 
-        <MudTextField Value="@TitleName"
-                      ValueChanged="@TitleNameChanged"
-                      Label="Hydrus Title Tag"
-                      Required="true"
-                      Immediate="true"
-                      HelperText="Added as tag title:&lt;value&gt; (e.g. The Sandman)" />
+        <MudGrid Spacing="3" AlignItems="AlignItems.Stretch">
+            <MudItem xs="12" md="@MetadataColumnMd">
+                <MudStack Spacing="2">
+                    <MudTextField Value="@TitleName"
+                                  ValueChanged="@TitleNameChanged"
+                                  Label="Hydrus Title Tag"
+                                  Required="true"
+                                  Immediate="true"
+                                  HelperText="Added as tag title:&lt;value&gt; (e.g. The Sandman)" />
 
-        <MudTextField Value="@DisplayTitle"
-                      ValueChanged="@DisplayTitleChanged"
-                      Label="Display Title"
-                      Immediate="true"
-                      HelperText="Optional note text for the configured title note (cover page note)" />
+                    <MudTextField Value="@DisplayTitle"
+                                  ValueChanged="@DisplayTitleChanged"
+                                  Label="Display Title"
+                                  Immediate="true"
+                                  HelperText="Optional note text for the configured title note (cover page note)" />
 
-        <MudTextField Value="@Comments"
-                      ValueChanged="@CommentsChanged"
-                      Label="Comments"
-                      Immediate="true"
-                      Lines="4"
-                      HelperText="Optional note text for the configured comment note (cover page note)" />
+                    <MudTextField Value="@Comments"
+                                  ValueChanged="@CommentsChanged"
+                                  Label="Comments"
+                                  Immediate="true"
+                                  Lines="4"
+                                  HelperText="Optional note text for the configured comment note (cover page note)" />
 
-        <MudTextField Value="@Creator"
-                      ValueChanged="@CreatorChanged"
-                      Label="Creator"
-                      Immediate="true"
-                      HelperText="e.g. Neil Gaiman (optional)" />
+                    <MudTextField Value="@Creator"
+                                  ValueChanged="@CreatorChanged"
+                                  Label="Creator"
+                                  Immediate="true"
+                                  HelperText="e.g. Neil Gaiman (optional)" />
 
-        <MudTextField Value="@CustomTags"
-                      ValueChanged="@CustomTagsChanged"
-                      Label="Custom Tags"
-                      Immediate="true"
-                      HelperText="Separate tags with commas, e.g. action, drama, sci-fi" />
+                    <MudTextField Value="@CustomTags"
+                                  ValueChanged="@CustomTagsChanged"
+                                  Label="Custom Tags"
+                                  Immediate="true"
+                                  HelperText="Separate tags with commas, e.g. action, drama, sci-fi" />
 
-        <MudSwitch Value="@UseChapterTags" ValueChanged="@UseChapterTagsChanged" Color="Color.Primary" Label="Use chapter tags" />
+                    <MudSwitch Value="@UseChapterTags" ValueChanged="@UseChapterTagsChanged" Color="Color.Primary" Label="Use chapter tags" />
 
-        <MudNumericField T="int?" Value="@VolumeNumber" ValueChanged="@VolumeNumberChanged"
-                         Label="Volume Number"
-                         Clearable="true"
-                         HelperText="Optional" />
+                    <MudNumericField T="int?" Value="@VolumeNumber" ValueChanged="@VolumeNumberChanged"
+                                     Label="Volume Number"
+                                     Clearable="true"
+                                     HelperText="Optional" />
+                </MudStack>
+            </MudItem>
+            
+
+            @if (HasPageCount)
+            {
+            }
+            @if (HasPreviewImages || HasPageCount)
+            {
+                <MudItem xs="12" md="4">
+                    <MudStack Spacing="2">
+                        @if (HasPageCount)
+                        {
+                            <MudText Color="Color.Secondary">
+                                Discovered @PageCount pages
+                            </MudText>
+                        }
+                        @if (HasPreviewImages)
+                        {
+                            <MudPaper Outlined="true" Class="pa-2 d-flex align-center justify-center" Style="min-height: 100%;">
+                                <img src="@PrimaryPreviewImageSource"
+                                     alt="@PreviewImageAlt"
+                                     style="width: 100%; max-width: 100%; max-height: 720px; object-fit: contain; display: block;"/>
+                            </MudPaper>
+                        }
+                        @if (ThumbnailPreviewSources.Length > 0)
+                        {
+                            <MudGrid Spacing="1">
+                                @foreach (var thumbnail in ThumbnailPreviewSources)
+                                {
+                                    <MudItem xs="6">
+                                        <MudPaper Outlined="true" Class="pa-1 d-flex align-center justify-center">
+                                            <img src="@thumbnail"
+                                                 alt="More page preview"
+                                                 style="width: 100%; max-height: 140px; object-fit: cover; display: block;"/>
+                                        </MudPaper>
+                                    </MudItem>
+                                }
+                            </MudGrid>
+                        }
+                    </MudStack>
+                </MudItem>
+            }
+        </MudGrid>
 
         <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
             <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked">Back</MudButton>
@@ -104,6 +151,15 @@
     public EventCallback<int?> VolumeNumberChanged { get; set; }
 
     [Parameter]
+    public int? PageCount { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<string> PreviewImageSources { get; set; } = Array.Empty<string>();
+
+    [Parameter]
+    public string PreviewImageAlt { get; set; } = "Cover preview";
+
+    [Parameter]
     public EventCallback OnContinue { get; set; }
 
     [Parameter]
@@ -114,6 +170,18 @@
 
     [Parameter]
     public EventCallback OnSkip { get; set; }
+
+    private bool HasPageCount => PageCount is > 0;
+
+    private IReadOnlyList<string> ValidPreviewSources => PreviewImageSources.Where(source => !string.IsNullOrWhiteSpace(source)).ToArray();
+
+    private bool HasPreviewImages => ValidPreviewSources.Count > 0;
+
+    private int MetadataColumnMd => HasPreviewImages ? 8 : 12;
+
+    private string? PrimaryPreviewImageSource => ValidPreviewSources.FirstOrDefault();
+
+    private string[] ThumbnailPreviewSources => ValidPreviewSources.Skip(1).Take(4).ToArray();
 
     private async Task OnContinueClicked()
     {

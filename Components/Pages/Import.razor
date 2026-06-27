@@ -87,6 +87,9 @@
                           UseChapterTagsChanged="@((value) => _state.UseChapterTags = value)"
                           VolumeNumber="@_state.VolumeNumber"
                           VolumeNumberChanged="@((value) => _state.VolumeNumber = value)"
+                          PageCount="@MetadataPageCount"
+                          PreviewImageSources="@MetadataPreviewImageSources"
+                          PreviewImageAlt="@MetadataPreviewImageAlt"
                           ShowSkip="@CanSkipCurrentMetadataItem"
                           OnSkip="@OnMetadataSkipAsync"
                           OnContinue="@OnMetadataContinue"
@@ -182,8 +185,47 @@
         ? "Step 3 — Add Hydrus Titles"
         : "Step 2 — Add Hydrus Titles";
 
+    private int? MetadataPageCount => _state.Pages.Count > 0 ? _state.Pages.Count : null;
+
+    private IReadOnlyList<string> MetadataPreviewImageSources => BuildMetadataPreviewImageSources();
+
+    private string MetadataPreviewImageAlt => string.IsNullOrWhiteSpace(_state.CurrentQueueItem?.DisplayName)
+        ? "Cover preview"
+        : $"{_state.CurrentQueueItem.DisplayName} cover preview";
+
     private bool CanSkipCurrentMetadataItem => _state.HasMultipleQueuedItems
         && _state.FindNextPendingIndex(_state.CurrentQueueIndex + 1) >= 0;
+
+    private IReadOnlyList<string> BuildMetadataPreviewImageSources()
+    {
+        if (_state.Pages.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        return _state.Pages
+            .Take(5)
+            .Select(BuildPreviewImageSource)
+            .Where(source => !string.IsNullOrWhiteSpace(source))
+            .Cast<string>()
+            .ToArray();
+    }
+
+    private string? BuildPreviewImageSource(ImportPage page)
+    {
+        if (page.Data is { Length: > 0 })
+        {
+            var mimeType = string.IsNullOrWhiteSpace(page.MimeType) ? "image/jpeg" : page.MimeType;
+            return $"data:{mimeType};base64,{Convert.ToBase64String(page.Data)}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(page.Sha256Hash))
+        {
+            return HydrusMediaService.BuildThumbnailUrl(page.Sha256Hash);
+        }
+
+        return null;
+    }
 
     // ─── Queue Building ─────────────────────────────────────────────────
 
