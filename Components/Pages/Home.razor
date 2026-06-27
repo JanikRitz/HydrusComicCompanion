@@ -59,11 +59,17 @@
         <MudExpansionPanel Text="Search and filters">
             <MudStack Spacing="2">
                 <MudGrid Spacing="2">
-                    <MudItem xs="12" md="6">
+                    <MudItem xs="12" md="12">
                         <MudTextField T="string"
                                       Label="Title contains"
                                       @bind-Value="_titleFilter"
                                       Clearable="true"/>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField T="string"
+                                      Label="Comment contains"
+                                      @bind-Value="_commentFilter"
+                                      Clearable="true" />
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudTextField T="string"
@@ -172,6 +178,7 @@
     private int _totalLibraryComicsCount = 0;
     private string _titleFilter = string.Empty;
     private string _tagFilter = string.Empty;
+    private string _commentFilter = string.Empty;
     private int? _minVolumes;
     private int? _maxVolumes;
     private int? _minChapters;
@@ -190,6 +197,7 @@
     private bool HasActiveFilters =>
         !string.IsNullOrWhiteSpace(_titleFilter) ||
         !string.IsNullOrWhiteSpace(_tagFilter) ||
+        !string.IsNullOrWhiteSpace(_commentFilter) ||
         _minVolumes.HasValue ||
         _maxVolumes.HasValue ||
         _minChapters.HasValue ||
@@ -242,6 +250,12 @@
                         EF.Functions.Like(m.Key, $"%{tagFilter}%") ||
                         EF.Functions.Like(m.Value, $"%{tagFilter}%")));
                 }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_commentFilter))
+            {
+                var commentFilter = _commentFilter.Trim();
+                query = query.Where(x => x.Comment != null && EF.Functions.Like(x.Comment, $"%{commentFilter}%"));
             }
 
             if (_minVolumes.HasValue)
@@ -342,6 +356,7 @@
     {
         _titleFilter = string.Empty;
         _tagFilter = string.Empty;
+        _commentFilter = string.Empty;
         _minVolumes = null;
         _maxVolumes = null;
         _minChapters = null;
