@@ -219,7 +219,7 @@
             if (!string.IsNullOrWhiteSpace(_titleFilter))
             {
                 var titleFilter = _titleFilter.Trim();
-                query = query.Where(x => EF.Functions.Like(x.Title, $"%{titleFilter}%"));
+                query = query.Where(x => EF.Functions.Like(x.Title, $"%{titleFilter}%") || EF.Functions.Like(x.DisplayTitle, $"%{titleFilter}%"));
             }
 
             if (!string.IsNullOrWhiteSpace(_tagFilter))
