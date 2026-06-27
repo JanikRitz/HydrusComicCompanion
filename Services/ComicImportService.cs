@@ -259,7 +259,32 @@ public sealed class ComicImportService : IComicImportService
         await stream.CopyToAsync(ms, cancellationToken);
         ms.Position = 0;
 
-        using var rar = RarArchive.OpenArchive(ms, new SharpCompress.Readers.ReaderOptions()); // default options are sufficient for standard CBR files
+        try
+        {
+            // First, try to open as RAR archive
+            try
+            {
+                return await ExtractCbrAsRarAsync(ms, cancellationToken);
+            }
+            catch (Exception rarException) when (rarException.Message.Contains("signature", StringComparison.OrdinalIgnoreCase))
+            {
+                // If RAR signature is not found, try to open as ZIP (some CBR files are actually ZIP-based)
+                _logger.LogDebug("CBR file signature not recognized as RAR, attempting to extract as ZIP-based CBR. Error: {RarError}", rarException.Message);
+                ms.Position = 0;
+                return await ExtractCbrAsZipAsync(ms, cancellationToken);
+            }
+        }
+        finally
+        {
+            ms?.Dispose();
+        }
+    }
+
+    private async Task<ComicImportPreparation> ExtractCbrAsRarAsync(
+        MemoryStream ms,
+        CancellationToken cancellationToken)
+    {
+        using var rar = RarArchive.OpenArchive(ms, new SharpCompress.Readers.ReaderOptions { LeaveStreamOpen = true });
 
         ComicMetadata? metadata = null;
         var rawPages = new List<(string Name, byte[] Data)>();
@@ -285,6 +310,42 @@ public sealed class ComicImportService : IComicImportService
                 await using var entryStream = entry.OpenEntryStream();
                 var bytes = await ReadAllBytesAsync(entryStream, cancellationToken);
                 rawPages.Add((entryKey, bytes));
+            }
+        }
+
+        return BuildPreparation(rawPages, metadata, []);
+    }
+
+    private async Task<ComicImportPreparation> ExtractCbrAsZipAsync(
+        MemoryStream ms,
+        CancellationToken cancellationToken)
+    {
+        using var zip = new ZipArchive(ms, ZipArchiveMode.Read, leaveOpen: true);
+
+        ComicMetadata? metadata = null;
+        var rawPages = new List<(string Name, byte[] Data)>();
+
+        foreach (var entry in zip.Entries)
+        {
+            if (entry.Length == 0)
+            {
+                continue;
+            }
+
+            var entryName = entry.FullName;
+
+            if (string.Equals(Path.GetFileName(entryName), "ComicInfo.xml", StringComparison.OrdinalIgnoreCase))
+            {
+                using var entryStream = entry.Open();
+                metadata = ParseComicInfoXml(entryStream);
+                continue;
+            }
+
+            if (IsImageEntry(entryName))
+            {
+                using var entryStream = entry.Open();
+                var bytes = await ReadAllBytesAsync(entryStream, cancellationToken);
+                rawPages.Add((entryName, bytes));
             }
         }
 
