@@ -171,10 +171,17 @@ app.MapGet("/api/sync/unsynced-count", async (IHydrusSyncService syncService) =>
 .WithName("GetUnsyncedCount")
 .Produces(200);
 
-app.MapGet("/media/thumbnail/{hash}", async (string hash, IHydrusMediaService mediaService, CancellationToken cancellationToken) =>
+app.MapGet("/media/thumbnail/{hash}", async (string hash, IHydrusMediaService mediaService, HttpContext httpContext, CancellationToken cancellationToken) =>
 {
     try
     {
+        var eTag = BuildMediaEtag("thumb", hash);
+        if (IsNotModified(httpContext, eTag))
+        {
+            return Results.StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        ApplyImmutableMediaCacheHeaders(httpContext, eTag);
         var media = await mediaService.GetThumbnailAsync(hash, cancellationToken);
         return Results.Stream(media.Content, contentType: media.ContentType, enableRangeProcessing: true);
     }
@@ -184,7 +191,8 @@ app.MapGet("/media/thumbnail/{hash}", async (string hash, IHydrusMediaService me
     }
 })
 .WithName("GetMediaThumbnail")
-.Produces(200);
+.Produces(200)
+.Produces(304);
 
 app.MapGet("/media/render/{hash}", async (
     string hash,
@@ -193,10 +201,19 @@ app.MapGet("/media/render/{hash}", async (
     int? renderFormat,
     int? renderQuality,
     IHydrusMediaService mediaService,
+    HttpContext httpContext,
     CancellationToken cancellationToken) =>
 {
     try
     {
+        var renderKey = $"{hash}|{width?.ToString() ?? "-"}|{height?.ToString() ?? "-"}|{renderFormat?.ToString() ?? "-"}|{renderQuality?.ToString() ?? "-"}";
+        var eTag = BuildMediaEtag("render", renderKey);
+        if (IsNotModified(httpContext, eTag))
+        {
+            return Results.StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        ApplyImmutableMediaCacheHeaders(httpContext, eTag);
         var media = await mediaService.GetRenderAsync(hash, width, height, renderFormat, renderQuality, cancellationToken);
         return Results.Stream(media.Content, contentType: media.ContentType, enableRangeProcessing: true);
     }
@@ -211,6 +228,7 @@ app.MapGet("/media/render/{hash}", async (
 })
 .WithName("GetMediaRender")
 .Produces(200)
+.Produces(304)
 .Produces(400);
 
 app.MapGet("/media/file/{hash}", async (string hash, bool download, IHydrusMediaService mediaService, CancellationToken cancellationToken) =>
@@ -233,3 +251,28 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+static string BuildMediaEtag(string prefix, string cacheKey)
+{
+    return $"\"{prefix}-{Uri.EscapeDataString(cacheKey)}\"";
+}
+
+static bool IsNotModified(HttpContext context, string eTag)
+{
+    var ifNoneMatch = context.Request.Headers.IfNoneMatch.ToString();
+    if (string.IsNullOrWhiteSpace(ifNoneMatch))
+    {
+        return false;
+    }
+
+    return ifNoneMatch
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Any(tag => tag == "*" || string.Equals(tag, eTag, StringComparison.Ordinal));
+}
+
+static void ApplyImmutableMediaCacheHeaders(HttpContext context, string eTag)
+{
+    context.Response.Headers.ETag = eTag;
+    context.Response.Headers.CacheControl = "public,max-age=31536000,immutable";
+    context.Response.Headers.Vary = "Accept-Encoding";
+}
