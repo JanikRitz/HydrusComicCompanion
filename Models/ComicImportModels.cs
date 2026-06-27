@@ -164,8 +164,8 @@ public sealed class CalibreBookEntry
     public IReadOnlyList<string> Formats { get; init; } = [];
 
     public string DisplayName => string.IsNullOrWhiteSpace(Authors)
-        ? $"#{Id} — {Title}"
-        : $"#{Id} — {Title} ({Authors})";
+        ? $"#{Id:D4} — {Title}"
+        : $"#{Id:D4} — {Title} ({Authors})";
 }
 
 /// <summary>
