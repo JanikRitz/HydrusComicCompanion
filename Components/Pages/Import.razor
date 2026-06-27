@@ -87,6 +87,8 @@
                           UseChapterTagsChanged="@((value) => _state.UseChapterTags = value)"
                           VolumeNumber="@_state.VolumeNumber"
                           VolumeNumberChanged="@((value) => _state.VolumeNumber = value)"
+                          ShowSkip="@CanSkipCurrentMetadataItem"
+                          OnSkip="@OnMetadataSkipAsync"
                           OnContinue="@OnMetadataContinue"
                           OnBack="@OnMetadataBack" />
             break;
@@ -179,6 +181,9 @@
     private string TitleStepLabel => _state.SelectedSource == ImportSource.HydrusMapped
         ? "Step 3 — Add Hydrus Titles"
         : "Step 2 — Add Hydrus Titles";
+
+    private bool CanSkipCurrentMetadataItem => _state.HasMultipleQueuedItems
+        && _state.FindNextPendingIndex(_state.CurrentQueueIndex + 1) >= 0;
 
     // ─── Queue Building ─────────────────────────────────────────────────
 
@@ -302,6 +307,12 @@
     private void OnMetadataContinue()
     {
         _state.GoToChapters();
+    }
+
+    private async Task OnMetadataSkipAsync()
+    {
+        _state.MarkCurrentSkipped();
+        await AdvanceOrFinishAsync();
     }
 
     private void OnMetadataBack()

@@ -289,6 +289,15 @@ public class ImportWizardState
         }
     }
 
+    public void MarkCurrentSkipped()
+    {
+        if (CurrentQueueItem is { } item)
+        {
+            item.Status = QueueItemStatus.Skipped;
+            item.Error = null;
+        }
+    }
+
     // ─── Data Application ───────────────────────────────────────────────
 
     public void ApplyPreparation(ComicImportPreparation preparation)

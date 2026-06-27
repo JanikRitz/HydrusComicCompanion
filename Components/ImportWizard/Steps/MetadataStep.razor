@@ -46,6 +46,10 @@
 
         <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
             <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked">Back</MudButton>
+            @if (ShowSkip)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Secondary" OnClick="OnSkipClicked">Skip Comic</MudButton>
+            }
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
                        Disabled="@string.IsNullOrWhiteSpace(TitleName)"
@@ -105,6 +109,12 @@
     [Parameter]
     public EventCallback OnBack { get; set; }
 
+    [Parameter]
+    public bool ShowSkip { get; set; }
+
+    [Parameter]
+    public EventCallback OnSkip { get; set; }
+
     private async Task OnContinueClicked()
     {
         await OnContinue.InvokeAsync();
@@ -113,5 +123,10 @@
     private async Task OnBackClicked()
     {
         await OnBack.InvokeAsync();
+    }
+
+    private async Task OnSkipClicked()
+    {
+        await OnSkip.InvokeAsync();
     }
 }
