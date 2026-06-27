@@ -726,30 +726,41 @@ public class HydrusSyncService : IHydrusSyncService
     {
         var coverTag = settings.CoverPageTag.Trim();
 
+        if (chapters.Count == 0)
+        {
+            if (string.IsNullOrWhiteSpace(coverTag))
+            {
+                return null;
+            }
+
+            return allFileMetadata.FirstOrDefault(file =>
+                file.GetAllStorageTags().Contains(coverTag, StringComparer.OrdinalIgnoreCase))?.Hash;
+        }
+
+        var orderedPages = chapters
+            .SelectMany(chapter => chapter.Value.Select(page => new
+            {
+                chapter.Key.Volume,
+                chapter.Key.Chapter,
+                page.PageNumber,
+                page.Metadata
+            }))
+            .OrderBy(page => page.Volume ?? 0)
+            .ThenBy(page => page.Chapter ?? 0m)
+            .ThenBy(page => page.PageNumber)
+            .ThenBy(page => page.Metadata.FileId);
+
         if (!string.IsNullOrWhiteSpace(coverTag))
         {
-            var taggedCover = allFileMetadata.FirstOrDefault(file =>
-                file.GetAllStorageTags().Contains(coverTag, StringComparer.OrdinalIgnoreCase));
+            var taggedCover = orderedPages.FirstOrDefault(page =>
+                page.Metadata.GetAllStorageTags().Contains(coverTag, StringComparer.OrdinalIgnoreCase));
 
             if (taggedCover is not null)
             {
-                return taggedCover.Hash;
+                return taggedCover.Metadata.Hash;
             }
         }
 
-        if (chapters.Count == 0)
-        {
-            return null;
-        }
-
-        var fallbackCover = chapters
-            .OrderBy(c => c.Key.Volume ?? 0)
-            .ThenBy(c => c.Key.Chapter ?? 0m)
-            .SelectMany(c => c.Value)
-            .OrderBy(page => page.PageNumber)
-            .ThenBy(page => page.Metadata.FileId)
-            .FirstOrDefault();
-
-        return fallbackCover.Metadata?.Hash;
+        return orderedPages.FirstOrDefault()?.Metadata.Hash;
     }
 }
