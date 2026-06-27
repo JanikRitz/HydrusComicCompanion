@@ -81,7 +81,8 @@
                     </MudStack>
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
-                    @if (PageThumbnails.TryGetValue(pageIndex, out var thumbnailUrl))
+                    @{ var thumbnailUrl = GetThumbnailSource(context, pageIndex); }
+                    @if (!string.IsNullOrWhiteSpace(thumbnailUrl))
                     {
                         <HydrusImage Src="@thumbnailUrl"
                                      FullImageSrc="@GetFullImageSource(context, thumbnailUrl)"
@@ -314,12 +315,40 @@
 
     private string GetFullImageSource(ImportPage page, string fallbackSource)
     {
+        if (page.Data is { Length: > 0 })
+        {
+            var mimeType = string.IsNullOrWhiteSpace(page.MimeType) ? "image/jpeg" : page.MimeType;
+            return $"data:{mimeType};base64,{Convert.ToBase64String(page.Data)}";
+        }
+
         if (!string.IsNullOrWhiteSpace(page.Sha256Hash))
         {
             return MediaService.BuildRenderUrl(page.Sha256Hash);
         }
 
         return fallbackSource;
+    }
+
+    private string? GetThumbnailSource(ImportPage page, int pageIndex)
+    {
+        if (page.Data is { Length: > 0 })
+        {
+            var mimeType = string.IsNullOrWhiteSpace(page.MimeType) ? "image/jpeg" : page.MimeType;
+            return $"data:{mimeType};base64,{Convert.ToBase64String(page.Data)}";
+        }
+
+        if (PageThumbnails.TryGetValue(pageIndex, out var thumbnailUrl)
+            && !string.IsNullOrWhiteSpace(thumbnailUrl))
+        {
+            return thumbnailUrl;
+        }
+
+        if (!string.IsNullOrWhiteSpace(page.Sha256Hash))
+        {
+            return MediaService.BuildThumbnailUrl(page.Sha256Hash);
+        }
+
+        return null;
     }
 
     private bool IsChapterStart(int pageIndex) => ChapterStartIndices.Contains(pageIndex);
