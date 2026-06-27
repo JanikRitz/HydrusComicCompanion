@@ -3,6 +3,7 @@
 @using HydrusComicCompanion.Services
 @inject IHydrusSettingsService SettingsService
 @inject IHydrusSyncService SyncService
+@inject IDialogService DialogService
 
 <PageTitle>Settings</PageTitle>
 
@@ -97,6 +98,15 @@
     private bool _isSyncingLibrary;
     private string _statusMessage = string.Empty;
     private Severity _statusSeverity = Severity.Info;
+    private readonly DialogOptions _progressDialogOptions = new()
+    {
+        Position = DialogPosition.Center,
+        MaxWidth = MaxWidth.Large,
+        FullWidth = true,
+        CloseButton = false,
+        BackdropClick = false,
+        CloseOnEscapeKey = false
+    };
     private List<HydrusServiceOption> _tagServices = [new HydrusServiceOption { Name = "my tags" }];
     private List<string> _fileServices = ["all local files"];
 
@@ -149,11 +159,34 @@
     private async Task RunFullSyncAsync()
     {
         _isSyncingLibrary = true;
+
+        using var cancellationSource = new CancellationTokenSource();
+        Action<SyncProgressUpdate>? progressHandler = null;
+
+        var parameters = new DialogParameters
+        {
+            [nameof(SyncProgressDialog.Title)] = "Running normal sync",
+            [nameof(SyncProgressDialog.RegisterProgressHandler)] = (Action<Action<SyncProgressUpdate>>)(handler => progressHandler = handler),
+            [nameof(SyncProgressDialog.OnCancelRequested)] = (Func<Task>)(() =>
+            {
+                cancellationSource.Cancel();
+                return Task.CompletedTask;
+            })
+        };
+
+        var dialog = await DialogService.ShowAsync<SyncProgressDialog>("Running normal sync", parameters, _progressDialogOptions);
+        var progress = new Progress<SyncProgressUpdate>(update => progressHandler?.Invoke(update));
+
         try
         {
-            var syncedCount = await SyncService.SyncLibraryAsync();
+            var syncedCount = await SyncService.SyncLibraryAsync(progress, cancellationSource.Token);
             _statusSeverity = Severity.Success;
             _statusMessage = $"Normal sync completed. Synced {syncedCount} series.";
+        }
+        catch (OperationCanceledException) when (cancellationSource.IsCancellationRequested)
+        {
+            _statusSeverity = Severity.Warning;
+            _statusMessage = "Normal sync stopped. Already synced series were kept.";
         }
         catch (Exception ex)
         {
@@ -162,6 +195,7 @@
         }
         finally
         {
+            dialog.Close();
             _isSyncingLibrary = false;
         }
     }

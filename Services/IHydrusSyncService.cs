@@ -11,9 +11,10 @@ public interface IHydrusSyncService
     /// <summary>
     /// Performs a full library sync: discovers titles and syncs their chapter/page structure
     /// </summary>
+    /// <param name="progress">Optional progress callback for current title and counts.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of titles synchronized</returns>
-    Task<int> SyncLibraryAsync(CancellationToken cancellationToken = default);
+    Task<int> SyncLibraryAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Extracts a title from Hydrus so the import workflow can edit metadata and chapters before import.
@@ -42,9 +43,10 @@ public interface IHydrusSyncService
     /// <summary>
     /// Syncs only series that already exist in the local library cache.
     /// </summary>
+    /// <param name="progress">Optional progress callback for current title and counts.</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Number of existing titles synchronized</returns>
-    Task<int> SyncExistingLibrariesAsync(CancellationToken cancellationToken = default);
+    Task<int> SyncExistingLibrariesAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets the count of unsynced titles

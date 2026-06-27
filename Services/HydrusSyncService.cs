@@ -27,7 +27,7 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Performs a full library sync: discovers titles and syncs their chapter/page structure
     /// </summary>
-    public async Task<int> SyncLibraryAsync(CancellationToken cancellationToken = default)
+    public async Task<int> SyncLibraryAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
     {
         var syncedCount = 0;
 
@@ -39,9 +39,21 @@ public class HydrusSyncService : IHydrusSyncService
             var titleNames = await _apiService.DiscoverTitlesAsync(cancellationToken);
             _logger.LogInformation("Discovered {Count} titles", titleNames.Count);
 
+            progress?.Report(new SyncProgressUpdate { Current = 0, Total = titleNames.Count });
+
             // Step 2: Sync each title
-            foreach (var seriesName in titleNames)
+            for (var index = 0; index < titleNames.Count; index++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var seriesName = titleNames[index];
+                progress?.Report(new SyncProgressUpdate
+                {
+                    Current = index + 1,
+                    Total = titleNames.Count,
+                    CurrentTitle = seriesName
+                });
+
                 try
                 {
                     var seriesId = await SyncTitleAsync(seriesName, cancellationToken);
@@ -50,6 +62,10 @@ public class HydrusSyncService : IHydrusSyncService
                         syncedCount++;
                     }
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error syncing title: {TitleName}", seriesName);
@@ -57,6 +73,11 @@ public class HydrusSyncService : IHydrusSyncService
             }
 
             _logger.LogInformation("Completed library sync: {SyncedCount} titles synchronized", syncedCount);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("Library sync was canceled after syncing {SyncedCount} titles", syncedCount);
+            throw;
         }
         catch (Exception ex)
         {
@@ -70,7 +91,7 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Syncs only titles that already exist in the local cache database.
     /// </summary>
-    public async Task<int> SyncExistingLibrariesAsync(CancellationToken cancellationToken = default)
+    public async Task<int> SyncExistingLibrariesAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
     {
         var syncedCount = 0;
 
@@ -88,8 +109,20 @@ public class HydrusSyncService : IHydrusSyncService
 
             _logger.LogInformation("Found {Count} existing titles in local cache", existingSeriesNames.Count);
 
-            foreach (var seriesName in existingSeriesNames)
+            progress?.Report(new SyncProgressUpdate { Current = 0, Total = existingSeriesNames.Count });
+
+            for (var index = 0; index < existingSeriesNames.Count; index++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var seriesName = existingSeriesNames[index];
+                progress?.Report(new SyncProgressUpdate
+                {
+                    Current = index + 1,
+                    Total = existingSeriesNames.Count,
+                    CurrentTitle = seriesName
+                });
+
                 try
                 {
                     var seriesId = await SyncTitleAsync(seriesName, cancellationToken);
@@ -98,6 +131,10 @@ public class HydrusSyncService : IHydrusSyncService
                         syncedCount++;
                     }
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error syncing existing title: {TitleName}", seriesName);
@@ -105,6 +142,11 @@ public class HydrusSyncService : IHydrusSyncService
             }
 
             _logger.LogInformation("Completed existing libraries sync: {SyncedCount} titles synchronized", syncedCount);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("Existing libraries sync was canceled after syncing {SyncedCount} titles", syncedCount);
+            throw;
         }
         catch (Exception ex)
         {

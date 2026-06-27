@@ -1,4 +1,5 @@
 ﻿@page "/"
+@using HydrusComicCompanion.Models
 @using HydrusComicCompanion.Services
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
@@ -166,6 +167,15 @@
 
     private const int PageSize = 12;
     private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
+    private readonly DialogOptions _progressDialogOptions = new()
+    {
+        Position = DialogPosition.Center,
+        MaxWidth = MaxWidth.Large,
+        FullWidth = true,
+        CloseButton = false,
+        BackdropClick = false,
+        CloseOnEscapeKey = false
+    };
 
     private List<ComicsCardItem> _comics = [];
     private bool _isLoading = true;
@@ -373,12 +383,31 @@
         _syncError = null;
         _syncedComicsCount = null;
 
+        using var cancellationSource = new CancellationTokenSource();
+        Action<SyncProgressUpdate>? progressHandler = null;
+
+        var parameters = new DialogParameters
+        {
+            [nameof(SyncProgressDialog.Title)] = "Syncing existing titles",
+            [nameof(SyncProgressDialog.RegisterProgressHandler)] = (Action<Action<SyncProgressUpdate>>)(handler => progressHandler = handler),
+            [nameof(SyncProgressDialog.OnCancelRequested)] = (Func<Task>)(() =>
+            {
+                cancellationSource.Cancel();
+                return Task.CompletedTask;
+            })
+        };
+
+        var dialog = await DialogService.ShowAsync<SyncProgressDialog>("Syncing existing titles", parameters, _progressDialogOptions);
+        var progress = new Progress<SyncProgressUpdate>(update => progressHandler?.Invoke(update));
+
         try
         {
-            _syncedComicsCount = await SyncService.SyncExistingLibrariesAsync();
+            _syncedComicsCount = await SyncService.SyncExistingLibrariesAsync(progress, cancellationSource.Token);
             _lastSyncTime = DateTime.Now;
-            _currentPage = 1;
-            await LoadComicsAsync();
+        }
+        catch (OperationCanceledException) when (cancellationSource.IsCancellationRequested)
+        {
+            Snackbar.Add("Sync stopped. Already synced titles were kept.", Severity.Info);
         }
         catch (Exception ex)
         {
@@ -386,7 +415,10 @@
         }
         finally
         {
+            dialog.Close();
             _isSyncing = false;
+            _currentPage = 1;
+            await LoadComicsAsync();
         }
     }
 

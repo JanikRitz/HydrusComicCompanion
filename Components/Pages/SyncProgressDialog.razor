@@ -1,0 +1,82 @@
+@using HydrusComicCompanion.Models
+
+<MudDialog>
+    <TitleContent>
+        @Title
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.body1">
+                @CurrentSyncLabel
+            </MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @Current / @Total
+            </MudText>
+            <MudProgressLinear Color="Color.Primary" Value="@ProgressPercent" Rounded="true" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Disabled="@_isStopping" OnClick="RequestCancelAsync">
+            @(_isStopping ? "Stopping..." : "Stop")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = "Sync in progress";
+
+    [Parameter]
+    public int Current { get; set; }
+
+    [Parameter]
+    public int Total { get; set; }
+
+    [Parameter]
+    public string CurrentTitle { get; set; } = string.Empty;
+
+    [Parameter]
+    public Action<Action<SyncProgressUpdate>>? RegisterProgressHandler { get; set; }
+
+    [Parameter]
+    public Func<Task>? OnCancelRequested { get; set; }
+
+    private bool _isStopping;
+
+    private string CurrentSyncLabel => string.IsNullOrWhiteSpace(CurrentTitle)
+        ? "Preparing sync..."
+        : $"Syncing: {CurrentTitle}";
+
+    private double ProgressPercent => Total <= 0
+        ? 0d
+        : Math.Clamp((double)Current / Total * 100d, 0d, 100d);
+
+    protected override void OnInitialized()
+    {
+        RegisterProgressHandler?.Invoke(HandleProgress);
+    }
+
+    private void HandleProgress(SyncProgressUpdate update)
+    {
+        Current = update.Current;
+        Total = update.Total;
+        CurrentTitle = update.CurrentTitle;
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RequestCancelAsync()
+    {
+        if (_isStopping)
+        {
+            return;
+        }
+
+        _isStopping = true;
+
+        if (OnCancelRequested is not null)
+        {
+            await OnCancelRequested();
+        }
+    }
+}
