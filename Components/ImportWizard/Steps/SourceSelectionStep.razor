@@ -50,13 +50,13 @@
                     </MudStack>
                 </MudRadio>
 
-                <MudRadio T="ImportSource" Value="ImportSource.CalibreBook" Color="Color.Primary" Disabled="true">
+                <MudRadio T="ImportSource" Value="ImportSource.CalibreBook" Color="Color.Primary">
                     <MudStack Spacing="0">
                         <MudText Typo="Typo.body2">
                             <strong>Calibre Book</strong>
                         </MudText>
                         <MudText Typo="Typo.caption" Color="Color.Secondary">
-                            Import a book from your Calibre library (coming soon)
+                            Import local Calibre books by selecting a library path and extracting archive formats
                         </MudText>
                     </MudStack>
                 </MudRadio>
@@ -66,7 +66,7 @@
         <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
             <MudButton Variant="Variant.Filled"
                        Color="Color.Primary"
-                       Disabled="@(SelectedSource == ImportSource.OpenHydrusPage || SelectedSource == ImportSource.CalibreBook)"
+                       Disabled="@(SelectedSource == ImportSource.OpenHydrusPage)"
                        OnClick="OnContinueClicked">
                 Continue
             </MudButton>

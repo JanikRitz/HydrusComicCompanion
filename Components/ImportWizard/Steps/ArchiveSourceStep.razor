@@ -22,20 +22,39 @@
 
         @if (QueuedItems.Count > 0)
         {
-            <MudList T="ImportWizardState.QueuedComic" Dense="true">
-                @foreach (var item in QueuedItems)
-                {
-                    <MudListItem T="ImportWizardState.QueuedComic" Icon="@Icons.Material.Filled.Book">
-                        <div class="d-flex align-center justify-space-between" style="width:100%;">
-                            <MudText Typo="Typo.body2">@item.DisplayName</MudText>
+            <MudDataGrid T="ImportWizardState.QueuedComic"
+                         Items="@QueuedItems"
+                         Filterable="true"
+                         QuickFilter="@QueueQuickFilter"
+                         Dense="true"
+                         Hover="true">
+                <ToolBarContent>
+                    <MudText Typo="Typo.subtitle2">Selected archives</MudText>
+                    <MudSpacer />
+                    <MudTextField @bind-Value="_queueSearch"
+                                  Placeholder="Filter files"
+                                  Adornment="Adornment.Start"
+                                  Immediate="true"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  IconSize="Size.Medium"
+                                  Disabled="@IsProcessing"
+                                  Class="mt-0" />
+                </ToolBarContent>
+                <Columns>
+                    <PropertyColumn Property="x => x.DisplayName" Title="File" />
+                    <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                        <CellTemplate>
                             <MudIconButton Icon="@Icons.Material.Filled.Close"
                                            Size="Size.Small"
                                            Disabled="@IsProcessing"
-                                           OnClick="@(() => OnRemoveItem.InvokeAsync(item))" />
-                        </div>
-                    </MudListItem>
-                }
-            </MudList>
+                                           OnClick="@(() => OnRemoveItem.InvokeAsync(context.Item))" />
+                        </CellTemplate>
+                    </TemplateColumn>
+                </Columns>
+                <PagerContent>
+                    <MudDataGridPager T="ImportWizardState.QueuedComic" />
+                </PagerContent>
+            </MudDataGrid>
         }
         else
         {
@@ -81,6 +100,19 @@
 
     [Parameter]
     public EventCallback OnBack { get; set; }
+
+    private string _queueSearch = string.Empty;
+
+    private Func<ImportWizardState.QueuedComic, bool> QueueQuickFilter => item =>
+    {
+        if (string.IsNullOrWhiteSpace(_queueSearch))
+        {
+            return true;
+        }
+
+        return item.DisplayName.Contains(_queueSearch, StringComparison.OrdinalIgnoreCase)
+            || item.Title.Contains(_queueSearch, StringComparison.OrdinalIgnoreCase);
+    };
 
     private async Task OnFilesChangedAsync(InputFileChangeEventArgs e)
     {

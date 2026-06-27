@@ -27,45 +27,54 @@
 
     @if (Items.Count > 0)
     {
-        <MudList T="ImportWizardState.QueuedComic" Dense="true">
-            @foreach (var item in Items)
-            {
-                <MudListItem T="ImportWizardState.QueuedComic">
-                    <div class="d-flex align-center justify-space-between" style="width:100%;">
-                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
-                            @switch (item.Status)
-                            {
-                                case ImportWizardState.QueueItemStatus.Imported:
-                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" />
-                                    break;
-                                case ImportWizardState.QueueItemStatus.Failed:
-                                    <MudIcon Icon="@Icons.Material.Filled.Error" Color="Color.Error" Size="Size.Small" />
-                                    break;
-                                default:
-                                    <MudIcon Icon="@Icons.Material.Filled.RemoveCircleOutline" Color="Color.Default" Size="Size.Small" />
-                                    break;
-                            }
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">@item.DisplayName</MudText>
-                                @if (item.Status == ImportWizardState.QueueItemStatus.Failed && !string.IsNullOrWhiteSpace(item.Error))
-                                {
-                                    <MudText Typo="Typo.caption" Color="Color.Error">@item.Error</MudText>
-                                }
-                            </MudStack>
+        <MudDataGrid T="ImportWizardState.QueuedComic"
+                     Items="@Items"
+                     Filterable="true"
+                     QuickFilter="@ItemsQuickFilter"
+                     Dense="true"
+                     Hover="true">
+            <ToolBarContent>
+                <MudText Typo="Typo.subtitle2">Import results</MudText>
+                <MudSpacer />
+                <MudTextField @bind-Value="_itemsSearch"
+                              Placeholder="Filter results"
+                              Adornment="Adornment.Start"
+                              Immediate="true"
+                              AdornmentIcon="@Icons.Material.Filled.Search"
+                              IconSize="Size.Medium"
+                              Class="mt-0" />
+            </ToolBarContent>
+            <Columns>
+                <TemplateColumn Title="Status" Sortable="false" Filterable="false">
+                    <CellTemplate>
+                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                            <MudIcon Icon="@GetStatusIcon(context.Item.Status)"
+                                     Color="@GetStatusColor(context.Item.Status)"
+                                     Size="Size.Small" />
+                            <MudText Typo="Typo.caption">@context.Item.Status</MudText>
                         </MudStack>
-                        @if (item.Status == ImportWizardState.QueueItemStatus.Imported && item.ImportedSeriesId > 0)
+                    </CellTemplate>
+                </TemplateColumn>
+                <PropertyColumn Property="x => x.DisplayName" Title="Comic" />
+                <PropertyColumn Property="x => x.Error" Title="Error" />
+                <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+                    <CellTemplate>
+                        @if (context.Item.Status == ImportWizardState.QueueItemStatus.Imported && context.Item.ImportedSeriesId > 0)
                         {
                             <MudButton Variant="Variant.Text"
                                        Color="Color.Primary"
                                        Size="Size.Small"
-                                       OnClick="@(() => ViewTitle(item.ImportedSeriesId))">
+                                       OnClick="@(() => ViewTitle(context.Item.ImportedSeriesId))">
                                 View
                             </MudButton>
                         }
-                    </div>
-                </MudListItem>
-            }
-        </MudList>
+                    </CellTemplate>
+                </TemplateColumn>
+            </Columns>
+            <PagerContent>
+                <MudDataGridPager T="ImportWizardState.QueuedComic" />
+            </PagerContent>
+        </MudDataGrid>
     }
 
     <MudStack Row="true" Spacing="2">
@@ -79,6 +88,34 @@
 
     [Parameter]
     public EventCallback OnImportAnother { get; set; }
+
+    private string _itemsSearch = string.Empty;
+
+    private Func<ImportWizardState.QueuedComic, bool> ItemsQuickFilter => item =>
+    {
+        if (string.IsNullOrWhiteSpace(_itemsSearch))
+        {
+            return true;
+        }
+
+        return item.DisplayName.Contains(_itemsSearch, StringComparison.OrdinalIgnoreCase)
+            || item.Status.ToString().Contains(_itemsSearch, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(item.Error) && item.Error.Contains(_itemsSearch, StringComparison.OrdinalIgnoreCase));
+    };
+
+    private static string GetStatusIcon(ImportWizardState.QueueItemStatus status) => status switch
+    {
+        ImportWizardState.QueueItemStatus.Imported => Icons.Material.Filled.CheckCircle,
+        ImportWizardState.QueueItemStatus.Failed => Icons.Material.Filled.Error,
+        _ => Icons.Material.Filled.RemoveCircleOutline
+    };
+
+    private static Color GetStatusColor(ImportWizardState.QueueItemStatus status) => status switch
+    {
+        ImportWizardState.QueueItemStatus.Imported => Color.Success,
+        ImportWizardState.QueueItemStatus.Failed => Color.Error,
+        _ => Color.Default
+    };
 
     private void ViewTitle(int seriesId)
     {
