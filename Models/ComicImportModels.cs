@@ -82,6 +82,21 @@ public sealed class HydrusSourceMapping
 
     /// <summary>Full tag that marks the cover page (e.g. "meta:cover page").</summary>
     public string CoverPageTag { get; set; } = string.Empty;
+
+    /// <summary>Minimum number of pages a title must have to be included in discovery results. Null or 0 means no minimum.</summary>
+    public int? MinimumPages { get; set; }
+}
+
+/// <summary>
+/// Represents a discovered title with its page count for filtering purposes during discovery.
+/// </summary>
+public sealed class TitleWithPageCount
+{
+    /// <summary>The title name extracted from the namespace tag.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Number of distinct files/pages with a page tag for this title.</summary>
+    public int PageCount { get; set; }
 }
 
 /// <summary>

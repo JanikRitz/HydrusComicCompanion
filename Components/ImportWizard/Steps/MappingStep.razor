@@ -35,6 +35,9 @@
                       Disabled="@IsProcessing" Placeholder="page:" HelperText="e.g. page:" />
         <MudTextField @bind-Value="Mapping.CoverPageTag" Label="Cover Page Tag" Immediate="true"
                       Disabled="@IsProcessing" Placeholder="meta:cover page" HelperText="Full tag that marks the cover page (optional)" />
+        <MudNumericField @bind-Value="Mapping.MinimumPages" Label="Minimum Pages (Optional)" Immediate="true"
+                         Disabled="@IsProcessing" Min="0" Step="1"
+                         HelperText="Filter discovered comics to only those with this many or more pages. Leave blank for no filtering." />
 
         <MudStack Row="true" Justify="Justify.SpaceBetween" Spacing="2">
             <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked" Disabled="@IsProcessing">Back</MudButton>

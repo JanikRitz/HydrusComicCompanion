@@ -161,14 +161,36 @@
 
         try
         {
-            var titles = await SyncService.DiscoverMappedTitlesAsync(_state.SourceMapping);
-            if (titles.Count == 0)
+            var titlesWithPageCounts = await SyncService.DiscoverMappedTitlesAsync(_state.SourceMapping);
+            if (titlesWithPageCounts.Count == 0)
             {
                 _state.ErrorMessage = "No comics were discovered with the selected tag service and mapping. Adjust the namespaces and try again.";
                 return;
             }
 
-            _state.ReplaceQueueWithMappedTitles(titles);
+            var minimumPages = _state.SourceMapping.MinimumPages;
+            var originalCount = titlesWithPageCounts.Count;
+
+            // If minimum pages is set, show info about the filtering
+            if (minimumPages.HasValue && minimumPages > 0)
+            {
+                var filteredCount = titlesWithPageCounts.Count(t => t.PageCount >= minimumPages);
+                if (filteredCount < originalCount)
+                {
+                    var filteredOut = originalCount - filteredCount;
+                    _state.ErrorMessage = $"Discovered {originalCount} comics, but {filteredOut} were filtered out (less than {minimumPages} pages). {filteredCount} comics remain for import.";
+                }
+                else
+                {
+                    _state.ErrorMessage = $"Discovered {originalCount} comics. All meet the minimum {minimumPages} page requirement.";
+                }
+            }
+            else
+            {
+                _state.ErrorMessage = $"Discovered {originalCount} comics ready for import.";
+            }
+
+            _state.ReplaceQueueWithMappedTitles(titlesWithPageCounts);
             await BeginQueueAsync();
         }
         catch (Exception ex)

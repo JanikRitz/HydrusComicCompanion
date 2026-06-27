@@ -97,6 +97,26 @@ public interface IHydrusApiService
     Task<HydrusMediaResult> GetOriginalFileAsync(string hash, bool download = false, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets the page count for a specific title by searching for files with the title tag and page namespace.
+    /// </summary>
+    /// <param name="titleName">The title name to count pages for.</param>
+    /// <param name="titleNamespace">The namespace prefix for title tags (e.g. "title:").</param>
+    /// <param name="pageNamespace">The namespace prefix for page tags (e.g. "page:").</param>
+    /// <returns>Number of distinct pages/files found for the title.</returns>
+    Task<int> GetTitlePageCountAsync(string titleName, string titleNamespace, string pageNamespace, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the page count for a specific title using an explicit settings instance, allowing callers to
+    /// override the tag service and namespaces.
+    /// </summary>
+    /// <param name="settings">Settings to use for the search (tag service key, namespaces, file domain, API connection).</param>
+    /// <param name="titleName">The title name to count pages for.</param>
+    /// <param name="titleNamespace">The namespace prefix for title tags (e.g. "title:").</param>
+    /// <param name="pageNamespace">The namespace prefix for page tags (e.g. "page:").</param>
+    /// <returns>Number of distinct pages/files found for the title.</returns>
+    Task<int> GetTitlePageCountAsync(HydrusSettings settings, string titleName, string titleNamespace, string pageNamespace, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Discovers all available services (file domains, tag services)
     /// </summary>
     /// <returns>Services response containing all configured services</returns>

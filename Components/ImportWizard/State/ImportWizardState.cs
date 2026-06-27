@@ -222,20 +222,20 @@ public class ImportWizardState
     /// Replaces the queue with titles discovered through the Hydrus Mapped source so each one can be
     /// taken through metadata and page ordering sequentially. Duplicates and blanks are ignored.
     /// </summary>
-    public void ReplaceQueueWithMappedTitles(IEnumerable<string> titles)
+    public void ReplaceQueueWithMappedTitles(IEnumerable<TitleWithPageCount> titles)
     {
         Queue.Clear();
         CurrentQueueIndex = -1;
 
-        foreach (var title in titles)
+        foreach (var titleWithPageCount in titles)
         {
-            var trimmed = title?.Trim() ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(trimmed))
+            var title = titleWithPageCount?.Title?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(title))
             {
                 continue;
             }
 
-            if (Queue.Any(item => string.Equals(item.Title, trimmed, StringComparison.OrdinalIgnoreCase)))
+            if (Queue.Any(item => string.Equals(item.Title, title, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }
@@ -243,8 +243,8 @@ public class ImportWizardState
             Queue.Add(new QueuedComic
             {
                 Source = ImportSource.HydrusMapped,
-                Title = trimmed,
-                DisplayName = trimmed
+                Title = title,
+                DisplayName = title
             });
         }
     }

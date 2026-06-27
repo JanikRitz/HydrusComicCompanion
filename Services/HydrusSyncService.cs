@@ -209,10 +209,43 @@ public class HydrusSyncService : IHydrusSyncService
     /// Discovers titles in another tag service by applying a one-off mapping to the global settings and
     /// running the shared cover/first-page discovery query against the mapped tag service and namespaces.
     /// </summary>
-    public async Task<List<string>> DiscoverMappedTitlesAsync(HydrusSourceMapping mapping, CancellationToken cancellationToken = default)
+    public async Task<List<TitleWithPageCount>> DiscoverMappedTitlesAsync(HydrusSourceMapping mapping, CancellationToken cancellationToken = default)
     {
         var settings = ApplySourceMapping(await _settingsService.GetSettingsAsync(cancellationToken), mapping);
-        return await _apiService.DiscoverTitlesAsync(settings, cancellationToken);
+        var titleNames = await _apiService.DiscoverTitlesAsync(settings, cancellationToken);
+
+        // If no minimum pages filter, return all titles with page count 0 (for UI display)
+        if (mapping?.MinimumPages is null || mapping.MinimumPages <= 0)
+        {
+            return titleNames
+                .Select(name => new TitleWithPageCount { Title = name, PageCount = 0 })
+                .ToList();
+        }
+
+        // Fetch page counts for each title and filter
+        var minimumPages = mapping.MinimumPages.Value;
+        var titlesWithPageCounts = new List<TitleWithPageCount>();
+
+        var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "title:");
+        var pageNamespace = NormalizeNamespace(settings.PageNamespace, "page:");
+
+        foreach (var titleName in titleNames)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var pageCount = await _apiService.GetTitlePageCountAsync(settings, titleName, titleNamespace, pageNamespace, cancellationToken);
+
+            if (pageCount >= minimumPages)
+            {
+                titlesWithPageCounts.Add(new TitleWithPageCount { Title = titleName, PageCount = pageCount });
+            }
+            else
+            {
+                _logger.LogDebug("Filtered out title '{TitleName}' with {PageCount} pages (minimum: {MinimumPages})", titleName, pageCount, minimumPages);
+            }
+        }
+
+        return titlesWithPageCounts;
     }
 
     /// Only non-empty mapping fields override the global settings so blank inputs fall back safely.
@@ -822,5 +855,14 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         return orderedPages.FirstOrDefault()?.Metadata.Hash;
+    }
+
+    private static string NormalizeNamespace(string namespaceName, string fallback)
+    {
+        var resolved = string.IsNullOrWhiteSpace(namespaceName)
+            ? fallback
+            : namespaceName.Trim();
+
+        return resolved.EndsWith(':') ? resolved : $"{resolved}:";
     }
 }

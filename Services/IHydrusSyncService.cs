@@ -37,11 +37,12 @@ public interface IHydrusSyncService
     /// <summary>
     /// Discovers existing titles in another Hydrus tag service using a one-off namespace mapping so the
     /// mapped import workflow can queue every matching comic for review. Reads cover/first pages to find titles.
+    /// Optionally filters by minimum page count if specified in the mapping.
     /// </summary>
-    /// <param name="mapping">Tag service and structural namespace override. Blank fields fall back to global settings.</param>
+    /// <param name="mapping">Tag service and structural namespace override. Blank fields fall back to global settings. Includes optional MinimumPages filter.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Distinct, ordered title names found in the mapped tag service.</returns>
-    Task<List<string>> DiscoverMappedTitlesAsync(HydrusSourceMapping mapping, CancellationToken cancellationToken = default);
+    /// <returns>Titles with page counts, ordered by title name. Filtered by MinimumPages if set.</returns>
+    Task<List<TitleWithPageCount>> DiscoverMappedTitlesAsync(HydrusSourceMapping mapping, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Syncs a specific title: fetches all files tagged with the title and structures them

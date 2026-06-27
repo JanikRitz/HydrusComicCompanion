@@ -103,6 +103,56 @@ public class HydrusApiService : IHydrusApiService
     }
 
     /// <summary>
+    /// Gets the page count for a specific title by searching for files with the title tag and page namespace.
+    /// </summary>
+    public async Task<int> GetTitlePageCountAsync(
+        string titleName,
+        string titleNamespace,
+        string pageNamespace,
+        CancellationToken cancellationToken = default)
+    {
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        return await GetTitlePageCountAsync(settings, titleName, titleNamespace, pageNamespace, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets the page count for a specific title using an explicit settings instance.
+    /// </summary>
+    public async Task<int> GetTitlePageCountAsync(
+        HydrusSettings settings,
+        string titleName,
+        string titleNamespace,
+        string pageNamespace,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var normalizedPageNamespace = NormalizeNamespace(pageNamespace, "page:");
+
+            // Build the title tag using the settings (or provided titleNamespace if non-empty)
+            var titleNamespacePrefix = string.IsNullOrWhiteSpace(titleNamespace)
+                ? settings.TitleNamespace.Trim().TrimEnd(':')
+                : titleNamespace.Trim().TrimEnd(':');
+
+            var titleTag = string.IsNullOrWhiteSpace(titleNamespacePrefix)
+                ? titleName
+                : $"{titleNamespacePrefix}:{titleName}";
+
+            var pageWildcard = $"{normalizedPageNamespace}*";
+
+            var searchTags = new List<string> { titleTag, pageWildcard };
+
+            var fileIds = await SearchFilesInternalAsync(settings, searchTags, settings.TargetFileDomain, skipTagService: false, cancellationToken);
+            return fileIds.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting page count for title: {TitleName}", titleName);
+            return 0;
+        }
+    }
+
+    /// <summary>
     /// Searches for files matching the given tags.
     /// </summary>
     public async Task<List<long>> SearchFilesAsync(
