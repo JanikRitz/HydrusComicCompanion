@@ -36,6 +36,8 @@ show Hydrus Tags per page (possibly even allow editing or opening in Hydrus)
 
 show more info on Comic card (favorite, series, creator, ...)
 
+Make images and thumbnails even before import to Hydrus available (?) right now it's just base64 encoded images when not yet in Hydrus
+
 ## Other
 
 already mentioned in the plan.md is the export as CBZ for reading on device
