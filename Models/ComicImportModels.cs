@@ -56,6 +56,35 @@ public sealed class ComicMetadata
 }
 
 /// <summary>
+/// One-off override of the Hydrus tag service and structural namespaces used when extracting
+/// existing titles through the "Hydrus Mapped" import source. Blank fields fall back to the
+/// configured global settings so extraction parsing never breaks.
+/// </summary>
+public sealed class HydrusSourceMapping
+{
+    /// <summary>Display name of the tag service to read from (e.g. "my tags").</summary>
+    public string TagServiceName { get; set; } = string.Empty;
+
+    /// <summary>Service key of the tag service to read from.</summary>
+    public string TagServiceKey { get; set; } = string.Empty;
+
+    /// <summary>Namespace prefix for the title tag (e.g. "title:").</summary>
+    public string TitleNamespace { get; set; } = string.Empty;
+
+    /// <summary>Namespace prefix for the volume tag (e.g. "volume:").</summary>
+    public string VolumeNamespace { get; set; } = string.Empty;
+
+    /// <summary>Namespace prefix for the chapter tag (e.g. "chapter:").</summary>
+    public string ChapterNamespace { get; set; } = string.Empty;
+
+    /// <summary>Namespace prefix for the page tag (e.g. "page:").</summary>
+    public string PageNamespace { get; set; } = string.Empty;
+
+    /// <summary>Full tag that marks the cover page (e.g. "meta:cover page").</summary>
+    public string CoverPageTag { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// Marks the page index where a new volume begins, carrying the user-specified volume number.
 /// A volume start is always implicitly also a chapter start.
 /// </summary>

@@ -1,0 +1,117 @@
+@using HydrusComicCompanion.Models
+@using HydrusComicCompanion.Services
+@inject IHydrusSettingsService SettingsService
+
+<MudPaper Class="pa-4" Outlined="true">
+    <MudStack Spacing="3">
+        <div>
+            <MudText Typo="Typo.h6">Step 2 — Tag Service &amp; Mapping</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Choose the tag service to read from and how its namespaces map to title, volume, chapter, page and cover.
+                Leave a field blank to fall back to your configured default. Continue to discover the comics tagged in that service.
+            </MudText>
+        </div>
+
+        <MudSelect T="string"
+                   Value="@Mapping.TagServiceName"
+                   ValueChanged="@OnTagServiceChanged"
+                   Label="Source Tag Service"
+                   Clearable="false"
+                   Disabled="@(_isLoading || IsProcessing)"
+                   HelperText="Tag service the source titles are tagged in">
+            @foreach (var option in _tagServices)
+            {
+                <MudSelectItem Value="@option.Name">@option.Name</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudTextField @bind-Value="Mapping.TitleNamespace" Label="Title Namespace" Immediate="true"
+                      Disabled="@IsProcessing" Placeholder="title:" HelperText="e.g. title:" />
+        <MudTextField @bind-Value="Mapping.VolumeNamespace" Label="Volume Namespace" Immediate="true"
+                      Disabled="@IsProcessing" Placeholder="volume:" HelperText="e.g. volume:" />
+        <MudTextField @bind-Value="Mapping.ChapterNamespace" Label="Chapter Namespace" Immediate="true"
+                      Disabled="@IsProcessing" Placeholder="chapter:" HelperText="e.g. chapter:" />
+        <MudTextField @bind-Value="Mapping.PageNamespace" Label="Page Namespace" Immediate="true"
+                      Disabled="@IsProcessing" Placeholder="page:" HelperText="e.g. page:" />
+        <MudTextField @bind-Value="Mapping.CoverPageTag" Label="Cover Page Tag" Immediate="true"
+                      Disabled="@IsProcessing" Placeholder="meta:cover page" HelperText="Full tag that marks the cover page (optional)" />
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Spacing="2">
+            <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked" Disabled="@IsProcessing">Back</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="OnContinueClicked" Disabled="@IsProcessing">
+                @if (IsProcessing)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <span style="margin-left: 8px;">Discovering…</span>
+                }
+                else
+                {
+                    <span>Continue</span>
+                }
+            </MudButton>
+        </MudStack>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter]
+    public HydrusSourceMapping Mapping { get; set; } = new();
+
+    [Parameter]
+    public bool IsProcessing { get; set; }
+
+    [Parameter]
+    public EventCallback OnContinue { get; set; }
+
+    [Parameter]
+    public EventCallback OnBack { get; set; }
+
+    private List<HydrusServiceOption> _tagServices = [new HydrusServiceOption { Name = "my tags" }];
+    private bool _isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var settings = await SettingsService.GetSettingsAsync();
+            var catalog = await SettingsService.GetServicesAsync(settings);
+
+            var services = catalog.TagServices
+                .Where(service => !string.IsNullOrWhiteSpace(service.Name))
+                .GroupBy(service => service.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+
+            if (services.Count > 0)
+            {
+                _tagServices = services;
+            }
+        }
+        catch
+        {
+            // Keep the default "my tags" entry when the catalog cannot be loaded.
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+
+        // Default to the first available service when nothing is selected yet.
+        if (string.IsNullOrWhiteSpace(Mapping.TagServiceName) && _tagServices.Count > 0)
+        {
+            OnTagServiceChanged(_tagServices[0].Name);
+        }
+    }
+
+    private void OnTagServiceChanged(string name)
+    {
+        Mapping.TagServiceName = name;
+        Mapping.TagServiceKey = _tagServices
+            .FirstOrDefault(service => service.Name.Equals(name, StringComparison.OrdinalIgnoreCase))?.Key
+            ?? string.Empty;
+    }
+
+    private async Task OnContinueClicked() => await OnContinue.InvokeAsync();
+
+    private async Task OnBackClicked() => await OnBack.InvokeAsync();
+}

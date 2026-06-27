@@ -24,28 +24,51 @@
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true">@_state.ErrorMessage</MudAlert>
     }
 
+    @if (_state.HasMultipleQueuedItems
+         && _state.CurrentQueueItem is { } currentItem
+         && _state.CurrentStep is ImportWizardState.Step.Metadata
+            or ImportWizardState.Step.Chapters
+            or ImportWizardState.Step.Progress)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+            Comic @_state.CurrentQueuePosition of @_state.QueueTotal — @currentItem.DisplayName
+        </MudAlert>
+    }
+
     @switch (_state.CurrentStep)
     {
         case ImportWizardState.Step.SourceSelection:
             <SourceSelectionStep SelectedSource="@_state.SelectedSource"
-                                 SelectedSourceChanged="@((source) => _state.SelectedSource = source)"
-                                 OnContinue="@_state.GoToSourceSpecific" />
+                                 SelectedSourceChanged="@((source) => _state.SetSelectedSource(source))"
+                                 OnContinue="@OnSourceSelectionContinue" />
+            break;
+
+        case ImportWizardState.Step.Mapping:
+            <MappingStep Mapping="@_state.SourceMapping"
+                         IsProcessing="@_state.IsDiscovering"
+                         OnContinue="@OnMappingContinueAsync"
+                         OnBack="@_state.ResetToSourceSelection" />
             break;
 
         case ImportWizardState.Step.SourceSpecific:
             @if (_state.SelectedSource == ImportSource.Archive)
             {
-                <ArchiveSourceStep IsProcessing="@_state.IsExtracting"
-                                   OnFileSelected="@OnFileSelectedAsync"
-                                   OnBack="@_state.ResetToSourceSelection" />
+                <ArchiveSourceStep QueuedItems="@_state.Queue"
+                                   IsProcessing="@_state.IsExtracting"
+                                   OnFilesSelected="@OnArchivesSelected"
+                                   OnRemoveItem="@OnRemoveQueueItem"
+                                   OnBegin="@BeginQueueAsync"
+                                   OnBack="@OnSourceSpecificBack" />
             }
-            else if (_state.SelectedSource == ImportSource.Title)
+            else if (_state.SelectedSource is ImportSource.Title)
             {
-                <TitleSourceStep TitleInput="@_state.TitleInput"
-                                 TitleInputChanged="@((value) => _state.TitleInput = value)"
+                <TitleSourceStep QueuedItems="@_state.Queue"
                                  IsProcessing="@_state.IsSyncing"
-                                 OnLoadTitle="@LoadHydrusTitleAsync"
-                                 OnBack="@_state.ResetToSourceSelection" />
+                                 StepLabel="@TitleStepLabel"
+                                 OnAddTitle="@OnAddTitle"
+                                 OnRemoveItem="@OnRemoveQueueItem"
+                                 OnBegin="@BeginQueueAsync"
+                                 OnBack="@OnSourceSpecificBack" />
             }
             break;
 
@@ -65,7 +88,7 @@
                           VolumeNumber="@_state.VolumeNumber"
                           VolumeNumberChanged="@((value) => _state.VolumeNumber = value)"
                           OnContinue="@OnMetadataContinue"
-                          OnBack="@_state.ResetToSourceSpecific" />
+                          OnBack="@OnMetadataBack" />
             break;
 
         case ImportWizardState.Step.Chapters:
@@ -93,7 +116,7 @@
             break;
 
         case ImportWizardState.Step.Done:
-            <CompletedStep ImportedSeriesId="@_state.ImportedSeriesId"
+            <CompletedStep Items="@_state.Queue"
                            OnImportAnother="@_state.ResetToSourceSelection" />
             break;
     }
@@ -110,21 +133,138 @@
         _thumbnailService = new ThumbnailPreloadService(HydrusMediaService);
     }
 
-    // ─── Source-Specific Handlers ───────────────────────────────────────
+    // ─── Source Selection ───────────────────────────────────────────────
 
-    private async Task OnFileSelectedAsync(IBrowserFile file)
+    private void OnSourceSelectionContinue()
+    {
+        if (_state.SelectedSource == ImportSource.HydrusMapped)
+        {
+            _state.GoToMapping();
+        }
+        else
+        {
+            _state.GoToSourceSpecific();
+        }
+    }
+
+    // ─── Mapping & Discovery ────────────────────────────────────────────
+
+    private async Task OnMappingContinueAsync()
     {
         _state.ErrorMessage = string.Empty;
-        _state.IsExtracting = true;
+        _state.IsDiscovering = true;
 
         try
         {
-            await using var stream = file.OpenReadStream(maxAllowedSize: MaxArchiveSizeBytes);
+            var titles = await SyncService.DiscoverMappedTitlesAsync(_state.SourceMapping);
+            if (titles.Count == 0)
+            {
+                _state.ErrorMessage = "No comics were discovered with the selected tag service and mapping. Adjust the namespaces and try again.";
+                return;
+            }
 
-            var preparation = await ComicImportService.ExtractArchiveAsync(stream, file.Name);
+            _state.ReplaceQueueWithMappedTitles(titles);
+            await BeginQueueAsync();
+        }
+        catch (Exception ex)
+        {
+            _state.ErrorMessage = $"Discovery failed: {ex.Message}";
+        }
+        finally
+        {
+            _state.IsDiscovering = false;
+        }
+    }
+
+    private string TitleStepLabel => _state.SelectedSource == ImportSource.HydrusMapped
+        ? "Step 3 — Add Hydrus Titles"
+        : "Step 2 — Add Hydrus Titles";
+
+    // ─── Queue Building ─────────────────────────────────────────────────
+
+    private void OnArchivesSelected(IReadOnlyList<IBrowserFile> files)
+    {
+        _state.ErrorMessage = string.Empty;
+        _state.ReplaceArchiveQueue(files);
+    }
+
+    private void OnAddTitle(string title)
+    {
+        _state.ErrorMessage = string.Empty;
+        _state.AddTitleToQueue(title);
+    }
+
+    private void OnRemoveQueueItem(ImportWizardState.QueuedComic item)
+    {
+        _state.RemoveQueueItem(item);
+    }
+
+    private void OnSourceSpecificBack()
+    {
+        if (_state.SelectedSource == ImportSource.HydrusMapped)
+        {
+            _state.GoToMapping();
+        }
+        else
+        {
+            _state.ResetToSourceSelection();
+        }
+    }
+
+    // ─── Queue Processing ───────────────────────────────────────────────
+
+    private async Task BeginQueueAsync()
+    {
+        var next = _state.FindNextPendingIndex();
+        if (next < 0)
+        {
+            return;
+        }
+
+        _state.CurrentQueueIndex = next;
+        await ProcessCurrentItemAsync();
+    }
+
+    private async Task ProcessCurrentItemAsync()
+    {
+        var item = _state.CurrentQueueItem;
+        if (item is null)
+        {
+            return;
+        }
+
+        _state.ErrorMessage = string.Empty;
+
+        try
+        {
+            ComicImportPreparation preparation;
+
+            if (item.Source == ImportSource.Archive)
+            {
+                if (item.ArchiveFile is null)
+                {
+                    _state.MarkCurrentFailed("Archive file reference is no longer available. Please reselect the files.");
+                    await AdvanceOrFinishAsync();
+                    return;
+                }
+
+                _state.IsExtracting = true;
+                await using var stream = item.ArchiveFile.OpenReadStream(maxAllowedSize: MaxArchiveSizeBytes);
+                preparation = await ComicImportService.ExtractArchiveAsync(stream, item.ArchiveFile.Name);
+            }
+            else
+            {
+                _state.IsSyncing = true;
+                var mapping = item.Source == ImportSource.HydrusMapped ? _state.SourceMapping : null;
+                preparation = await SyncService.ExtractTitleAsync(item.Title, mapping);
+            }
+
             if (preparation.Pages.Count == 0)
             {
-                _state.ErrorMessage = "No image pages were found in the archive.";
+                _state.MarkCurrentFailed(item.Source == ImportSource.Archive
+                    ? "No image pages were found in the archive."
+                    : "No matching files found for that title.");
+                await AdvanceOrFinishAsync();
                 return;
             }
 
@@ -133,40 +273,27 @@
         }
         catch (Exception ex)
         {
-            _state.ErrorMessage = $"Failed to read archive: {ex.Message}";
+            _state.MarkCurrentFailed(ex.Message);
+            await AdvanceOrFinishAsync();
         }
         finally
         {
             _state.IsExtracting = false;
+            _state.IsSyncing = false;
         }
     }
 
-    private async Task LoadHydrusTitleAsync(string titleInput)
+    private async Task AdvanceOrFinishAsync()
     {
-        _state.IsSyncing = true;
-        _state.ErrorMessage = string.Empty;
-
-        try
+        var next = _state.FindNextPendingIndex(_state.CurrentQueueIndex + 1);
+        if (next >= 0)
         {
-            var preparation = await SyncService.ExtractTitleAsync(titleInput);
-            if (preparation.Pages.Count == 0)
-            {
-                _state.ErrorMessage = "No matching files found for that title.";
-                _state.CurrentStep = ImportWizardState.Step.SourceSpecific;
-                return;
-            }
-
-            _state.ApplyPreparation(preparation);
-            _state.GoToMetadata();
+            _state.CurrentQueueIndex = next;
+            await ProcessCurrentItemAsync();
         }
-        catch (Exception ex)
+        else
         {
-            _state.ErrorMessage = $"Failed to load Hydrus title: {ex.Message}";
-            _state.CurrentStep = ImportWizardState.Step.SourceSpecific;
-        }
-        finally
-        {
-            _state.IsSyncing = false;
+            _state.GoToDone();
         }
     }
 
@@ -175,6 +302,20 @@
     private void OnMetadataContinue()
     {
         _state.GoToChapters();
+    }
+
+    private void OnMetadataBack()
+    {
+        _state.CurrentQueueIndex = -1;
+
+        if (_state.SelectedSource == ImportSource.HydrusMapped)
+        {
+            _state.Queue.Clear();
+            _state.GoToMapping();
+            return;
+        }
+
+        _state.ResetToSourceSpecific();
     }
 
     // ─── Chapter Placement Step ─────────────────────────────────────────
@@ -263,8 +404,9 @@
 
         try
         {
-            _state.ImportedSeriesId = await ComicImportService.ImportComicAsync(request, progress);
-            _state.GoToDone();
+            var seriesId = await ComicImportService.ImportComicAsync(request, progress);
+            _state.MarkCurrentImported(seriesId);
+            await AdvanceOrFinishAsync();
         }
         catch (Exception ex)
         {

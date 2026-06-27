@@ -30,11 +30,20 @@ public class HydrusApiService : IHydrusApiService
     /// </summary>
     public async Task<List<string>> DiscoverTitlesAsync(CancellationToken cancellationToken = default)
     {
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        return await DiscoverTitlesAsync(settings, cancellationToken);
+    }
+
+    /// <summary>
+    /// Discovers all title tags in Hydrus using file search and metadata extraction with an explicit
+    /// settings instance, so callers can read from another tag service and namespace mapping.
+    /// </summary>
+    public async Task<List<string>> DiscoverTitlesAsync(HydrusSettings settings, CancellationToken cancellationToken = default)
+    {
         var titleNames = new List<string>();
 
         try
         {
-            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
             var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "title:");
             var pageNamespace = NormalizeNamespace(settings.PageNamespace, "page:");
 
@@ -102,9 +111,22 @@ public class HydrusApiService : IHydrusApiService
         bool skipTagService = false,
         CancellationToken cancellationToken = default)
     {
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        return await SearchFilesAsync(settings, tags, fileDomain, skipTagService, cancellationToken);
+    }
+
+    /// <summary>
+    /// Searches for files matching the given tags using an explicit settings instance.
+    /// </summary>
+    public async Task<List<long>> SearchFilesAsync(
+        HydrusSettings settings,
+        List<string> tags,
+        string? fileDomain = null,
+        bool skipTagService = false,
+        CancellationToken cancellationToken = default)
+    {
         try
         {
-            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
             var fileIds = await SearchFilesInternalAsync(settings, tags, fileDomain, skipTagService, cancellationToken);
 
             _logger.LogInformation("Found {Count} files matching tags: {Tags}", fileIds.Count, string.Join(", ", tags));

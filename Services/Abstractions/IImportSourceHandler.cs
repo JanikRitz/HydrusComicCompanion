@@ -13,6 +13,9 @@ public enum ImportSource
     /// <summary>Import by syncing an existing title from Hydrus.</summary>
     Title,
 
+    /// <summary>Import existing Hydrus titles using a custom tag service and namespace mapping.</summary>
+    HydrusMapped,
+
     /// <summary>Import from an open Hydrus page (future feature).</summary>
     OpenHydrusPage,
 

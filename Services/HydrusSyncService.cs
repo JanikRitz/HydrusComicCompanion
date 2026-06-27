@@ -162,17 +162,21 @@ public class HydrusSyncService : IHydrusSyncService
     /// Implements fallback: if no files found with configured tag service, retries with default tag service.
     /// </summary>
     public async Task<ComicImportPreparation> ExtractTitleAsync(string seriesName, CancellationToken cancellationToken = default)
+        => await ExtractTitleAsync(seriesName, sourceMapping: null, cancellationToken);
+
+    public async Task<ComicImportPreparation> ExtractTitleAsync(string seriesName, HydrusSourceMapping? sourceMapping, CancellationToken cancellationToken = default)
     {
-        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        var settings = ApplySourceMapping(await _settingsService.GetSettingsAsync(cancellationToken), sourceMapping);
         var normalizedSeriesName = NormalizeTitleName(seriesName, settings);
 
         if (string.IsNullOrWhiteSpace(normalizedSeriesName))
         {
             throw new ArgumentException("Title name cannot be empty.", nameof(seriesName));
         }
-        
+
         var seriesTag = BuildTitleTag(normalizedSeriesName, settings);
         var fileIds = await _apiService.SearchFilesAsync(
+            settings,
             new List<string> { seriesTag },
             cancellationToken: cancellationToken);
 
@@ -181,6 +185,7 @@ public class HydrusSyncService : IHydrusSyncService
         {
             _logger.LogInformation("No files found for title {TitleName} with configured tag service. Retrying with default tag service.", normalizedSeriesName);
             fileIds = await _apiService.SearchFilesAsync(
+                settings,
                 new List<string> { seriesTag },
                 fileDomain: null,
                 skipTagService: true,
@@ -198,6 +203,61 @@ public class HydrusSyncService : IHydrusSyncService
 
         var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken: cancellationToken);
         return BuildImportPreparation(normalizedSeriesName, fileMetadata, settings);
+    }
+
+    /// <summary>
+    /// Discovers titles in another tag service by applying a one-off mapping to the global settings and
+    /// running the shared cover/first-page discovery query against the mapped tag service and namespaces.
+    /// </summary>
+    public async Task<List<string>> DiscoverMappedTitlesAsync(HydrusSourceMapping mapping, CancellationToken cancellationToken = default)
+    {
+        var settings = ApplySourceMapping(await _settingsService.GetSettingsAsync(cancellationToken), mapping);
+        return await _apiService.DiscoverTitlesAsync(settings, cancellationToken);
+    }
+
+    /// Only non-empty mapping fields override the global settings so blank inputs fall back safely.
+    /// </summary>
+    private static HydrusSettings ApplySourceMapping(HydrusSettings settings, HydrusSourceMapping? mapping)
+    {
+        if (mapping is null)
+        {
+            return settings;
+        }
+
+        var effective = settings.Clone();
+
+        if (!string.IsNullOrWhiteSpace(mapping.TagServiceName))
+        {
+            effective.PrimaryTagService = mapping.TagServiceName.Trim();
+            effective.TagServiceKey = mapping.TagServiceKey?.Trim() ?? string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(mapping.TitleNamespace))
+        {
+            effective.TitleNamespace = mapping.TitleNamespace.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(mapping.VolumeNamespace))
+        {
+            effective.VolumeNamespace = mapping.VolumeNamespace.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(mapping.ChapterNamespace))
+        {
+            effective.ChapterNamespace = mapping.ChapterNamespace.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(mapping.PageNamespace))
+        {
+            effective.PageNamespace = mapping.PageNamespace.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(mapping.CoverPageTag))
+        {
+            effective.CoverPageTag = mapping.CoverPageTag.Trim();
+        }
+
+        return effective;
     }
 
     /// <summary>

@@ -1,27 +1,88 @@
+@using HydrusComicCompanion.Components.ImportWizard.State
 @inject NavigationManager NavigationManager
 
-<MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
-    Import complete! Title imported successfully.
-</MudAlert>
-<MudStack Row="true" Spacing="2">
-    <MudButton Variant="Variant.Filled"
-               Color="Color.Primary"
-               OnClick="OnViewTitleClicked">
-        View Title
-    </MudButton>
-    <MudButton Variant="Variant.Outlined" OnClick="OnImportAnotherClicked">Import Another</MudButton>
+@{
+    var importedCount = Items.Count(item => item.Status == ImportWizardState.QueueItemStatus.Imported);
+    var failedCount = Items.Count(item => item.Status == ImportWizardState.QueueItemStatus.Failed);
+    var severity = failedCount == 0
+        ? Severity.Success
+        : importedCount == 0 ? Severity.Error : Severity.Warning;
+}
+
+<MudStack Spacing="3">
+    <MudAlert Severity="@severity" Variant="Variant.Outlined">
+        @if (failedCount == 0)
+        {
+            <text>Import complete! @importedCount comic(s) imported successfully.</text>
+        }
+        else if (importedCount == 0)
+        {
+            <text>Import finished. All @failedCount comic(s) failed.</text>
+        }
+        else
+        {
+            <text>Import finished. @importedCount imported, @failedCount failed.</text>
+        }
+    </MudAlert>
+
+    @if (Items.Count > 0)
+    {
+        <MudList T="ImportWizardState.QueuedComic" Dense="true">
+            @foreach (var item in Items)
+            {
+                <MudListItem T="ImportWizardState.QueuedComic">
+                    <div class="d-flex align-center justify-space-between" style="width:100%;">
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            @switch (item.Status)
+                            {
+                                case ImportWizardState.QueueItemStatus.Imported:
+                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Color="Color.Success" Size="Size.Small" />
+                                    break;
+                                case ImportWizardState.QueueItemStatus.Failed:
+                                    <MudIcon Icon="@Icons.Material.Filled.Error" Color="Color.Error" Size="Size.Small" />
+                                    break;
+                                default:
+                                    <MudIcon Icon="@Icons.Material.Filled.RemoveCircleOutline" Color="Color.Default" Size="Size.Small" />
+                                    break;
+                            }
+                            <MudStack Spacing="0">
+                                <MudText Typo="Typo.body2">@item.DisplayName</MudText>
+                                @if (item.Status == ImportWizardState.QueueItemStatus.Failed && !string.IsNullOrWhiteSpace(item.Error))
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Error">@item.Error</MudText>
+                                }
+                            </MudStack>
+                        </MudStack>
+                        @if (item.Status == ImportWizardState.QueueItemStatus.Imported && item.ImportedSeriesId > 0)
+                        {
+                            <MudButton Variant="Variant.Text"
+                                       Color="Color.Primary"
+                                       Size="Size.Small"
+                                       OnClick="@(() => ViewTitle(item.ImportedSeriesId))">
+                                View
+                            </MudButton>
+                        }
+                    </div>
+                </MudListItem>
+            }
+        </MudList>
+    }
+
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Outlined" OnClick="OnImportAnotherClicked">Import Another</MudButton>
+    </MudStack>
 </MudStack>
 
 @code {
     [Parameter]
-    public int ImportedSeriesId { get; set; }
+    public IReadOnlyList<ImportWizardState.QueuedComic> Items { get; set; } = [];
 
     [Parameter]
     public EventCallback OnImportAnother { get; set; }
 
-    private void OnViewTitleClicked()
+    private void ViewTitle(int seriesId)
     {
-        NavigationManager.NavigateTo($"/comic/{ImportedSeriesId}");
+        NavigationManager.NavigateTo($"/comic/{seriesId}");
     }
 
     private async Task OnImportAnotherClicked()

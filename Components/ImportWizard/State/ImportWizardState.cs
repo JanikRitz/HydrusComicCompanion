@@ -1,5 +1,6 @@
 using HydrusComicCompanion.Models;
 using HydrusComicCompanion.Services.Abstractions;
+using Microsoft.AspNetCore.Components.Forms;
 
 namespace HydrusComicCompanion.Components.ImportWizard.State;
 
@@ -11,11 +12,47 @@ public class ImportWizardState
     public enum Step
     {
         SourceSelection,
+        Mapping,
         SourceSpecific,
         Metadata,
         Chapters,
         Progress,
         Done
+    }
+
+    /// <summary>Status of a comic queued for import.</summary>
+    public enum QueueItemStatus
+    {
+        Pending,
+        Imported,
+        Failed,
+        Skipped
+    }
+
+    /// <summary>
+    /// A single comic queued for sequential import. Holds a lightweight source descriptor
+    /// (archive file reference or Hydrus title) that is extracted lazily when it becomes current.
+    /// </summary>
+    public sealed class QueuedComic
+    {
+        public ImportSource Source { get; init; }
+
+        /// <summary>Friendly label shown in the queue list and summary (file name or title).</summary>
+        public string DisplayName { get; set; } = string.Empty;
+
+        /// <summary>Archive file reference for <see cref="ImportSource.Archive"/> items.</summary>
+        public IBrowserFile? ArchiveFile { get; init; }
+
+        /// <summary>Title text for <see cref="ImportSource.Title"/> and <see cref="ImportSource.HydrusMapped"/> items.</summary>
+        public string Title { get; init; } = string.Empty;
+
+        public QueueItemStatus Status { get; set; } = QueueItemStatus.Pending;
+
+        /// <summary>Imported series id once the item completes successfully.</summary>
+        public int ImportedSeriesId { get; set; }
+
+        /// <summary>Error message captured when the item fails to extract or import.</summary>
+        public string? Error { get; set; }
     }
 
     // ─── Current Step ───────────────────────────────────────────────────
@@ -24,9 +61,25 @@ public class ImportWizardState
     // ─── Source Selection ───────────────────────────────────────────────
     public ImportSource SelectedSource { get; set; } = ImportSource.Archive;
 
+    // ─── Hydrus Mapped Source Mapping (one-off, Feature 2) ──────────────
+    public HydrusSourceMapping SourceMapping { get; set; } = new();
+
+    // ─── Import Queue ───────────────────────────────────────────────────
+    public List<QueuedComic> Queue { get; set; } = [];
+    public int CurrentQueueIndex { get; set; } = -1;
+
+    public QueuedComic? CurrentQueueItem =>
+        CurrentQueueIndex >= 0 && CurrentQueueIndex < Queue.Count ? Queue[CurrentQueueIndex] : null;
+
+    public int QueueTotal => Queue.Count;
+    public int CurrentQueuePosition => CurrentQueueIndex + 1;
+    public bool HasQueuedItems => Queue.Count > 0;
+    public bool HasMultipleQueuedItems => Queue.Count > 1;
+
     // ─── Source-Specific State ──────────────────────────────────────────
     public bool IsExtracting { get; set; }
     public bool IsSyncing { get; set; }
+    public bool IsDiscovering { get; set; }
     public string TitleInput { get; set; } = string.Empty;
 
     // ─── Extracted Data ─────────────────────────────────────────────────
@@ -56,6 +109,12 @@ public class ImportWizardState
     public int ImportedSeriesId { get; set; }
 
     // ─── Navigation Methods ─────────────────────────────────────────────
+
+    public void GoToMapping()
+    {
+        CurrentStep = Step.Mapping;
+        ErrorMessage = string.Empty;
+    }
 
     public void GoToSourceSpecific()
     {
@@ -98,6 +157,138 @@ public class ImportWizardState
         CurrentStep = Step.Done;
     }
 
+    // ─── Queue Management ───────────────────────────────────────────────
+
+    /// <summary>Sets the selected source, clearing the queue when the source changes.</summary>
+    public void SetSelectedSource(ImportSource source)
+    {
+        if (SelectedSource != source)
+        {
+            Queue.Clear();
+            CurrentQueueIndex = -1;
+        }
+
+        SelectedSource = source;
+    }
+
+    public void AddArchiveToQueue(IBrowserFile file)
+    {
+        Queue.Add(new QueuedComic
+        {
+            Source = ImportSource.Archive,
+            ArchiveFile = file,
+            DisplayName = file.Name
+        });
+    }
+
+    /// <summary>
+    /// Replaces all queued archives with a fresh selection. Required because Blazor Server
+    /// invalidates earlier <see cref="IBrowserFile"/> references whenever the file input changes.
+    /// </summary>
+    public void ReplaceArchiveQueue(IReadOnlyList<IBrowserFile> files)
+    {
+        Queue.Clear();
+        CurrentQueueIndex = -1;
+
+        foreach (var file in files)
+        {
+            AddArchiveToQueue(file);
+        }
+    }
+
+    public void AddTitleToQueue(string title)
+    {
+        var trimmed = title?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return;
+        }
+
+        if (Queue.Any(item => item.Source == SelectedSource
+            && string.Equals(item.Title, trimmed, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        Queue.Add(new QueuedComic
+        {
+            Source = SelectedSource,
+            Title = trimmed,
+            DisplayName = trimmed
+        });
+    }
+
+    /// <summary>
+    /// Replaces the queue with titles discovered through the Hydrus Mapped source so each one can be
+    /// taken through metadata and page ordering sequentially. Duplicates and blanks are ignored.
+    /// </summary>
+    public void ReplaceQueueWithMappedTitles(IEnumerable<string> titles)
+    {
+        Queue.Clear();
+        CurrentQueueIndex = -1;
+
+        foreach (var title in titles)
+        {
+            var trimmed = title?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                continue;
+            }
+
+            if (Queue.Any(item => string.Equals(item.Title, trimmed, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            Queue.Add(new QueuedComic
+            {
+                Source = ImportSource.HydrusMapped,
+                Title = trimmed,
+                DisplayName = trimmed
+            });
+        }
+    }
+
+    public void RemoveQueueItem(QueuedComic item)
+    {
+        Queue.Remove(item);
+    }
+
+    /// <summary>Finds the index of the next item still pending import at or after <paramref name="startInclusive"/>, or -1.</summary>
+    public int FindNextPendingIndex(int startInclusive = 0)
+    {
+        for (var i = Math.Max(0, startInclusive); i < Queue.Count; i++)
+        {
+            if (Queue[i].Status == QueueItemStatus.Pending)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    public void MarkCurrentImported(int seriesId)
+    {
+        if (CurrentQueueItem is { } item)
+        {
+            item.Status = QueueItemStatus.Imported;
+            item.ImportedSeriesId = seriesId;
+            item.Error = null;
+        }
+
+        ImportedSeriesId = seriesId;
+    }
+
+    public void MarkCurrentFailed(string error)
+    {
+        if (CurrentQueueItem is { } item)
+        {
+            item.Status = QueueItemStatus.Failed;
+            item.Error = error;
+        }
+    }
+
     // ─── Data Application ───────────────────────────────────────────────
 
     public void ApplyPreparation(ComicImportPreparation preparation)
@@ -108,6 +299,7 @@ public class ImportWizardState
         TitleName = preparation.Metadata?.Series?.Trim() ?? string.Empty;
         DisplayTitle = TitleName;
         Comments = string.Empty;
+        CustomTags = string.Empty;
         Creator = preparation.Metadata?.Creator?.Trim() ?? string.Empty;
         VolumeNumber = preparation.Metadata?.VolumeNumber;
         ChapterStartIndices = preparation.ChapterStartPageIndices.Count > 0
@@ -387,6 +579,9 @@ public class ImportWizardState
         ProgressTotal = 0;
         ProgressMessage = string.Empty;
         ImportedSeriesId = 0;
+        Queue = [];
+        CurrentQueueIndex = -1;
+        SourceMapping = new();
     }
 
     public void ResetToSourceSpecific()

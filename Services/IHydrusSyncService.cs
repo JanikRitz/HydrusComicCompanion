@@ -25,6 +25,25 @@ public interface IHydrusSyncService
     Task<ComicImportPreparation> ExtractTitleAsync(string seriesName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Extracts a title from Hydrus using a one-off tag service and namespace mapping override so
+    /// titles tagged by another tool can be loaded into the import workflow for editing.
+    /// </summary>
+    /// <param name="seriesName">Name of the title to extract (without the namespace prefix).</param>
+    /// <param name="sourceMapping">Optional override for the tag service and structural namespaces. Blank fields fall back to global settings.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Preparation data containing ordered pages, metadata, and chapter starts.</returns>
+    Task<ComicImportPreparation> ExtractTitleAsync(string seriesName, HydrusSourceMapping? sourceMapping, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Discovers existing titles in another Hydrus tag service using a one-off namespace mapping so the
+    /// mapped import workflow can queue every matching comic for review. Reads cover/first pages to find titles.
+    /// </summary>
+    /// <param name="mapping">Tag service and structural namespace override. Blank fields fall back to global settings.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Distinct, ordered title names found in the mapped tag service.</returns>
+    Task<List<string>> DiscoverMappedTitlesAsync(HydrusSourceMapping mapping, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Syncs a specific title: fetches all files tagged with the title and structures them
     /// </summary>
     /// <param name="seriesName">Name of the title to sync (without the namespace prefix)</param>

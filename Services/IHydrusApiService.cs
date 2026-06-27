@@ -14,6 +14,14 @@ public interface IHydrusApiService
     Task<List<string>> DiscoverTitlesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Discovers all title tags in Hydrus using an explicit settings instance, allowing callers to
+    /// override the tag service and structural namespaces (e.g. mapped imports from another tag service).
+    /// </summary>
+    /// <param name="settings">Settings to use for discovery (tag service key, namespaces, file domain, API connection).</param>
+    /// <returns>List of title names extracted from title: tags.</returns>
+    Task<List<string>> DiscoverTitlesAsync(HydrusSettings settings, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Discovers all series tags in Hydrus.
     /// </summary>
     /// <returns>List of title names extracted from structural tags.</returns>
@@ -27,6 +35,17 @@ public interface IHydrusApiService
     /// <param name="skipTagService">If true, ignores the configured tag service key and searches without it (uses Hydrus default "my tags")</param>
     /// <returns>List of file IDs matching the search criteria</returns>
     Task<List<long>> SearchFilesAsync(List<string> tags, string? fileDomain = null, bool skipTagService = false, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Searches for files matching the given tags using an explicit settings instance, allowing
+    /// callers to override the tag service and file domain (e.g. mapped imports from another tag service).
+    /// </summary>
+    /// <param name="settings">Settings to use for the search (tag service key, file domain, API connection).</param>
+    /// <param name="tags">List of tags to search for (e.g. ["title:the sandman"]).</param>
+    /// <param name="fileDomain">Optional file domain to scope the search (defaults to the provided settings value).</param>
+    /// <param name="skipTagService">If true, ignores the settings tag service key and searches without it.</param>
+    /// <returns>List of file IDs matching the search criteria.</returns>
+    Task<List<long>> SearchFilesAsync(HydrusSettings settings, List<string> tags, string? fileDomain = null, bool skipTagService = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Gets detailed metadata for files, including their tags.
