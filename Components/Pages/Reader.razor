@@ -37,6 +37,14 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
          @onwheel="HandleWheelAsync"
          @onwheel:preventDefault="true">
 
+        @* Preload all variant images to ensure instant, lag-free CSS flips *@
+        <div style="position: absolute; width: 0; height: 0; overflow: hidden; visibility: hidden;" aria-hidden="true">
+            @foreach (var variant in CurrentVariants)
+            {
+                <img src="@MediaService.BuildRenderUrl(variant.FileHash)" alt="" />
+            }
+        </div>
+
         <MudPaper Class="reader-topbar" Elevation="4">
             <div class="reader-topbar__title">
                 @if (_currentPageTags.Count > 0)
