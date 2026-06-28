@@ -82,26 +82,19 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                                aria-label="Next page" />
                 <MudDivider Vertical="true" FlexItem="true" />
                 <MudText Typo="Typo.body2">Page @_currentPageNumber of @_pages.Count</MudText>
-                @if (CurrentVariants.Count > 1)
-                {
-                    <MudDivider Vertical="true" FlexItem="true" />
-                    <MudSelect T="int"
-                               Dense="true"
-                               Margin="Margin.Dense"
-                               Label="Variant"
-                               Value="@(_currentVariant?.Id ?? 0)"
-                               ValueChanged="OnVariantChangedAsync"
-                               Style="min-width: 180px;">
-                        @foreach (var variant in CurrentVariants)
-                        {
-                            <MudSelectItem Value="@variant.Id">@GetVariantDisplayName(variant)</MudSelectItem>
-                        }
-                    </MudSelect>
-                }
                 <MudDivider Vertical="true" FlexItem="true" />
                 <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.MenuBook" OnClick="GoBackToComic">
                     Comic
                 </MudButton>
+                @if (CurrentVariants.Count > 1)
+                {
+                    <MudSpacer></MudSpacer>
+                    <MudTooltip Text="@GetVariantDisplayName(_currentVariant ?? CurrentVariants[0])" Placement="Placement.Left">
+                        <MudIconButton Icon="@Icons.Material.Outlined.ChangeCircle"
+                                       Color="Color.Inherit"
+                                       OnClick="CycleNextVariantAsync" />
+                    </MudTooltip>
+                }
             </MudStack>
         </MudPaper>
 
@@ -438,18 +431,16 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             : variant.Label;
     }
 
-    private async Task OnVariantChangedAsync(int variantId)
+    private async Task CycleNextVariantAsync()
     {
-        if (_currentPage is null)
+        if (_currentPage is null || CurrentVariants.Count < 2)
         {
             return;
         }
 
-        var variant = CurrentVariants.FirstOrDefault(v => v.Id == variantId);
-        if (variant is null)
-        {
-            return;
-        }
+        var currentIndex = CurrentVariants.IndexOf(_currentVariant);
+        var nextIndex = (currentIndex + 1) % CurrentVariants.Count;
+        var variant = CurrentVariants[nextIndex];
 
         _currentVariant = variant;
         _selectedVariantByPageId[_currentPage.Id] = variant.Id;
