@@ -12,9 +12,24 @@
 <MudStack Spacing="3">
     <div>
         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-            <div>
-                <MudText Typo="Typo.h4" GutterBottom="true">Library</MudText>
-            </div>
+            <MudText Typo="Typo.h4" GutterBottom="true">Library</MudText>
+            <MudSpacer></MudSpacer>
+            <MudButton 
+                Variant="Variant.Filled" 
+                Color="Color.Primary" 
+                OnClick="SyncOcrNow"
+                Disabled="@_isSyncingOcr"
+                StartIcon="@Icons.Material.Filled.Refresh">
+                @if (_isSyncingOcr)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    <span style="margin-left: 8px;">Syncing OCR Data...</span>
+                }
+                else
+                {
+                    <span>Sync OCR Data</span>
+                }
+            </MudButton>
             <MudButton 
                 Variant="Variant.Filled" 
                 Color="Color.Primary" 
@@ -185,10 +200,11 @@
 
     private List<ComicsCardItem> _comics = [];
     private bool _isLoading = true;
-    private bool _isSyncing = false;
-    private string? _syncError = null;
-    private int? _syncedComicsCount = null;
-    private DateTime? _lastSyncTime = null;
+    private bool _isSyncing;
+    private bool _isSyncingOcr;
+    private string? _syncError;
+    private int? _syncedComicsCount;
+    private DateTime? _lastSyncTime;
     private int _currentPage = 1;
     private int _totalComicsCount = 0;
     private int _totalLibraryComicsCount = 0;
@@ -438,6 +454,51 @@
         {
             dialog.Close();
             _isSyncing = false;
+            _currentPage = 1;
+            await LoadComicsAsync();
+        }
+    }
+
+    private async Task SyncOcrNow()
+    {
+        _isSyncingOcr = true;
+        _syncError = null;
+        _syncedComicsCount = null;
+
+        using var cancellationSource = new CancellationTokenSource();
+        Action<SyncProgressUpdate>? progressHandler = null;
+
+        var parameters = new DialogParameters
+        {
+            [nameof(SyncProgressDialog.Title)] = "Syncing OCR of existing titles",
+            [nameof(SyncProgressDialog.RegisterProgressHandler)] = (Action<Action<SyncProgressUpdate>>)(handler => progressHandler = handler),
+            [nameof(SyncProgressDialog.OnCancelRequested)] = (Func<Task>)(() =>
+            {
+                cancellationSource.Cancel();
+                return Task.CompletedTask;
+            })
+        };
+
+        var dialog = await DialogService.ShowAsync<SyncProgressDialog>("Syncing OCR of existing titles", parameters, _progressDialogOptions);
+        var progress = new Progress<SyncProgressUpdate>(update => progressHandler?.Invoke(update));
+
+        try
+        {
+            // TODO: _syncedComicsCount = await SyncService.SyncExistingLibrariesAsync(progress, cancellationSource.Token);
+            _lastSyncTime = DateTime.Now;
+        }
+        catch (OperationCanceledException) when (cancellationSource.IsCancellationRequested)
+        {
+            Snackbar.Add("OCR sync stopped. Already synced OCR stays.", Severity.Info);
+        }
+        catch (Exception ex)
+        {
+            _syncError = $"OCR sync failed: {ex.Message}";
+        }
+        finally
+        {
+            dialog.Close();
+            _isSyncingOcr = false;
             _currentPage = 1;
             await LoadComicsAsync();
         }
