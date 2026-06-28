@@ -23,22 +23,22 @@ public class HydrusApiService : IHydrusApiService
     /// Discovers all title tags in Hydrus using file search and metadata extraction.
     /// </summary>
     public Task<List<string>> DiscoverSeriesAsync(CancellationToken cancellationToken = default)
-        => DiscoverTitlesAsync(cancellationToken);
+        => DiscoverComicsAsync(cancellationToken);
 
     /// <summary>
     /// Discovers all title tags in Hydrus using file search and metadata extraction.
     /// </summary>
-    public async Task<List<string>> DiscoverTitlesAsync(CancellationToken cancellationToken = default)
+    public async Task<List<string>> DiscoverComicsAsync(CancellationToken cancellationToken = default)
     {
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
-        return await DiscoverTitlesAsync(settings, cancellationToken);
+        return await DiscoverComicsAsync(settings, cancellationToken);
     }
 
     /// <summary>
     /// Discovers all title tags in Hydrus using file search and metadata extraction with an explicit
     /// settings instance, so callers can read from another tag service and namespace mapping.
     /// </summary>
-    public async Task<List<string>> DiscoverTitlesAsync(HydrusSettings settings, CancellationToken cancellationToken = default)
+    public async Task<List<string>> DiscoverComicsAsync(HydrusSettings settings, CancellationToken cancellationToken = default)
     {
         var titleNames = new List<string>();
 

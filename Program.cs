@@ -166,7 +166,7 @@ app.MapPost("/api/sync/comic/{comicName}", async (string comicName, IHydrusSyncS
 
 app.MapGet("/api/sync/unsynced-count", async (IHydrusSyncService syncService) =>
 {
-    var count = await syncService.GetUnsyncedSeriesCountAsync();
+    var count = await syncService.GetUnsyncedComicsCountAsync();
     return Results.Ok(new { unsyncedCount = count });
 })
 .WithName("GetUnsyncedCount")

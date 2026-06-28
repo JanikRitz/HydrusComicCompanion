@@ -234,7 +234,7 @@ else
     {
         if (string.IsNullOrEmpty(_comic?.Title)) return;
         _isSyncingMetadata = true;
-        await SyncService.SyncTitleAsync(_comic.Title);
+        await SyncService.SyncComicAsync(_comic.Title);
         _isSyncingMetadata = false;
         StateHasChanged(); // without the MudOverlay stays open
     }

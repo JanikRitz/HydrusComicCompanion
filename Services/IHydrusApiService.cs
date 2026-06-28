@@ -11,7 +11,7 @@ public interface IHydrusApiService
     /// Discovers all title tags in Hydrus
     /// </summary>
     /// <returns>List of title names extracted from title: tags</returns>
-    Task<List<string>> DiscoverTitlesAsync(CancellationToken cancellationToken = default);
+    Task<List<string>> DiscoverComicsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Discovers all title tags in Hydrus using an explicit settings instance, allowing callers to
@@ -19,7 +19,7 @@ public interface IHydrusApiService
     /// </summary>
     /// <param name="settings">Settings to use for discovery (tag service key, namespaces, file domain, API connection).</param>
     /// <returns>List of title names extracted from title: tags.</returns>
-    Task<List<string>> DiscoverTitlesAsync(HydrusSettings settings, CancellationToken cancellationToken = default);
+    Task<List<string>> DiscoverComicsAsync(HydrusSettings settings, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Discovers all series tags in Hydrus.

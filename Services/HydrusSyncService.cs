@@ -36,28 +36,28 @@ public class HydrusSyncService : IHydrusSyncService
             _logger.LogInformation("Starting library sync");
 
             // Step 1: Discover all titles
-            var titleNames = await _apiService.DiscoverTitlesAsync(cancellationToken);
-            _logger.LogInformation("Discovered {Count} titles", titleNames.Count);
+            var comicTitles = await _apiService.DiscoverComicsAsync(cancellationToken);
+            _logger.LogInformation("Discovered {Count} titles", comicTitles.Count);
 
-            progress?.Report(new SyncProgressUpdate { Current = 0, Total = titleNames.Count });
+            progress?.Report(new SyncProgressUpdate { Current = 0, Total = comicTitles.Count });
 
             // Step 2: Sync each title
-            for (var index = 0; index < titleNames.Count; index++)
+            for (var index = 0; index < comicTitles.Count; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var seriesName = titleNames[index];
+                var comicTitle = comicTitles[index];
                 progress?.Report(new SyncProgressUpdate
                 {
                     Current = index + 1,
-                    Total = titleNames.Count,
-                    CurrentTitle = seriesName
+                    Total = comicTitles.Count,
+                    CurrentTitle = comicTitle
                 });
 
                 try
                 {
-                    var seriesId = await SyncTitleAsync(seriesName, cancellationToken);
-                    if (seriesId.HasValue)
+                    var comicId = await SyncComicAsync(comicTitle, cancellationToken);
+                    if (comicId.HasValue)
                     {
                         syncedCount++;
                     }
@@ -68,7 +68,7 @@ public class HydrusSyncService : IHydrusSyncService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error syncing title: {TitleName}", seriesName);
+                    _logger.LogError(ex, "Error syncing title: {ComicTitle}", comicTitle);
                 }
             }
 
@@ -100,33 +100,33 @@ public class HydrusSyncService : IHydrusSyncService
             _logger.LogInformation("Starting existing libraries sync");
 
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            var existingSeriesNames = await dbContext.Comic
+            var existingComicTitles = await dbContext.Comic
                 .AsNoTracking()
                 .Select(s => s.Title)
                 .Where(title => !string.IsNullOrWhiteSpace(title))
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
-            _logger.LogInformation("Found {Count} existing titles in local cache", existingSeriesNames.Count);
+            _logger.LogInformation("Found {Count} existing titles in local cache", existingComicTitles.Count);
 
-            progress?.Report(new SyncProgressUpdate { Current = 0, Total = existingSeriesNames.Count });
+            progress?.Report(new SyncProgressUpdate { Current = 0, Total = existingComicTitles.Count });
 
-            for (var index = 0; index < existingSeriesNames.Count; index++)
+            for (var index = 0; index < existingComicTitles.Count; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var seriesName = existingSeriesNames[index];
+                var comicTitle = existingComicTitles[index];
                 progress?.Report(new SyncProgressUpdate
                 {
                     Current = index + 1,
-                    Total = existingSeriesNames.Count,
-                    CurrentTitle = seriesName
+                    Total = existingComicTitles.Count,
+                    CurrentTitle = comicTitle
                 });
 
                 try
                 {
-                    var seriesId = await SyncTitleAsync(seriesName, cancellationToken);
-                    if (seriesId.HasValue)
+                    var comicId = await SyncComicAsync(comicTitle, cancellationToken);
+                    if (comicId.HasValue)
                     {
                         syncedCount++;
                     }
@@ -137,7 +137,7 @@ public class HydrusSyncService : IHydrusSyncService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error syncing existing title: {TitleName}", seriesName);
+                    _logger.LogError(ex, "Error syncing existing title: {ComicTitle}", comicTitle);
                 }
             }
 
@@ -161,32 +161,32 @@ public class HydrusSyncService : IHydrusSyncService
     /// Extracts a Hydrus title into pages plus initial metadata/chapter state for the import UI.
     /// Implements fallback: if no files found with configured tag service, retries with default tag service.
     /// </summary>
-    public async Task<ComicImportPreparation> ExtractTitleAsync(string seriesName, CancellationToken cancellationToken = default)
-        => await ExtractTitleAsync(seriesName, sourceMapping: null, cancellationToken);
+    public async Task<ComicImportPreparation> ExtractComicAsync(string comicTitle, CancellationToken cancellationToken = default)
+        => await ExtractComicAsync(comicTitle, sourceMapping: null, cancellationToken);
 
-    public async Task<ComicImportPreparation> ExtractTitleAsync(string seriesName, HydrusSourceMapping? sourceMapping, CancellationToken cancellationToken = default)
+    public async Task<ComicImportPreparation> ExtractComicAsync(string comicTitle, HydrusSourceMapping? sourceMapping, CancellationToken cancellationToken = default)
     {
         var settings = ApplySourceMapping(await _settingsService.GetSettingsAsync(cancellationToken), sourceMapping);
-        var normalizedSeriesName = NormalizeTitleName(seriesName, settings);
+        var normalizedComicTitle = NormalizeTitleName(comicTitle, settings);
 
-        if (string.IsNullOrWhiteSpace(normalizedSeriesName))
+        if (string.IsNullOrWhiteSpace(normalizedComicTitle))
         {
-            throw new ArgumentException("Title name cannot be empty.", nameof(seriesName));
+            throw new ArgumentException("Title name cannot be empty.", nameof(comicTitle));
         }
 
-        var seriesTag = BuildTitleTag(normalizedSeriesName, settings);
+        var titleTag = BuildTitleTag(normalizedComicTitle, settings);
         var fileIds = await _apiService.SearchFilesAsync(
             settings,
-            new List<string> { seriesTag },
+            new List<string> { titleTag },
             cancellationToken: cancellationToken);
 
         // Fallback: if no files found with configured tag service, retry with default tag service
         if (fileIds.Count == 0 && !string.IsNullOrWhiteSpace(settings.TagServiceKey))
         {
-            _logger.LogInformation("No files found for title {TitleName} with configured tag service. Retrying with default tag service.", normalizedSeriesName);
+            _logger.LogInformation("No files found for title {ComicTitle} with configured tag service. Retrying with default tag service.", normalizedComicTitle);
             fileIds = await _apiService.SearchFilesAsync(
                 settings,
-                new List<string> { seriesTag },
+                new List<string> { titleTag },
                 fileDomain: null,
                 skipTagService: true,
                 cancellationToken: cancellationToken);
@@ -196,13 +196,13 @@ public class HydrusSyncService : IHydrusSyncService
         {
             return new ComicImportPreparation
             {
-                Metadata = new ComicMetadata { Series = normalizedSeriesName },
+                Metadata = new ComicMetadata { Series = normalizedComicTitle },
                 ChapterStartPageIndices = [0]
             };
         }
 
         var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken: cancellationToken);
-        return BuildImportPreparation(normalizedSeriesName, fileMetadata, settings);
+        return BuildImportPreparation(normalizedComicTitle, fileMetadata, settings);
     }
 
     /// <summary>
@@ -212,7 +212,7 @@ public class HydrusSyncService : IHydrusSyncService
     public async Task<List<TitleWithPageCount>> DiscoverMappedTitlesAsync(HydrusSourceMapping mapping, CancellationToken cancellationToken = default)
     {
         var settings = ApplySourceMapping(await _settingsService.GetSettingsAsync(cancellationToken), mapping);
-        var titleNames = await _apiService.DiscoverTitlesAsync(settings, cancellationToken);
+        var titleNames = await _apiService.DiscoverComicsAsync(settings, cancellationToken);
 
         // If no minimum pages filter, return all titles with page count 0 (for UI display)
         if (mapping?.MinimumPages is null || mapping.MinimumPages <= 0)
@@ -241,7 +241,7 @@ public class HydrusSyncService : IHydrusSyncService
             }
             else
             {
-                _logger.LogDebug("Filtered out title '{TitleName}' with {PageCount} pages (minimum: {MinimumPages})", titleName, pageCount, minimumPages);
+                _logger.LogDebug("Filtered out title '{ComicTitle}' with {PageCount} pages (minimum: {MinimumPages})", titleName, pageCount, minimumPages);
             }
         }
 
@@ -307,46 +307,40 @@ public class HydrusSyncService : IHydrusSyncService
     /// Syncs a specific title: fetches all files tagged with the title and structures them.
     /// Implements fallback: if no files found with configured tag service, retries with default tag service.
     /// </summary>
-    public async Task<int?> SyncTitleAsync(string seriesName, CancellationToken cancellationToken = default)
+    public async Task<int?> SyncComicAsync(string comicTitle, CancellationToken cancellationToken = default)
     {
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
-        var normalizedSeriesName = NormalizeTitleName(seriesName, settings);
+        var normalizedComicTitle = NormalizeTitleName(comicTitle, settings);
 
-        if (string.IsNullOrWhiteSpace(normalizedSeriesName))
+        if (string.IsNullOrWhiteSpace(normalizedComicTitle))
         {
-            throw new ArgumentException("Title name cannot be empty.", nameof(seriesName));
+            throw new ArgumentException("Title name cannot be empty.", nameof(comicTitle));
         }
 
         try
         {
-            _logger.LogInformation("Syncing title: {TitleName}", normalizedSeriesName);
+            _logger.LogInformation("Syncing title: {ComicTitle}", normalizedComicTitle);
             
             // Build the title search tag
-            var seriesTag = BuildTitleTag(normalizedSeriesName, settings);
+            var titleTag = BuildTitleTag(normalizedComicTitle, settings);
 
-            // Step 1: Search for files with this series tag
-            var fileIds = await _apiService.SearchFilesAsync(
-                new List<string> { seriesTag },
-                cancellationToken: cancellationToken);
+            // Step 1: Search for files with this title tag
+            var fileIds = await _apiService.SearchFilesAsync( new List<string> { titleTag }, cancellationToken: cancellationToken);
 
             // Fallback: if no files found with configured tag service, retry with default tag service
             if (fileIds.Count == 0 && !string.IsNullOrWhiteSpace(settings.TagServiceKey))
             {
-                _logger.LogInformation("No files found for title {TitleName} with configured tag service. Retrying with default tag service.", normalizedSeriesName);
-                fileIds = await _apiService.SearchFilesAsync(
-                    new List<string> { seriesTag },
-                    fileDomain: null,
-                    skipTagService: true,
-                    cancellationToken: cancellationToken);
+                _logger.LogInformation("No files found for title {ComicTitle} with configured tag service. Retrying with default tag service.", normalizedComicTitle);
+                fileIds = await _apiService.SearchFilesAsync(new List<string> { titleTag }, fileDomain: null, skipTagService: true, cancellationToken: cancellationToken);
             }
 
             if (fileIds.Count == 0)
             {
-                _logger.LogWarning("No files found for title: {TitleName}", normalizedSeriesName);
+                _logger.LogWarning("No files found for title: {ComicTitle}", normalizedComicTitle);
                 return null;
             }
 
-            _logger.LogInformation("Found {Count} files for title {TitleName}", fileIds.Count, normalizedSeriesName);
+            _logger.LogInformation("Found {Count} files for title {ComicTitle}", fileIds.Count, normalizedComicTitle);
 
             // Step 2: Get metadata for all files
             var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, includeNotes: true, cancellationToken: cancellationToken);
@@ -355,37 +349,34 @@ public class HydrusSyncService : IHydrusSyncService
             var chapters = ParseFilesIntoChapters(fileMetadata, settings);
 
             // Step 4: Store in database
-            var seriesId = await StoreSeriesInDatabaseAsync(normalizedSeriesName, chapters, fileMetadata, cancellationToken);
+            var comicId = await StoreComicsInDatabaseAsync(normalizedComicTitle, chapters, fileMetadata, cancellationToken);
 
-            _logger.LogInformation("Successfully synced title {TitleName} with ID {SeriesId}", normalizedSeriesName, seriesId);
-            return seriesId;
+            _logger.LogInformation("Successfully synced title {ComicTitle} with ID {ComicId}", normalizedComicTitle, comicId);
+            return comicId;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error syncing title: {TitleName}", normalizedSeriesName);
+            _logger.LogError(ex, "Error syncing title: {ComicTitle}", normalizedComicTitle);
             throw;
         }
     }
-
-    public Task<int?> SyncSeriesAsync(string seriesName, CancellationToken cancellationToken = default)
-        => SyncTitleAsync(seriesName, cancellationToken);
-
+    
     /// <summary>
     /// Gets the count of unsynced titles
     /// </summary>
-    public async Task<int> GetUnsyncedTitlesCountAsync(CancellationToken cancellationToken = default)
+    public async Task<int> GetUnsyncedComicsCountAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var discoveredSeries = await _apiService.DiscoverTitlesAsync(cancellationToken);
+            var discoveredComics = await _apiService.DiscoverComicsAsync(cancellationToken);
 
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            var syncedSeries = await dbContext.Comic
+            var syncedComics = await dbContext.Comic
                 .Where(s => s.LastSyncedAt != null)
                 .Select(s => s.Title)
                 .ToListAsync(cancellationToken);
 
-            var unsyncedCount = discoveredSeries.Count(s => !syncedSeries.Contains(s));
+            var unsyncedCount = discoveredComics.Count(s => !syncedComics.Contains(s));
             return unsyncedCount;
         }
         catch (Exception ex)
@@ -395,33 +386,30 @@ public class HydrusSyncService : IHydrusSyncService
         }
     }
 
-    public Task<int> GetUnsyncedSeriesCountAsync(CancellationToken cancellationToken = default)
-        => GetUnsyncedTitlesCountAsync(cancellationToken);
-
     /// <summary>
-    /// Deletes a cached series and all of its related cached records.
+    /// Deletes a cached comics and all of its related cached records.
     /// </summary>
-    public async Task<bool> DeleteComicAsync(int seriesId, CancellationToken cancellationToken = default)
+    public async Task<bool> DeleteComicAsync(int comicId, CancellationToken cancellationToken = default)
     {
-        if (seriesId <= 0)
+        if (comicId <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(seriesId));
+            throw new ArgumentOutOfRangeException(nameof(comicId));
         }
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        var series = await dbContext.Comic
-            .SingleOrDefaultAsync(x => x.Id == seriesId, cancellationToken);
+        var comic = await dbContext.Comic
+            .SingleOrDefaultAsync(x => x.Id == comicId, cancellationToken);
 
-        if (series is null)
+        if (comic is null)
         {
             return false;
         }
 
-        dbContext.Comic.Remove(series);
+        dbContext.Comic.Remove(comic);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("Deleted cached series {SeriesId} ({Title})", seriesId, series.Title);
+        _logger.LogInformation("Deleted cached comid {ComicId} ({Title})", comicId, comic.Title);
         return true;
     }
 
@@ -453,13 +441,13 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-        var series = await dbContext.Comic
+        var comic = await dbContext.Comic
             .Include(s => s.Chapters)
             .ThenInclude(c => c.Pages)
             .ThenInclude(p => p.Variants)
             .SingleOrDefaultAsync(s => s.Id == request.ComicId, cancellationToken);
 
-        if (series is null)
+        if (comic is null)
         {
             throw new InvalidOperationException($"Comic with ID {request.ComicId} was not found.");
         }
@@ -500,11 +488,11 @@ public class HydrusSyncService : IHydrusSyncService
             await _apiService.UpdateTagsAsync(hash, tagServiceKey, oldManagedTags, newManagedTags, cancellationToken);
         }
 
-        series.Title = normalizedTitle;
-        series.CoverFileHash = ResolveEditedCoverHash(request, settings, newManagedTagsByHash);
-        series.LastSyncedAt = DateTimeOffset.UtcNow;
+        comic.Title = normalizedTitle;
+        comic.CoverFileHash = ResolveEditedCoverHash(request, settings, newManagedTagsByHash);
+        comic.LastSyncedAt = DateTimeOffset.UtcNow;
 
-        RebuildSeriesStructureFromEdit(series, request);
+        RebuildComicStructureFromEdit(comic, request);
 
         await dbContext.SaveChangesAsync(cancellationToken);
     }
@@ -739,9 +727,9 @@ public class HydrusSyncService : IHydrusSyncService
             : $"{prefix}:{trimmedValue}";
     }
 
-    private static void RebuildSeriesStructureFromEdit(ComicsRecord series, HydrusMetadataEditRequest request)
+    private static void RebuildComicStructureFromEdit(ComicsRecord comic, HydrusMetadataEditRequest request)
     {
-        var existingOcrByHash = series.Chapters
+        var existingOcrByHash = comic.Chapters
             .SelectMany(chapter => chapter.Pages)
             .SelectMany(page => page.Variants)
             .Where(variant => !string.IsNullOrWhiteSpace(variant.FileHash))
@@ -751,7 +739,7 @@ public class HydrusSyncService : IHydrusSyncService
                 group => group.Select(variant => variant.OcrText).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)),
                 StringComparer.OrdinalIgnoreCase);
 
-        series.Chapters.Clear();
+        comic.Chapters.Clear();
 
         var chapterStarts = request.ChapterStartPageIndices
             .Where(i => i >= 0 && i < request.Pages.Count)
@@ -845,14 +833,14 @@ public class HydrusSyncService : IHydrusSyncService
                 chapter.Pages.Add(pageRecord);
             }
 
-            series.Chapters.Add(chapter);
+            comic.Chapters.Add(chapter);
         }
     }
 
     /// <summary>
     /// Builds the editable import payload for a Hydrus title.
     /// </summary>
-    private ComicImportPreparation BuildImportPreparation(string seriesName, List<FileMetadata> fileMetadata, HydrusSettings settings)
+    private ComicImportPreparation BuildImportPreparation(string comicTitle, List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
         var orderedFiles = ParseImportFiles(fileMetadata, settings);
 
@@ -909,7 +897,7 @@ public class HydrusSyncService : IHydrusSyncService
 
         var metadata = new ComicMetadata
         {
-            Series = seriesName,
+            Series = comicTitle,
             Creator = ExtractCreatorMetadata(orderedFiles, settings.TagServiceKey),
             VolumeNumber = orderedFiles.Select(file => file.Volume).FirstOrDefault(volume => volume.HasValue)
         };
@@ -1054,32 +1042,32 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
-    /// Stores series and its structure in the database
+    /// Stores a comic and its structure in the database
     /// </summary>
-    private async Task<int> StoreSeriesInDatabaseAsync(
-        string seriesName,
+    private async Task<int> StoreComicsInDatabaseAsync(
+        string comitTitle,
         Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, List<SyncedPageVariant> Variants)>> chapters,
         List<FileMetadata> allFileMetadata,
         CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
-        // Find or create series
-        var series = await dbContext.Comic
+        // Find or create comic
+        var comic = await dbContext.Comic
             .Include(s => s.Chapters)
             .ThenInclude(c => c.Pages)
             .ThenInclude(p => p.Variants)
             .Include(s => s.Metadata)
-            .FirstOrDefaultAsync(s => s.Title == seriesName, cancellationToken);
+            .FirstOrDefaultAsync(s => s.Title == comitTitle, cancellationToken);
 
-        if (series == null)
+        if (comic == null)
         {
-            series = new ComicsRecord { Title = seriesName };
-            dbContext.Comic.Add(series);
+            comic = new ComicsRecord { Title = comitTitle };
+            dbContext.Comic.Add(comic);
         }
 
         // Clear existing chapters to rebuild them
-        series.Chapters.Clear();
+        comic.Chapters.Clear();
 
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
 
@@ -1124,38 +1112,38 @@ public class HydrusSyncService : IHydrusSyncService
                 chapter.Pages.Add(page);
             }
 
-            series.Chapters.Add(chapter);
+            comic.Chapters.Add(chapter);
         }
 
-        // Update series metadata (creators, genres, etc.)
-        UpdateSeriesMetadata(series, allFileMetadata, settings);
+        // Update comic metadata (creators, genres, etc.)
+        UpdateComicMetadata(comic, allFileMetadata, settings);
 
         // Set cover to configured cover tag file, or fallback to the lowest page number.
-        series.CoverFileHash = ResolveCoverFileHash(chapters, allFileMetadata, settings);
+        comic.CoverFileHash = ResolveCoverFileHash(chapters, allFileMetadata, settings);
 
         var coverFile = allFileMetadata.FirstOrDefault(file =>
-            !string.IsNullOrWhiteSpace(series.CoverFileHash) &&
-            string.Equals(file.Hash, series.CoverFileHash, StringComparison.OrdinalIgnoreCase));
+            !string.IsNullOrWhiteSpace(comic.CoverFileHash) &&
+            string.Equals(file.Hash, comic.CoverFileHash, StringComparison.OrdinalIgnoreCase));
 
-        series.DisplayTitle = coverFile is null
+        comic.DisplayTitle = coverFile is null
             ? null
             : ExtractNoteValue(coverFile, settings.FullTitleNoteName);
-        series.Comment = coverFile is null
+        comic.Comment = coverFile is null
             ? null
             : ExtractNoteValue(coverFile, settings.ComicCommentNoteName);
 
         // Update sync timestamp
-        series.LastSyncedAt = DateTimeOffset.UtcNow;
+        comic.LastSyncedAt = DateTimeOffset.UtcNow;
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return series.Id;
+        return comic.Id;
     }
 
     /// <summary>
-    /// Updates series metadata from file tags
+    /// Updates comic metadata from file tags
     /// </summary>
-    private void UpdateSeriesMetadata(ComicsRecord comics, List<FileMetadata> fileMetadata, HydrusSettings settings)
+    private void UpdateComicMetadata(ComicsRecord comics, List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
         var metadataDict = new Dictionary<string, HashSet<string>>();
 
@@ -1212,12 +1200,12 @@ public class HydrusSyncService : IHydrusSyncService
                normalized == settings.AlternatePageNamespace.TrimEnd(':').ToLowerInvariant();
     }
 
-    private string BuildTitleTag(string seriesName, HydrusSettings settings)
+    private string BuildTitleTag(string comicTitle, HydrusSettings settings)
     {
         var namespacePrefix = settings.TitleNamespace.Trim().TrimEnd(':');
         return string.IsNullOrWhiteSpace(namespacePrefix)
-            ? seriesName
-            : $"{namespacePrefix}:{seriesName}";
+            ? comicTitle
+            : $"{namespacePrefix}:{comicTitle}";
     }
 
     private string NormalizeTitleName(string userInput, HydrusSettings settings)

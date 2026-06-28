@@ -473,7 +473,7 @@
             {
                 _state.IsSyncing = true;
                 var mapping = item.Source == ImportSource.HydrusMapped ? _state.SourceMapping : null;
-                preparation = await SyncService.ExtractTitleAsync(item.Title, mapping);
+                preparation = await SyncService.ExtractComicAsync(item.Title, mapping);
             }
 
             if (preparation.Pages.Count == 0)

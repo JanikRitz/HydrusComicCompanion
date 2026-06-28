@@ -41,7 +41,7 @@ public class TitleImportHandler : IImportSourceHandler
                 nameof(sourceIdentifier));
         }
 
-        return await _syncService.ExtractTitleAsync(titleName, cancellationToken);
+        return await _syncService.ExtractComicAsync(titleName, cancellationToken);
     }
 
     /// <summary>
@@ -60,7 +60,7 @@ public class TitleImportHandler : IImportSourceHandler
             throw new ArgumentException("SeriesName is required for title import.", nameof(request));
         }
 
-        var titleId = await _syncService.SyncTitleAsync(request.SeriesName, cancellationToken);
+        var titleId = await _syncService.SyncComicAsync(request.SeriesName, cancellationToken);
 
         // Fallback strategy: if no files found with configured tag service, retry with default tag service
         if (titleId is null)
@@ -109,7 +109,7 @@ public class TitleImportHandler : IImportSourceHandler
 
             // Reuse sync logic from HydrusSyncService by calling it again
             // Since we found files with default tag service, the second sync attempt will succeed
-            return await _syncService.SyncTitleAsync(seriesName, cancellationToken);
+            return await _syncService.SyncComicAsync(seriesName, cancellationToken);
         }
         catch (Exception)
         {
