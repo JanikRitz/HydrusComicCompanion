@@ -92,17 +92,34 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                     <MudTooltip Text="@GetVariantDisplayName(_currentVariant ?? CurrentVariants[0])" Placement="Placement.Left">
                         <MudIconButton Icon="@Icons.Material.Outlined.ChangeCircle"
                                        Color="Color.Inherit"
+                                       Disabled="@_isVariantChanging"
                                        OnClick="CycleNextVariantAsync" />
                     </MudTooltip>
                 }
             </MudStack>
         </MudPaper>
 
-        <div class="reader-canvas">
-            <img class="reader-page"
-                 src="@GetCurrentImageUrl()"
-                 alt="@GetPageAltText()"
-                 draggable="false" />
+        <div class="flip-container @(_isFlipped ? "flipped" : "")" @onclick="CycleNextVariantAsync">
+            <div class="flipper">
+                <div class="front">
+                    @if (_frontVariant is not null)
+                    {
+                        <img class="reader-page reader-page--front"
+                             src="@MediaService.BuildRenderUrl(_frontVariant.FileHash)"
+                             alt="@GetPageAltText()"
+                             draggable="false" />
+                    }
+                </div>
+                <div class="back">
+                    @if (_backVariant is not null)
+                    {
+                        <img class="reader-page reader-page--back"
+                             src="@MediaService.BuildRenderUrl(_backVariant.FileHash)"
+                             alt="@GetPageAltText()"
+                             draggable="false" />
+                    }
+                </div>
+            </div>
         </div>
     </div>
 }
@@ -126,11 +143,15 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
     private IReadOnlyList<PageRecord> _pages = Array.Empty<PageRecord>();
     private PageRecord? _currentPage;
     private PageVariantRecord? _currentVariant;
+    private PageVariantRecord? _frontVariant;
+    private PageVariantRecord? _backVariant;
     private readonly Dictionary<int, int> _selectedVariantByPageId = [];
     private IReadOnlyList<string> _currentPageTags = Array.Empty<string>();
     private bool _isLoading = true;
     private string? _errorMessage;
     private int _currentPageNumber;
+    private bool _isFlipped;
+    private bool _isVariantChanging;
     private bool _syncUrlAfterRender;
     private int _syncedSeriesId;
     private int _syncedChapterId;
@@ -138,11 +159,8 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
     private DateTime _lastScrollNavigationAt = DateTime.MinValue;
 
     private bool HasPrevious => GetPreviousPageTarget() is not null;
-
     private bool PreviousDisabled => !HasPrevious;
-
     private bool HasNext => GetNextPageTarget() is not null;
-
     private bool NextDisabled => !HasNext;
 
     private IReadOnlyList<PageVariantRecord> CurrentVariants => _currentPage is null
@@ -189,6 +207,8 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         _currentPage = null;
         _currentVariant = null;
         _currentPageNumber = 0;
+        _isFlipped = false; // Reset flip state for new page
+        _isVariantChanging = false; // Reset lock
 
         try
         {
@@ -265,10 +285,16 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
                 _selectedVariantByPageId[_currentPage.Id] = _currentVariant.Id;
                 _currentPageTags = await LoadCurrentPageTagsAsync(_currentVariant.FileHash);
+
+                // Initialize the front and back faces
+                _frontVariant = _currentVariant;
+                _backVariant = GetNextVariant(_currentVariant);
             }
             else
             {
                 _currentVariant = null;
+                _frontVariant = null;
+                _backVariant = null;
                 _currentPageTags = Array.Empty<string>();
             }
 
@@ -410,13 +436,6 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         return $"/read/{seriesId}/{chapterId}/{pageNumber}";
     }
 
-    private string GetCurrentImageUrl()
-    {
-        return _currentVariant is null
-            ? string.Empty
-            : MediaService.BuildRenderUrl(_currentVariant.FileHash);
-    }
-
     private string GetVariantDisplayName(PageVariantRecord variant)
     {
         if (variant.IsDefault)
@@ -431,20 +450,64 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             : variant.Label;
     }
 
+    private PageVariantRecord? GetNextVariant(PageVariantRecord? referenceVariant)
+    {
+        if (_currentPage is null || CurrentVariants.Count == 0 || referenceVariant is null)
+        {
+            return null;
+        }
+        var currentIndex = CurrentVariants.IndexOf(referenceVariant);
+        var nextIndex = (currentIndex + 1) % CurrentVariants.Count;
+        return CurrentVariants[nextIndex];
+    }
+
     private async Task CycleNextVariantAsync()
     {
-        if (_currentPage is null || CurrentVariants.Count < 2)
+        if (_currentPage is null || CurrentVariants.Count < 2 || _isVariantChanging)
         {
             return;
         }
 
-        var currentIndex = CurrentVariants.IndexOf(_currentVariant);
-        var nextIndex = (currentIndex + 1) % CurrentVariants.Count;
-        var variant = CurrentVariants[nextIndex];
+        _isVariantChanging = true;
 
-        _currentVariant = variant;
-        _selectedVariantByPageId[_currentPage.Id] = variant.Id;
-        _currentPageTags = await LoadCurrentPageTagsAsync(variant.FileHash);
+        try
+        {
+            var nextVariant = GetNextVariant(_currentVariant);
+            if (nextVariant is null) return;
+
+            // Update core application state tracking
+            _currentVariant = nextVariant;
+            _selectedVariantByPageId[_currentPage.Id] = nextVariant.Id;
+
+            // Trigger the CSS flip animation immediately
+            _isFlipped = !_isFlipped;
+
+            // Fetch metadata in parallel with the animation
+            var tagLoadingTask = LoadCurrentPageTagsAsync(nextVariant.FileHash);
+
+            // Allow the UI to process the _isFlipped change so the animation begins
+            StateHasChanged();
+
+            // Wait exactly the length of the CSS transition (0.6s) to ensure the card finishes rotating
+            await Task.Delay(600);
+
+            // Now that the rotation is done, secretly prepare the *hidden* face for the next cycle
+            // This prevents images from snapping/changing visually mid-flip when cycling through >2 variants
+            if (_isFlipped)
+            {
+                _frontVariant = GetNextVariant(_currentVariant);
+            }
+            else
+            {
+                _backVariant = GetNextVariant(_currentVariant);
+            }
+
+            _currentPageTags = await tagLoadingTask;
+        }
+        finally
+        {
+            _isVariantChanging = false;
+        }
     }
 
     private string GetPageAltText()
