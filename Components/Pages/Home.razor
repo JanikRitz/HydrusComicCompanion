@@ -60,7 +60,7 @@
         <MudExpansionPanel Text="Search and filters">
             <MudStack Spacing="2">
                 <MudGrid Spacing="2">
-                    <MudItem xs="12" md="12">
+                    <MudItem xs="12" md="6">
                         <MudTextField T="string"
                                       Label="Title contains"
                                       @bind-Value="_titleFilter"
@@ -70,6 +70,12 @@
                         <MudTextField T="string"
                                       Label="Comment contains"
                                       @bind-Value="_commentFilter"
+                                      Clearable="true" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField T="string"
+                                      Label="OCR contains"
+                                      @bind-Value="_ocrFilter"
                                       Clearable="true" />
                     </MudItem>
                     <MudItem xs="12" md="6">
@@ -189,6 +195,7 @@
     private string _titleFilter = string.Empty;
     private string _tagFilter = string.Empty;
     private string _commentFilter = string.Empty;
+    private string _ocrFilter = string.Empty;
     private int? _minVolumes;
     private int? _maxVolumes;
     private int? _minChapters;
@@ -208,6 +215,7 @@
         !string.IsNullOrWhiteSpace(_titleFilter) ||
         !string.IsNullOrWhiteSpace(_tagFilter) ||
         !string.IsNullOrWhiteSpace(_commentFilter) ||
+        !string.IsNullOrWhiteSpace(_ocrFilter) ||
         _minVolumes.HasValue ||
         _maxVolumes.HasValue ||
         _minChapters.HasValue ||
@@ -266,6 +274,19 @@
             {
                 var commentFilter = _commentFilter.Trim();
                 query = query.Where(x => x.Comment != null && EF.Functions.Like(x.Comment, $"%{commentFilter}%"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_ocrFilter))
+            {
+                var ocrFilter = $"%{_ocrFilter.Trim()}%";
+
+                query = query.Where(x => 
+                    x.Chapters.Any(c => 
+                        c.Pages.Any(p => 
+                            p.Variants.Any(v => EF.Functions.Like(v.OcrText, ocrFilter))
+                        )
+                    )
+                );
             }
 
             if (_minVolumes.HasValue)
