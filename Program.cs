@@ -149,7 +149,7 @@ app.MapPost("/api/sync/comic/{comicName}", async (string comicName, IHydrusSyncS
 {
     try
     {
-        var seriesId = await syncService.SyncSeriesAsync(comicName);
+        var seriesId = await syncService.SyncComicAsync(comicName);
         return seriesId.HasValue
             ? Results.Ok(new { success = true, seriesId = seriesId.Value })
             : Results.NotFound(new { success = false, error = "Comic not found" });
