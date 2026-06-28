@@ -22,6 +22,10 @@ public sealed class HydrusSettings
 
     public string PageNamespace { get; set; } = "page:";
 
+    public string AlternatePageNamespace { get; set; } = "variant:";
+
+    public string AlternatePageDefaultValue { get; set; } = "default";
+
     public string CoverPageTag { get; set; } = "meta:cover page";
 
     public string FullTitleNoteName { get; set; } = "title";
@@ -46,6 +50,8 @@ public sealed class HydrusSettings
             VolumeNamespace = VolumeNamespace,
             ChapterNamespace = ChapterNamespace,
             PageNamespace = PageNamespace,
+            AlternatePageNamespace = AlternatePageNamespace,
+            AlternatePageDefaultValue = AlternatePageDefaultValue,
             CoverPageTag = CoverPageTag,
             FullTitleNoteName = FullTitleNoteName,
             ComicCommentNoteName = ComicCommentNoteName,

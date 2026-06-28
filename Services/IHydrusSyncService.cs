@@ -85,4 +85,12 @@ public interface IHydrusSyncService
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>True when the series existed and was deleted; otherwise false.</returns>
     Task<bool> DeleteComicAsync(int seriesId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Rewrites managed Hydrus structural tags for an existing comic and updates the local cache structure.
+    /// Reads existing tags, removes managed title/volume/chapter/page/alternate/cover tags, and writes new ones.
+    /// </summary>
+    /// <param name="request">Edited metadata structure to apply.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task ApplyMetadataEditAsync(HydrusMetadataEditRequest request, CancellationToken cancellationToken = default);
 }

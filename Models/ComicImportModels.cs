@@ -33,6 +33,21 @@ public sealed class ImportPage
     /// Each unit adds +1 to this page's final number and all subsequent pages in the same chapter.
     /// </summary>
     public int GapBefore { get; set; }
+
+    /// <summary>
+    /// Logical page group id. Multiple entries with the same id represent alternate variants of one logical page.
+    /// </summary>
+    public int LogicalPageGroupId { get; set; }
+
+    /// <summary>
+    /// Marks the default variant for a logical page group.
+    /// </summary>
+    public bool IsDefaultVariant { get; set; } = true;
+
+    /// <summary>
+    /// Optional user-facing label for this variant.
+    /// </summary>
+    public string? VariantLabel { get; set; }
 }
 
 /// <summary>
@@ -79,6 +94,12 @@ public sealed class HydrusSourceMapping
 
     /// <summary>Namespace prefix for the page tag (e.g. "page:").</summary>
     public string PageNamespace { get; set; } = string.Empty;
+
+    /// <summary>Namespace prefix for alternate page tags (e.g. "variant:").</summary>
+    public string AlternatePageNamespace { get; set; } = string.Empty;
+
+    /// <summary>Value in the alternate namespace that marks the default variant (e.g. "default").</summary>
+    public string AlternatePageDefaultValue { get; set; } = string.Empty;
 
     /// <summary>Full tag that marks the cover page (e.g. "meta:cover page").</summary>
     public string CoverPageTag { get; set; } = string.Empty;

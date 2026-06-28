@@ -128,6 +128,9 @@
                                   OnVolumeStartAdded="@HandleVolumeStartAdded"
                                   OnVolumeStartRemoved="@HandleVolumeStartRemoved"
                                   OnVolumeNumberChanged="@HandleVolumeNumberChanged"
+                                  OnGroupWithPrevious="@HandleGroupWithPrevious"
+                                  OnUngroupPage="@HandleUngroupPage"
+                                  OnDefaultVariantSelected="@HandleDefaultVariantSelected"
                                   OnImport="@StartImportAsync"
                                   OnBack="@_state.GoToMetadata" />
             break;
@@ -615,6 +618,21 @@
     private void HandleVolumeNumberChanged((int PageIndex, int VolumeNumber) args)
     {
         _state.UpdateVolumeNumber(args.PageIndex, args.VolumeNumber);
+    }
+
+    private void HandleGroupWithPrevious(int pageIndex)
+    {
+        _state.GroupWithPreviousPage(pageIndex);
+    }
+
+    private void HandleUngroupPage(int pageIndex)
+    {
+        _state.UngroupPage(pageIndex);
+    }
+
+    private void HandleDefaultVariantSelected(int pageIndex)
+    {
+        _state.SetDefaultVariant(pageIndex);
     }
 
     // ─── Import Execution ───────────────────────────────────────────────

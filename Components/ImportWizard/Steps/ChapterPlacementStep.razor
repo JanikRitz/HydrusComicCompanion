@@ -10,7 +10,7 @@
         </MudText>
 
         <MudText Typo="Typo.caption" Color="Color.Secondary">
-            @Pages.Count pages · @ChapterSummary
+            @LogicalPageCount logical page(s) · @Pages.Count file variant(s) · @ChapterSummary
         </MudText>
 
         <MudTable Items="@Pages" Dense="true" Hover="true" FixedHeader="true" Height="100%" Style="flex: 1 1 auto; min-height: 0;">
@@ -19,6 +19,7 @@
                 <MudTh>Preview</MudTh>
                 <MudTh>Page #</MudTh>
                 <MudTh>Chapter</MudTh>
+                <MudTh>Variant</MudTh>
                 <MudTh>Actions</MudTh>
             </HeaderContent>
             <RowTemplate>
@@ -139,7 +140,63 @@
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
                     <MudStack Spacing="1">
-                        @if (UseChapterTags)
+                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                            @if (IsPrimaryVariant(pageIndex))
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">Primary</MudChip>
+                            }
+                            else
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Outlined">Alternate</MudChip>
+                            }
+
+                            @if (context.IsDefaultVariant)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">Default</MudChip>
+                            }
+                            else
+                            {
+                                <MudIconButton Size="Size.Small"
+                                               Icon="@Icons.Material.Filled.StarBorder"
+                                               Color="Color.Default"
+                                               Title="Set as default variant"
+                                               Variant="Variant.Text"
+                                               OnClick="@(() => OnDefaultVariantClicked(pageIndex))" />
+                            }
+                        </MudStack>
+
+                        @if (CanGroupWithPrevious(pageIndex))
+                        {
+                            <MudButton Size="Size.Small"
+                                       Variant="Variant.Outlined"
+                                       Color="Color.Secondary"
+                                       OnClick="@(() => OnGroupWithPreviousClicked(pageIndex))">
+                                Group with previous
+                            </MudButton>
+                        }
+                        else if (CanUngroup(pageIndex))
+                        {
+                            <MudTextField @bind-Value="context.VariantLabel"
+                                          Label="Variant label"
+                                          Immediate="true"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"/>
+                            <MudButton Size="Size.Small"
+                                       Variant="Variant.Text"
+                                       Color="Color.Warning"
+                                       OnClick="@(() => OnUngroupClicked(pageIndex))">
+                                Ungroup
+                            </MudButton>
+                        }
+                    </MudStack>
+                </MudTd>
+                <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
+                    <MudStack Spacing="1">
+                        @if (!IsPrimaryVariant(pageIndex))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Shared with primary variant</MudText>
+                        }
+                        else if (UseChapterTags)
                         {
                             @if (IsVolumeStart(pageIndex))
                             {
@@ -203,7 +260,7 @@
                                 </MudStack>
                             }
                         }
-                        @if (pageIndex > 0 && (!UseChapterTags || (!IsChapterStart(pageIndex) && !IsVolumeStart(pageIndex))))
+                        @if (IsPrimaryVariant(pageIndex) && pageIndex > 0 && (!UseChapterTags || (!IsChapterStart(pageIndex) && !IsVolumeStart(pageIndex))))
                         {
                             @if (context.GapBefore > 0)
                             {
@@ -243,15 +300,18 @@
             </RowTemplate>
         </MudTable>
 
-        <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
-            <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked">Back</MudButton>
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Success"
-                       StartIcon="@Icons.Material.Filled.CloudUpload"
-                       OnClick="OnImportClicked">
-                Import
-            </MudButton>
-        </MudStack>
+        @if (ShowNavigationButtons)
+        {
+            <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2">
+                <MudButton Variant="Variant.Outlined" OnClick="OnBackClicked">@BackActionLabel</MudButton>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Success"
+                           StartIcon="@Icons.Material.Filled.CloudUpload"
+                           OnClick="OnImportClicked">
+                    @PrimaryActionLabel
+                </MudButton>
+            </MudStack>
+        }
     </MudStack>
 </MudPaper>
 
@@ -296,10 +356,28 @@
     public EventCallback<(int PageIndex, int VolumeNumber)> OnVolumeNumberChanged { get; set; }
 
     [Parameter]
+    public EventCallback<int> OnGroupWithPrevious { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnUngroupPage { get; set; }
+
+    [Parameter]
+    public EventCallback<int> OnDefaultVariantSelected { get; set; }
+
+    [Parameter]
     public EventCallback OnImport { get; set; }
 
     [Parameter]
     public EventCallback OnBack { get; set; }
+
+    [Parameter]
+    public bool ShowNavigationButtons { get; set; } = true;
+
+    [Parameter]
+    public string BackActionLabel { get; set; } = "Back";
+
+    [Parameter]
+    public string PrimaryActionLabel { get; set; } = "Import";
 
     private int? _draggedPageIndex;
 
@@ -312,6 +390,8 @@
             ? $"{VolumeStartIndices.Count} volume(s) \u00b7 {ChapterStartIndices.Count} chapter(s)"
             : $"{ChapterStartIndices.Count} chapter(s)"
         : "flat pages";
+
+    private int LogicalPageCount => Pages.Select(p => p.LogicalPageGroupId).Distinct().Count();
 
     private string GetFullImageSource(ImportPage page, string fallbackSource)
     {
@@ -501,23 +581,76 @@
 
     private int ComputeFinalPageNumber(int pageIndex)
     {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return pageIndex + 1;
+        }
+
+        var groupId = Pages[pageIndex].LogicalPageGroupId;
+        var primaryIndex = FindPrimaryVariantIndex(groupId);
+
         var chapterStart = 0;
         if (UseChapterTags && ChapterStartIndices.Count > 0)
         {
             chapterStart = ChapterStartIndices
-                .Where(s => s <= pageIndex)
+                .Where(s => s <= primaryIndex)
                 .DefaultIfEmpty(0)
                 .Max();
         }
 
-        var withinChapterPos = pageIndex - chapterStart + 1;
+        var withinChapterPos = 0;
         var gapCount = 0;
-        for (var i = chapterStart; i <= pageIndex; i++)
+        for (var i = chapterStart; i <= primaryIndex; i++)
         {
+            if (!IsPrimaryVariant(i))
+            {
+                continue;
+            }
+
+            withinChapterPos++;
             gapCount += Pages[i].GapBefore;
         }
 
         return withinChapterPos + gapCount;
+    }
+
+    private bool IsPrimaryVariant(int pageIndex)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return false;
+        }
+
+        return FindPrimaryVariantIndex(Pages[pageIndex].LogicalPageGroupId) == pageIndex;
+    }
+
+    private int FindPrimaryVariantIndex(int logicalPageGroupId)
+    {
+        for (var i = 0; i < Pages.Count; i++)
+        {
+            if (Pages[i].LogicalPageGroupId == logicalPageGroupId)
+            {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+
+    private bool CanGroupWithPrevious(int pageIndex)
+    {
+        return pageIndex > 0 && Pages[pageIndex].LogicalPageGroupId != Pages[pageIndex - 1].LogicalPageGroupId;
+    }
+
+    private bool CanUngroup(int pageIndex)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return false;
+        }
+
+        var groupId = Pages[pageIndex].LogicalPageGroupId;
+        return Pages.Count(p => p.LogicalPageGroupId == groupId) > 1;
     }
 
     private async Task OnAddChapterStart(int pageIndex)
@@ -528,6 +661,21 @@
     private async Task OnRemoveChapterStart(int pageIndex)
     {
         await OnChapterStartRemoved.InvokeAsync(pageIndex);
+    }
+
+    private async Task OnGroupWithPreviousClicked(int pageIndex)
+    {
+        await OnGroupWithPrevious.InvokeAsync(pageIndex);
+    }
+
+    private async Task OnUngroupClicked(int pageIndex)
+    {
+        await OnUngroupPage.InvokeAsync(pageIndex);
+    }
+
+    private async Task OnDefaultVariantClicked(int pageIndex)
+    {
+        await OnDefaultVariantSelected.InvokeAsync(pageIndex);
     }
 
     private async Task OnImportClicked()

@@ -126,6 +126,11 @@ public sealed class ComicImportService : IComicImportService
             pageMimeTypes[i] = page.MimeType;
         }
 
+        var logicalGroupSizes = request.Pages
+            .GroupBy(p => p.LogicalPageGroupId)
+            .ToDictionary(g => g.Key, g => g.Count());
+        var logicalGroupVariantCounters = new Dictionary<int, int>();
+
         // Step 2: Tag all pages in Hydrus
         progress?.Report(new ImportProgressUpdate
         {
@@ -166,6 +171,19 @@ public sealed class ComicImportService : IComicImportService
             if (!string.IsNullOrWhiteSpace(request.Creator))
             {
                 tags.Add($"creator:{request.Creator.Trim()}");
+            }
+
+            var page = request.Pages[i];
+            if (logicalGroupSizes.TryGetValue(page.LogicalPageGroupId, out var variantCount) && variantCount > 1)
+            {
+                var nextVariantOrdinal = logicalGroupVariantCounters.TryGetValue(page.LogicalPageGroupId, out var existingOrdinal)
+                    ? existingOrdinal + 1
+                    : 1;
+                logicalGroupVariantCounters[page.LogicalPageGroupId] = nextVariantOrdinal;
+
+                var defaultValue = settings.AlternatePageDefaultValue.Trim();
+                var alternateValue = ResolveAlternateTagValue(page, defaultValue, nextVariantOrdinal);
+                tags.Add(BuildTag(settings.AlternatePageNamespace, alternateValue));
             }
 
             tags.AddRange(request.CustomTags.Where(tag => !string.IsNullOrWhiteSpace(tag)).Select(tag => tag.Trim()).Distinct(StringComparer.OrdinalIgnoreCase));
@@ -368,7 +386,9 @@ public sealed class ComicImportService : IComicImportService
                     Data = p.Data,
                     Sha256Hash = ComputeSha256(p.Data),
                     MimeType = GetMimeType(p.Name),
-                    PageNumber = index + 1
+                    PageNumber = index + 1,
+                    LogicalPageGroupId = index + 1,
+                    IsDefaultVariant = true
                 })
                 .ToList(),
             Metadata = metadata,
@@ -415,7 +435,9 @@ public sealed class ComicImportService : IComicImportService
         await using var db = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         var series = await db.Comic
-            .Include(s => s.Chapters).ThenInclude(c => c.Pages)
+            .Include(s => s.Chapters)
+                .ThenInclude(c => c.Pages)
+                    .ThenInclude(p => p.Variants)
             .Include(s => s.Metadata)
             .FirstOrDefaultAsync(s => s.Title == request.SeriesName, cancellationToken);
 
@@ -428,16 +450,7 @@ public sealed class ComicImportService : IComicImportService
         // Merge chapters into existing series and reject conflicting overlaps.
         if (chapterStarts.Count == 0)
         {
-            var incomingPages = new List<PageRecord>();
-            for (var pi = 0; pi < request.Pages.Count; pi++)
-            {
-                incomingPages.Add(new PageRecord
-                {
-                    FileHash = pageHashes[pi],
-                    PageNumber = ResolvePageNumber(request.Pages[pi].PageNumber, pi + 1),
-                    MimeType = pageMimeTypes[pi]
-                });
-            }
+            var incomingPages = BuildIncomingLogicalPages(request, pageHashes, pageMimeTypes, 0, request.Pages.Count);
 
             var flatVolumeNumber = GetVolumeForPage(0, request);
             var existingChapter = series.Chapters.FirstOrDefault(ch =>
@@ -471,17 +484,7 @@ public sealed class ComicImportService : IComicImportService
                 var chapterVolumeNumber = GetVolumeForPage(chapterStartIdx, request);
                 var chapterNumber = (decimal?)GetChapterWithinVolume(chapterStartIdx, chapterStarts, request.VolumeStarts);
 
-                var incomingPages = new List<PageRecord>();
-                var fallbackPageNumber = 1;
-                for (var pi = chapterStartIdx; pi < nextChapterStartIdx; pi++)
-                {
-                    incomingPages.Add(new PageRecord
-                    {
-                        FileHash = pageHashes[pi],
-                        PageNumber = ResolvePageNumber(request.Pages[pi].PageNumber, fallbackPageNumber++),
-                        MimeType = pageMimeTypes[pi]
-                    });
-                }
+                var incomingPages = BuildIncomingLogicalPages(request, pageHashes, pageMimeTypes, chapterStartIdx, nextChapterStartIdx);
 
                 var existingChapter = series.Chapters.FirstOrDefault(ch =>
                     ch.VolumeNumber == chapterVolumeNumber &&
@@ -614,7 +617,11 @@ public sealed class ComicImportService : IComicImportService
             .OrderBy(p => p.PageNumber)
             .ToList();
 
-        if (existingPages.Count != incomingPages.Count)
+        var orderedIncoming = incomingPages
+            .OrderBy(p => p.PageNumber)
+            .ToList();
+
+        if (existingPages.Count != orderedIncoming.Count)
         {
             return false;
         }
@@ -622,25 +629,106 @@ public sealed class ComicImportService : IComicImportService
         for (var i = 0; i < existingPages.Count; i++)
         {
             var existing = existingPages[i];
-            var incoming = incomingPages[i];
+            var incoming = orderedIncoming[i];
 
             if (existing.PageNumber != incoming.PageNumber)
             {
                 return false;
             }
 
-            if (!string.Equals(existing.FileHash, incoming.FileHash, StringComparison.OrdinalIgnoreCase))
+            var existingVariants = existing.Variants
+                .OrderBy(v => v.FileHash, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var incomingVariants = incoming.Variants
+                .OrderBy(v => v.FileHash, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (existingVariants.Count != incomingVariants.Count)
             {
                 return false;
             }
 
-            if (!string.Equals(existing.MimeType, incoming.MimeType, StringComparison.OrdinalIgnoreCase))
+            for (var vi = 0; vi < existingVariants.Count; vi++)
             {
-                return false;
+                var existingVariant = existingVariants[vi];
+                var incomingVariant = incomingVariants[vi];
+
+                if (!string.Equals(existingVariant.FileHash, incomingVariant.FileHash, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(existingVariant.MimeType, incomingVariant.MimeType, StringComparison.OrdinalIgnoreCase)
+                    || existingVariant.IsDefault != incomingVariant.IsDefault
+                    || !string.Equals(existingVariant.Label, incomingVariant.Label, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
             }
         }
 
         return true;
+    }
+
+    private static List<PageRecord> BuildIncomingLogicalPages(
+        ComicImportRequest request,
+        string[] pageHashes,
+        string[] pageMimeTypes,
+        int startIndex,
+        int endExclusive)
+    {
+        var logicalPagesByNumber = new Dictionary<int, PageRecord>();
+
+        for (var pageIndex = startIndex; pageIndex < endExclusive; pageIndex++)
+        {
+            var fallbackPageNumber = pageIndex - startIndex + 1;
+            var resolvedPageNumber = ResolvePageNumber(request.Pages[pageIndex].PageNumber, fallbackPageNumber);
+
+            if (!logicalPagesByNumber.TryGetValue(resolvedPageNumber, out var logicalPage))
+            {
+                logicalPage = new PageRecord
+                {
+                    PageNumber = resolvedPageNumber
+                };
+                logicalPagesByNumber[resolvedPageNumber] = logicalPage;
+            }
+
+            logicalPage.Variants.Add(new PageVariantRecord
+            {
+                FileHash = pageHashes[pageIndex],
+                MimeType = pageMimeTypes[pageIndex],
+                OcrText = null,
+                IsDefault = request.Pages[pageIndex].IsDefaultVariant,
+                Label = string.IsNullOrWhiteSpace(request.Pages[pageIndex].VariantLabel)
+                    ? null
+                    : request.Pages[pageIndex].VariantLabel.Trim()
+            });
+        }
+
+        foreach (var page in logicalPagesByNumber.Values)
+        {
+            if (!page.Variants.Any(v => v.IsDefault) && page.Variants.Count > 0)
+            {
+                var firstVariant = page.Variants.First();
+                firstVariant.IsDefault = true;
+            }
+        }
+
+        return logicalPagesByNumber.Values
+            .OrderBy(p => p.PageNumber)
+            .ToList();
+    }
+
+    private static string ResolveAlternateTagValue(ImportPage page, string defaultValue, int variantOrdinal)
+    {
+        if (page.IsDefaultVariant)
+        {
+            return string.IsNullOrWhiteSpace(defaultValue) ? "default" : defaultValue;
+        }
+
+        var label = page.VariantLabel?.Trim();
+        if (!string.IsNullOrWhiteSpace(label))
+        {
+            return label;
+        }
+
+        return $"alt-{variantOrdinal}";
     }
 
     private static string BuildTag(string @namespace, string value)

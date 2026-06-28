@@ -41,24 +41,29 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             <div class="reader-topbar__title">
                 @if (_currentPageTags.Count > 0)
                 {
-                    <MudExpansionPanels>
-                        <MudExpansionPanel Text="@($"{_series.Title} {GetChapterSummary(_chapter)}")" @bind-Expanded="ShowTags">
-                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="reader-topbar__tags">
-                                @foreach (var tag in _currentPageTags)
-                                {
-                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@tag</MudChip>
-                                }
-                            </MudStack>
-                        </MudExpansionPanel>
-                    </MudExpansionPanels>
-
+                    <MudStack Row>
+                        <MudIconButton Icon="@Icons.Material.Filled.Home" OnClick="GoBackHome"></MudIconButton>
+                        <MudExpansionPanels>
+                            <MudExpansionPanel Text="@($"{_series.Title} {GetChapterSummary(_chapter)}")" @bind-Expanded="ShowTags">
+                                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="reader-topbar__tags">
+                                    @foreach (var tag in _currentPageTags)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@tag</MudChip>
+                                    }
+                                </MudStack>
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
+                    </MudStack>
                 }
                 else
                 {
-                    <MudText Typo="Typo.subtitle1">@_series.Title</MudText>
-                    <MudText Typo="Typo.body2" Color="Color.Secondary">
-                        @GetChapterSummary(_chapter)
-                    </MudText>
+                    <MudStack Row>
+                        <MudIconButton Icon="@Icons.Material.Filled.Home" OnClick="GoBackHome"></MudIconButton>
+                        <MudText Typo="Typo.subtitle1">@_series.Title</MudText>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            @GetChapterSummary(_chapter)
+                        </MudText>
+                    </MudStack>
                 }
             </div>
 
@@ -77,6 +82,22 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                                aria-label="Next page" />
                 <MudDivider Vertical="true" FlexItem="true" />
                 <MudText Typo="Typo.body2">Page @_currentPageNumber of @_pages.Count</MudText>
+                @if (CurrentVariants.Count > 1)
+                {
+                    <MudDivider Vertical="true" FlexItem="true" />
+                    <MudSelect T="int"
+                               Dense="true"
+                               Margin="Margin.Dense"
+                               Label="Variant"
+                               Value="@(_currentVariant?.Id ?? 0)"
+                               ValueChanged="OnVariantChangedAsync"
+                               Style="min-width: 180px;">
+                        @foreach (var variant in CurrentVariants)
+                        {
+                            <MudSelectItem Value="@variant.Id">@GetVariantDisplayName(variant)</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
                 <MudDivider Vertical="true" FlexItem="true" />
                 <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.MenuBook" OnClick="GoBackToComic">
                     Comic
@@ -86,7 +107,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
         <div class="reader-canvas">
             <img class="reader-page"
-                 src="@MediaService.BuildRenderUrl(_currentPage.FileHash)"
+                 src="@GetCurrentImageUrl()"
                  alt="@GetPageAltText()"
                  draggable="false" />
         </div>
@@ -111,6 +132,8 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
     private ChapterRecord? _chapter;
     private IReadOnlyList<PageRecord> _pages = Array.Empty<PageRecord>();
     private PageRecord? _currentPage;
+    private PageVariantRecord? _currentVariant;
+    private readonly Dictionary<int, int> _selectedVariantByPageId = [];
     private IReadOnlyList<string> _currentPageTags = Array.Empty<string>();
     private bool _isLoading = true;
     private string? _errorMessage;
@@ -128,6 +151,14 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
     private bool HasNext => GetNextPageTarget() is not null;
 
     private bool NextDisabled => !HasNext;
+
+    private IReadOnlyList<PageVariantRecord> CurrentVariants => _currentPage is null
+        ? []
+        : _currentPage.Variants
+            .OrderByDescending(v => v.IsDefault)
+            .ThenBy(v => v.Label, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(v => v.Id)
+            .ToList();
 
     protected override async Task OnParametersSetAsync()
     {
@@ -163,6 +194,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         _chapter = null;
         _pages = Array.Empty<PageRecord>();
         _currentPage = null;
+        _currentVariant = null;
         _currentPageNumber = 0;
 
         try
@@ -173,6 +205,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 .AsNoTracking()
                 .Include(x => x.Chapters)
                     .ThenInclude(x => x.Pages)
+                        .ThenInclude(x => x.Variants)
                 .SingleOrDefaultAsync(x => x.Id == ComicId);
 
             if (_series is null)
@@ -221,7 +254,30 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
             _currentPage = _pages[targetPageNumber - 1];
             _currentPageNumber = targetPageNumber;
-            _currentPageTags = await LoadCurrentPageTagsAsync(_currentPage.FileHash);
+
+            var variants = CurrentVariants;
+            if (_currentPage is not null && variants.Count > 0)
+            {
+                if (_selectedVariantByPageId.TryGetValue(_currentPage.Id, out var selectedVariantId))
+                {
+                    _currentVariant = variants.FirstOrDefault(v => v.Id == selectedVariantId)
+                        ?? variants.FirstOrDefault(v => v.IsDefault)
+                        ?? variants[0];
+                }
+                else
+                {
+                    _currentVariant = variants.FirstOrDefault(v => v.IsDefault)
+                        ?? variants[0];
+                }
+
+                _selectedVariantByPageId[_currentPage.Id] = _currentVariant.Id;
+                _currentPageTags = await LoadCurrentPageTagsAsync(_currentVariant.FileHash);
+            }
+            else
+            {
+                _currentVariant = null;
+                _currentPageTags = Array.Empty<string>();
+            }
 
             _syncedSeriesId = _series.Id;
             _syncedChapterId = _chapter.Id;
@@ -351,9 +407,53 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         NavigationManager.NavigateTo($"/comic/{ComicId}");
     }
 
+    private void GoBackHome()
+    {
+        NavigationManager.NavigateTo($"/");
+    }
+
     private static string BuildReaderUrl(int seriesId, int chapterId, int pageNumber)
     {
         return $"/read/{seriesId}/{chapterId}/{pageNumber}";
+    }
+
+    private string GetCurrentImageUrl()
+    {
+        return _currentVariant is null
+            ? string.Empty
+            : MediaService.BuildRenderUrl(_currentVariant.FileHash);
+    }
+
+    private string GetVariantDisplayName(PageVariantRecord variant)
+    {
+        if (variant.IsDefault)
+        {
+            return string.IsNullOrWhiteSpace(variant.Label)
+                ? "Default"
+                : $"Default · {variant.Label}";
+        }
+
+        return string.IsNullOrWhiteSpace(variant.Label)
+            ? $"Variant {variant.Id}"
+            : variant.Label;
+    }
+
+    private async Task OnVariantChangedAsync(int variantId)
+    {
+        if (_currentPage is null)
+        {
+            return;
+        }
+
+        var variant = CurrentVariants.FirstOrDefault(v => v.Id == variantId);
+        if (variant is null)
+        {
+            return;
+        }
+
+        _currentVariant = variant;
+        _selectedVariantByPageId[_currentPage.Id] = variant.Id;
+        _currentPageTags = await LoadCurrentPageTagsAsync(variant.FileHash);
     }
 
     private string GetPageAltText()

@@ -1,0 +1,503 @@
+@using HydrusComicCompanion.Components.ImportWizard.Steps
+@using HydrusComicCompanion.Models
+
+<MudDialog>
+    <TitleContent>
+        Edit Hydrus Metadata
+    </TitleContent>
+    <DialogContent>
+        @if (_model is null)
+        {
+            <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+        }
+        else
+        {
+            <MudStack Spacing="2">
+                <MudTextField @bind-Value="_model.HydrusTitle"
+                              Label="Hydrus title tag value"
+                              Immediate="true"
+                              Required="true"
+                              HelperText="Value only (without namespace)." />
+
+                <MudSelect T="string"
+                           Label="Cover page"
+                           Value="@(_model.CoverFileHash ?? string.Empty)"
+                           ValueChanged="OnCoverFileHashChanged">
+                    @foreach (var candidate in CoverCandidates)
+                    {
+                        <MudSelectItem Value="@(candidate.Sha256Hash)">@candidate.Label</MudSelectItem>
+                    }
+                </MudSelect>
+
+                <ChapterPlacementStep Pages="_model.Pages"
+                                      PageThumbnails="_model.PageThumbnails"
+                                      ChapterStartIndices="_model.ChapterStartIndices"
+                                      UseChapterTags="true"
+                                      VolumeStartIndices="_model.VolumeStartIndices"
+                                      OnChapterStartAdded="OnChapterStartAdded"
+                                      OnChapterStartRemoved="OnChapterStartRemoved"
+                                      OnPageMoved="OnPageMoved"
+                                      OnPageGapAdded="OnPageGapAdded"
+                                      OnPageGapRemoved="OnPageGapRemoved"
+                                      OnVolumeStartAdded="OnVolumeStartAdded"
+                                      OnVolumeStartRemoved="OnVolumeStartRemoved"
+                                      OnVolumeNumberChanged="OnVolumeNumberChanged"
+                                      OnGroupWithPrevious="OnGroupWithPrevious"
+                                      OnUngroupPage="OnUngroupPage"
+                                      OnDefaultVariantSelected="OnDefaultVariantSelected"
+                                      ShowNavigationButtons="false" />
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Disabled="@_isSaving" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Disabled="@(_isSaving || _model is null)" OnClick="SaveAsync">
+            @(_isSaving ? "Saving..." : "Save")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter]
+    public HydrusMetadataEditDialogModel? Model { get; set; }
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    private HydrusMetadataEditDialogModel? _model;
+    private int _nextLogicalPageGroupId = 1;
+    private bool _isSaving;
+
+    private IReadOnlyList<(string Sha256Hash, string Label)> CoverCandidates => _model is null
+        ? []
+        : _model.Pages
+            .Select((page, index) => (Page: page, Index: index))
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Page.Sha256Hash))
+            .GroupBy(entry => entry.Page.LogicalPageGroupId)
+            .OrderBy(group => group.Min(entry => entry.Index))
+            .Select(group =>
+            {
+                var defaultVariant = group.FirstOrDefault(entry => entry.Page.IsDefaultVariant);
+                var preferred = string.IsNullOrWhiteSpace(defaultVariant.Page?.Sha256Hash)
+                    ? group.First()
+                    : defaultVariant;
+                var pageNumber = ComputeFinalPageNumber(preferred.Index);
+                return (preferred.Page.Sha256Hash, $"Page {pageNumber} ({preferred.Page.ArchiveFileName})");
+            })
+            .ToList();
+
+    protected override void OnParametersSet()
+    {
+        if (Model is null)
+        {
+            _model = null;
+            return;
+        }
+
+        _model = new HydrusMetadataEditDialogModel
+        {
+            ComicId = Model.ComicId,
+            HydrusTitle = Model.HydrusTitle,
+            CoverFileHash = Model.CoverFileHash,
+            ChapterStartIndices = [.. Model.ChapterStartIndices],
+            VolumeStartIndices = new Dictionary<int, int>(Model.VolumeStartIndices),
+            PageThumbnails = new Dictionary<int, string>(Model.PageThumbnails),
+            Pages = [.. Model.Pages.Select(page => new ImportPage
+            {
+                Index = page.Index,
+                ArchiveFileName = page.ArchiveFileName,
+                Data = page.Data,
+                Sha256Hash = page.Sha256Hash,
+                MimeType = page.MimeType,
+                PageNumber = page.PageNumber,
+                GapBefore = page.GapBefore,
+                LogicalPageGroupId = page.LogicalPageGroupId,
+                IsDefaultVariant = page.IsDefaultVariant,
+                VariantLabel = page.VariantLabel
+            })]
+        };
+
+        _nextLogicalPageGroupId = _model.Pages.Count == 0
+            ? 1
+            : _model.Pages.Max(page => page.LogicalPageGroupId) + 1;
+
+        if (_model.Pages.Count > 0 && !_model.ChapterStartIndices.Contains(0))
+        {
+            _model.ChapterStartIndices.Add(0);
+        }
+
+        if (string.IsNullOrWhiteSpace(_model.CoverFileHash))
+        {
+            _model.CoverFileHash = _model.Pages.FirstOrDefault(page => page.IsDefaultVariant)?.Sha256Hash
+                ?? _model.Pages.FirstOrDefault()?.Sha256Hash;
+        }
+    }
+
+    private Task OnCoverFileHashChanged(string value)
+    {
+        if (_model is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _model.CoverFileHash = string.IsNullOrWhiteSpace(value) ? null : value;
+        return Task.CompletedTask;
+    }
+
+    private Task OnChapterStartAdded(int pageIndex)
+    {
+        if (_model is null || pageIndex < 0 || pageIndex >= _model.Pages.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        _model.ChapterStartIndices.Add(pageIndex);
+        return Task.CompletedTask;
+    }
+
+    private Task OnChapterStartRemoved(int pageIndex)
+    {
+        if (_model is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (pageIndex != 0)
+        {
+            _model.ChapterStartIndices.Remove(pageIndex);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task OnPageMoved((int FromIndex, int ToIndex) move)
+    {
+        if (_model is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var fromIndex = move.FromIndex;
+        var toIndex = move.ToIndex;
+
+        if (fromIndex < 0 || toIndex < 0 || fromIndex >= _model.Pages.Count || toIndex >= _model.Pages.Count || fromIndex == toIndex)
+        {
+            return Task.CompletedTask;
+        }
+
+        var movedPage = _model.Pages[fromIndex];
+        _model.Pages.RemoveAt(fromIndex);
+        _model.Pages.Insert(toIndex, movedPage);
+
+        RemapChapterStartsAfterMove(fromIndex, toIndex);
+        RemapVolumeStartsAfterMove(fromIndex, toIndex);
+        ReindexPages();
+        return Task.CompletedTask;
+    }
+
+    private Task OnPageGapAdded(int pageIndex)
+    {
+        if (_model is null || pageIndex <= 0 || pageIndex >= _model.Pages.Count || _model.ChapterStartIndices.Contains(pageIndex))
+        {
+            return Task.CompletedTask;
+        }
+
+        _model.Pages[pageIndex].GapBefore++;
+        return Task.CompletedTask;
+    }
+
+    private Task OnPageGapRemoved(int pageIndex)
+    {
+        if (_model is null || pageIndex <= 0 || pageIndex >= _model.Pages.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        _model.Pages[pageIndex].GapBefore = Math.Max(0, _model.Pages[pageIndex].GapBefore - 1);
+        return Task.CompletedTask;
+    }
+
+    private Task OnVolumeStartAdded((int PageIndex, int VolumeNumber) entry)
+    {
+        if (_model is null || entry.PageIndex < 0 || entry.PageIndex >= _model.Pages.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        _model.VolumeStartIndices[entry.PageIndex] = entry.VolumeNumber;
+        _model.ChapterStartIndices.Add(entry.PageIndex);
+        return Task.CompletedTask;
+    }
+
+    private Task OnVolumeStartRemoved(int pageIndex)
+    {
+        if (_model is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _model.VolumeStartIndices.Remove(pageIndex);
+        if (pageIndex != 0)
+        {
+            _model.ChapterStartIndices.Remove(pageIndex);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task OnVolumeNumberChanged((int PageIndex, int VolumeNumber) entry)
+    {
+        if (_model is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (_model.VolumeStartIndices.ContainsKey(entry.PageIndex))
+        {
+            _model.VolumeStartIndices[entry.PageIndex] = entry.VolumeNumber;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task OnGroupWithPrevious(int pageIndex)
+    {
+        if (_model is null || pageIndex <= 0 || pageIndex >= _model.Pages.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        var targetGroupId = _model.Pages[pageIndex - 1].LogicalPageGroupId;
+        _model.Pages[pageIndex].LogicalPageGroupId = targetGroupId;
+        EnsureSingleDefaultVariant(targetGroupId, FindPrimaryVariantIndex(targetGroupId));
+        return Task.CompletedTask;
+    }
+
+    private Task OnUngroupPage(int pageIndex)
+    {
+        if (_model is null || pageIndex < 0 || pageIndex >= _model.Pages.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        var currentGroupId = _model.Pages[pageIndex].LogicalPageGroupId;
+        var hasSibling = _model.Pages
+            .Where((_, idx) => idx != pageIndex)
+            .Any(page => page.LogicalPageGroupId == currentGroupId);
+        if (!hasSibling)
+        {
+            return Task.CompletedTask;
+        }
+
+        _model.Pages[pageIndex].LogicalPageGroupId = _nextLogicalPageGroupId++;
+        _model.Pages[pageIndex].IsDefaultVariant = true;
+        EnsureSingleDefaultVariant(currentGroupId, FindPrimaryVariantIndex(currentGroupId));
+        return Task.CompletedTask;
+    }
+
+    private Task OnDefaultVariantSelected(int pageIndex)
+    {
+        if (_model is null || pageIndex < 0 || pageIndex >= _model.Pages.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        EnsureSingleDefaultVariant(_model.Pages[pageIndex].LogicalPageGroupId, pageIndex);
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_model.HydrusTitle))
+        {
+            return;
+        }
+
+        _isSaving = true;
+
+        try
+        {
+            if (_model.Pages.Count > 0 && !_model.ChapterStartIndices.Contains(0))
+            {
+                _model.ChapterStartIndices.Add(0);
+            }
+
+            var request = _model.ToRequest();
+            MudDialog.Close(DialogResult.Ok(request));
+        }
+        finally
+        {
+            _isSaving = false;
+            await Task.CompletedTask;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void RemapVolumeStartsAfterMove(int fromIndex, int toIndex)
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        var remapped = new Dictionary<int, int>();
+
+        foreach (var (key, value) in _model.VolumeStartIndices)
+        {
+            int newKey;
+            if (key == fromIndex)
+            {
+                newKey = toIndex;
+            }
+            else if (fromIndex < toIndex && key > fromIndex && key <= toIndex)
+            {
+                newKey = key - 1;
+            }
+            else if (toIndex < fromIndex && key >= toIndex && key < fromIndex)
+            {
+                newKey = key + 1;
+            }
+            else
+            {
+                newKey = key;
+            }
+
+            remapped[newKey] = value;
+        }
+
+        _model.VolumeStartIndices = remapped;
+    }
+
+    private void RemapChapterStartsAfterMove(int fromIndex, int toIndex)
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        var remapped = new HashSet<int>();
+
+        foreach (var chapterStart in _model.ChapterStartIndices)
+        {
+            if (chapterStart == fromIndex)
+            {
+                remapped.Add(toIndex);
+            }
+            else if (fromIndex < toIndex && chapterStart > fromIndex && chapterStart <= toIndex)
+            {
+                remapped.Add(chapterStart - 1);
+            }
+            else if (toIndex < fromIndex && chapterStart >= toIndex && chapterStart < fromIndex)
+            {
+                remapped.Add(chapterStart + 1);
+            }
+            else
+            {
+                remapped.Add(chapterStart);
+            }
+        }
+
+        remapped.Add(0);
+        _model.ChapterStartIndices = remapped;
+    }
+
+    private void ReindexPages()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        for (var i = 0; i < _model.Pages.Count; i++)
+        {
+            _model.Pages[i].Index = i;
+        }
+    }
+
+    private int FindPrimaryVariantIndex(int groupId)
+    {
+        if (_model is null)
+        {
+            return 0;
+        }
+
+        for (var i = 0; i < _model.Pages.Count; i++)
+        {
+            if (_model.Pages[i].LogicalPageGroupId == groupId)
+            {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+
+    private void EnsureSingleDefaultVariant(int groupId, int defaultIndex)
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        var hasGroup = false;
+
+        for (var i = 0; i < _model.Pages.Count; i++)
+        {
+            if (_model.Pages[i].LogicalPageGroupId != groupId)
+            {
+                continue;
+            }
+
+            hasGroup = true;
+            _model.Pages[i].IsDefaultVariant = i == defaultIndex;
+        }
+
+        if (!hasGroup)
+        {
+            return;
+        }
+
+        if (!_model.Pages.Any(page => page.LogicalPageGroupId == groupId && page.IsDefaultVariant))
+        {
+            var primaryIndex = FindPrimaryVariantIndex(groupId);
+            if (primaryIndex >= 0 && primaryIndex < _model.Pages.Count)
+            {
+                _model.Pages[primaryIndex].IsDefaultVariant = true;
+            }
+        }
+    }
+
+    private int ComputeFinalPageNumber(int pageIndex)
+    {
+        if (_model is null || pageIndex < 0 || pageIndex >= _model.Pages.Count)
+        {
+            return pageIndex + 1;
+        }
+
+        var groupId = _model.Pages[pageIndex].LogicalPageGroupId;
+        var primaryIndex = FindPrimaryVariantIndex(groupId);
+        var chapterStart = _model.ChapterStartIndices.Where(s => s <= primaryIndex).DefaultIfEmpty(0).Max();
+
+        var withinChapterPos = 0;
+        var gapCount = 0;
+
+        for (var i = chapterStart; i <= primaryIndex; i++)
+        {
+            if (FindPrimaryVariantIndex(_model.Pages[i].LogicalPageGroupId) != i)
+            {
+                continue;
+            }
+
+            withinChapterPos++;
+            gapCount += _model.Pages[i].GapBefore;
+        }
+
+        return withinChapterPos + gapCount;
+    }
+}

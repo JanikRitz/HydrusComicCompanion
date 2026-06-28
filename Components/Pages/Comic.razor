@@ -1,4 +1,5 @@
 @page "/comic/{ComicId:int}"
+@using HydrusComicCompanion.Models
 @using HydrusComicCompanion.Services
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
@@ -90,7 +91,15 @@ else
         </MudPaper>
         <MudPaper Class="pa-4" Outlined="true">
             <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Chapters</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                    <MudText Typo="Typo.h6">Chapters</MudText>
+                    <MudButton Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Filled.EditNote"
+                               Disabled="@_isOpeningMetadataEditor"
+                               OnClick="OpenMetadataEditorAsync">
+                        @(_isOpeningMetadataEditor ? "Opening..." : "Edit Hydrus Metadata")
+                    </MudButton>
+                </MudStack>
                 @if (_orderedChapters.Count == 0)
                 {
                     <MudText Color="Color.Secondary">No chapters cached yet.</MudText>
@@ -145,39 +154,14 @@ else
     private bool _showChapterInLabel;
     private bool _isEditingDetails;
     private bool _isSavingDetails;
+    private bool _isOpeningMetadataEditor;
     private string _displayTitleInput = string.Empty;
     private string _commentInput = string.Empty;
-    private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
+    private readonly DialogOptions _center = new() { Position = DialogPosition.Center, FullWidth = true, MaxWidth = MaxWidth.Large};
 
     protected override async Task OnInitializedAsync()
     {
-        await using var context = await DbContextFactory.CreateDbContextAsync();
-        _comic = await context.Comic
-            .AsNoTracking()
-            .Include(x => x.Metadata)
-            .Include(x => x.Chapters)
-                .ThenInclude(x => x.Pages)
-            .SingleOrDefaultAsync(x => x.Id == ComicId);
-
-        _orderedChapters = _comic?.Chapters
-            .OrderBy(x => x.VolumeNumber ?? int.MinValue)
-            .ThenBy(x => x.ChapterNumber ?? decimal.MinValue)
-            .ToList() ?? [];
-
-        _displayTitleInput = _comic?.DisplayTitle ?? string.Empty;
-        _commentInput = _comic?.Comment ?? string.Empty;
-
-        _showVolumeInLabel = _orderedChapters
-            .Select(x => x.VolumeNumber)
-            .Distinct()
-            .Count() > 1;
-
-        _showChapterInLabel = _orderedChapters
-            .Select(x => x.ChapterNumber)
-            .Distinct()
-            .Count() > 1;
-
-        _chapterPage = 1;
+        await ReloadComicAsync();
         _isLoading = false;
     }
 
@@ -202,7 +186,12 @@ else
     {
         return chapter.Pages
             .OrderBy(x => x.PageNumber)
-            .Select(x => x.FileHash)
+            .ThenBy(x => x.Id)
+            .SelectMany(page => page.Variants
+                .OrderByDescending(variant => variant.IsDefault)
+                .ThenBy(variant => variant.Id)
+                .Take(1))
+            .Select(variant => variant.FileHash)
             .FirstOrDefault();
     }
 
@@ -261,6 +250,7 @@ else
             var series = await context.Comic
                 .Include(x => x.Chapters)
                 .ThenInclude(x => x.Pages)
+                .ThenInclude(x => x.Variants)
                 .SingleOrDefaultAsync(x => x.Id == _comic.Id);
 
             if (series is null)
@@ -273,7 +263,11 @@ else
                 .SelectMany(chapter => chapter.Pages)
                 .OrderBy(page => page.PageNumber)
                 .ThenBy(page => page.Id)
-                .Select(page => page.FileHash)
+                .SelectMany(page => page.Variants
+                    .OrderByDescending(variant => variant.IsDefault)
+                    .ThenBy(variant => variant.Id)
+                    .Take(1))
+                .Select(variant => variant.FileHash)
                 .FirstOrDefault();
 
             var coverHash = string.IsNullOrWhiteSpace(series.CoverFileHash)
@@ -324,6 +318,156 @@ else
         }
     }
 
+    private async Task ReloadComicAsync()
+    {
+        await using var context = await DbContextFactory.CreateDbContextAsync();
+        _comic = await context.Comic
+            .AsNoTracking()
+            .Include(x => x.Metadata)
+            .Include(x => x.Chapters)
+                .ThenInclude(x => x.Pages)
+                    .ThenInclude(x => x.Variants)
+            .SingleOrDefaultAsync(x => x.Id == ComicId);
+
+        _orderedChapters = _comic?.Chapters
+            .OrderBy(x => x.VolumeNumber ?? int.MinValue)
+            .ThenBy(x => x.ChapterNumber ?? decimal.MinValue)
+            .ToList() ?? [];
+
+        _displayTitleInput = _comic?.DisplayTitle ?? string.Empty;
+        _commentInput = _comic?.Comment ?? string.Empty;
+
+        _showVolumeInLabel = _orderedChapters
+            .Select(x => x.VolumeNumber)
+            .Distinct()
+            .Count() > 1;
+
+        _showChapterInLabel = _orderedChapters
+            .Select(x => x.ChapterNumber)
+            .Distinct()
+            .Count() > 1;
+
+        _chapterPage = 1;
+    }
+
+    private HydrusMetadataEditDialogModel BuildMetadataEditDialogModel()
+    {
+        var model = new HydrusMetadataEditDialogModel
+        {
+            ComicId = ComicId,
+            HydrusTitle = _comic?.Title ?? string.Empty,
+            CoverFileHash = _comic?.CoverFileHash
+        };
+
+        var logicalGroupId = 1;
+        var chapterStartIndices = new HashSet<int>();
+        var volumeStarts = new Dictionary<int, int>();
+
+        var chapterOffset = 0;
+        foreach (var chapter in _orderedChapters)
+        {
+            var orderedPages = chapter.Pages
+                .OrderBy(page => page.PageNumber)
+                .ThenBy(page => page.Id)
+                .ToList();
+
+            if (orderedPages.Count > 0)
+            {
+                chapterStartIndices.Add(chapterOffset);
+            }
+
+            if (chapter.VolumeNumber.HasValue && orderedPages.Count > 0)
+            {
+                if (!volumeStarts.ContainsKey(chapterOffset))
+                {
+                    volumeStarts[chapterOffset] = chapter.VolumeNumber.Value;
+                }
+            }
+
+            foreach (var page in orderedPages)
+            {
+                var orderedVariants = page.Variants
+                    .OrderByDescending(variant => variant.IsDefault)
+                    .ThenBy(variant => variant.Id)
+                    .ToList();
+
+                for (var variantIndex = 0; variantIndex < orderedVariants.Count; variantIndex++)
+                {
+                    var variant = orderedVariants[variantIndex];
+                    model.Pages.Add(new ImportPage
+                    {
+                        Index = model.Pages.Count,
+                        ArchiveFileName = variant.FileHash,
+                        Sha256Hash = variant.FileHash,
+                        MimeType = string.IsNullOrWhiteSpace(variant.MimeType) ? "image/jpeg" : variant.MimeType!,
+                        PageNumber = page.PageNumber,
+                        LogicalPageGroupId = logicalGroupId,
+                        IsDefaultVariant = variant.IsDefault,
+                        VariantLabel = variant.Label
+                    });
+                }
+
+                logicalGroupId++;
+                chapterOffset += orderedVariants.Count;
+            }
+        }
+
+        if (chapterStartIndices.Count == 0 && model.Pages.Count > 0)
+        {
+            chapterStartIndices.Add(0);
+        }
+
+        model.ChapterStartIndices = chapterStartIndices;
+        model.VolumeStartIndices = volumeStarts;
+
+        if (string.IsNullOrWhiteSpace(model.CoverFileHash))
+        {
+            model.CoverFileHash = model.Pages
+                .FirstOrDefault(page => page.IsDefaultVariant)?.Sha256Hash
+                ?? model.Pages.FirstOrDefault()?.Sha256Hash;
+        }
+
+        return model;
+    }
+
+    private async Task OpenMetadataEditorAsync()
+    {
+        if (_comic is null)
+        {
+            return;
+        }
+
+        _isOpeningMetadataEditor = true;
+
+        try
+        {
+            var parameters = new DialogParameters
+            {
+                [nameof(EditHydrusMetadataDialog.Model)] = BuildMetadataEditDialogModel()
+            };
+
+            var dialog = await DialogService.ShowAsync<EditHydrusMetadataDialog>("Edit Hydrus Metadata", parameters, _center);
+            var result = await dialog.Result;
+
+            if (result.Canceled || result.Data is not HydrusMetadataEditRequest request)
+            {
+                return;
+            }
+
+            await SyncService.ApplyMetadataEditAsync(request);
+            await ReloadComicAsync();
+            Snackbar.Add("Hydrus metadata updated.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to update Hydrus metadata: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isOpeningMetadataEditor = false;
+        }
+    }
+
     private async Task DeleteSeriesAsync()
     {
         if (_comic is null)
@@ -336,7 +480,7 @@ else
             [nameof(DeleteComicDialog.Comic)] = _comic.Title
         };
 
-        var dialog = await DialogService.ShowAsync<DeleteComicDialog>("Delete title", parameters, _topCenter);
+        var dialog = await DialogService.ShowAsync<DeleteComicDialog>("Delete title", parameters, _center);
         var result = await dialog.Result;
 
         if (result.Canceled || result.Data is not bool confirmed || !confirmed)

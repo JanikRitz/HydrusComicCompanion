@@ -285,6 +285,16 @@ public class HydrusSyncService : IHydrusSyncService
             effective.PageNamespace = mapping.PageNamespace.Trim();
         }
 
+        if (!string.IsNullOrWhiteSpace(mapping.AlternatePageNamespace))
+        {
+            effective.AlternatePageNamespace = mapping.AlternatePageNamespace.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(mapping.AlternatePageDefaultValue))
+        {
+            effective.AlternatePageDefaultValue = mapping.AlternatePageDefaultValue.Trim();
+        }
+
         if (!string.IsNullOrWhiteSpace(mapping.CoverPageTag))
         {
             effective.CoverPageTag = mapping.CoverPageTag.Trim();
@@ -415,36 +425,486 @@ public class HydrusSyncService : IHydrusSyncService
         return true;
     }
 
+    public async Task ApplyMetadataEditAsync(HydrusMetadataEditRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (request.ComicId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request.ComicId));
+        }
+
+        var normalizedTitle = request.HydrusTitle.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedTitle))
+        {
+            throw new ArgumentException("Hydrus title is required.", nameof(request));
+        }
+
+        if (request.Pages.Count == 0)
+        {
+            throw new ArgumentException("At least one page is required.", nameof(request));
+        }
+
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        var tagServiceKey = settings.TagServiceKey.Trim();
+        if (string.IsNullOrWhiteSpace(tagServiceKey))
+        {
+            throw new InvalidOperationException("Configured tag service key is required to update managed tags.");
+        }
+
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var series = await dbContext.Comic
+            .Include(s => s.Chapters)
+            .ThenInclude(c => c.Pages)
+            .ThenInclude(p => p.Variants)
+            .SingleOrDefaultAsync(s => s.Id == request.ComicId, cancellationToken);
+
+        if (series is null)
+        {
+            throw new InvalidOperationException($"Comic with ID {request.ComicId} was not found.");
+        }
+
+        var hashes = request.Pages
+            .Select(page => page.Sha256Hash?.Trim())
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList()!;
+
+        if (hashes.Count == 0)
+        {
+            throw new InvalidOperationException("No page hashes were provided for metadata update.");
+        }
+
+        var existingMetadata = await _apiService.GetFileMetadataByHashesAsync(hashes, includeNotes: false, cancellationToken);
+        var existingByHash = existingMetadata
+            .Where(file => !string.IsNullOrWhiteSpace(file.Hash))
+            .ToDictionary(file => file.Hash, StringComparer.OrdinalIgnoreCase);
+
+        var newManagedTagsByHash = BuildManagedTagsByHash(request, settings);
+
+        foreach (var hash in hashes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!existingByHash.TryGetValue(hash, out var metadata))
+            {
+                _logger.LogWarning("File hash {Hash} was not returned by Hydrus metadata lookup and will be skipped.", hash);
+                continue;
+            }
+
+            var oldManagedTags = ExtractManagedTags(metadata, settings, tagServiceKey);
+            var newManagedTags = newManagedTagsByHash.TryGetValue(hash, out var tags)
+                ? tags
+                : [];
+
+            await _apiService.UpdateTagsAsync(hash, tagServiceKey, oldManagedTags, newManagedTags, cancellationToken);
+        }
+
+        series.Title = normalizedTitle;
+        series.CoverFileHash = ResolveEditedCoverHash(request, settings, newManagedTagsByHash);
+        series.LastSyncedAt = DateTimeOffset.UtcNow;
+
+        RebuildSeriesStructureFromEdit(series, request);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private Dictionary<string, List<string>> BuildManagedTagsByHash(HydrusMetadataEditRequest request, HydrusSettings settings)
+    {
+        var titleTag = BuildTag(settings.TitleNamespace, request.HydrusTitle.Trim());
+        var coverTag = settings.CoverPageTag.Trim();
+
+        var chapterStarts = request.ChapterStartPageIndices
+            .Where(i => i >= 0 && i < request.Pages.Count)
+            .Distinct()
+            .OrderBy(i => i)
+            .ToList();
+
+        if (chapterStarts.Count == 0 && request.Pages.Count > 0)
+        {
+            chapterStarts.Add(0);
+        }
+        else if (chapterStarts.Count > 0 && chapterStarts[0] != 0)
+        {
+            chapterStarts.Insert(0, 0);
+        }
+
+        var volumeStarts = request.VolumeStarts
+            .Where(entry => entry.PageIndex >= 0 && entry.PageIndex < request.Pages.Count)
+            .OrderBy(entry => entry.PageIndex)
+            .ToDictionary(entry => entry.PageIndex, entry => entry.VolumeNumber);
+
+        var logicalGroupSizes = request.Pages
+            .GroupBy(page => page.LogicalPageGroupId)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        var logicalGroupVariantCounters = new Dictionary<int, int>();
+        var tagsByHash = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < request.Pages.Count; i++)
+        {
+            var page = request.Pages[i];
+            if (string.IsNullOrWhiteSpace(page.Sha256Hash))
+            {
+                continue;
+            }
+
+            var tags = new List<string> { titleTag };
+
+            var volumeNumber = GetVolumeForPage(i, volumeStarts);
+            if (volumeNumber.HasValue)
+            {
+                tags.Add(BuildTag(settings.VolumeNamespace, volumeNumber.Value.ToString()));
+            }
+
+            if (chapterStarts.Count > 0)
+            {
+                var chapterNumber = GetChapterWithinVolume(i, chapterStarts, volumeStarts);
+                var fallbackPageNumber = GetPageWithinChapter(i, chapterStarts);
+                var pageNumber = ResolvePageNumber(page.PageNumber, fallbackPageNumber);
+                tags.Add(BuildTag(settings.ChapterNamespace, chapterNumber.ToString()));
+                tags.Add(BuildTag(settings.PageNamespace, pageNumber.ToString()));
+            }
+            else
+            {
+                var pageNumber = ResolvePageNumber(page.PageNumber, i + 1);
+                tags.Add(BuildTag(settings.PageNamespace, pageNumber.ToString()));
+            }
+
+            if (logicalGroupSizes.TryGetValue(page.LogicalPageGroupId, out var variantCount) && variantCount > 1)
+            {
+                var nextVariantOrdinal = logicalGroupVariantCounters.TryGetValue(page.LogicalPageGroupId, out var existingOrdinal)
+                    ? existingOrdinal + 1
+                    : 1;
+
+                logicalGroupVariantCounters[page.LogicalPageGroupId] = nextVariantOrdinal;
+
+                var defaultValue = settings.AlternatePageDefaultValue.Trim();
+                var alternateValue = ResolveAlternateTagValue(page, defaultValue, nextVariantOrdinal);
+                tags.Add(BuildTag(settings.AlternatePageNamespace, alternateValue));
+            }
+
+            if (!string.IsNullOrWhiteSpace(coverTag)
+                && !string.IsNullOrWhiteSpace(request.CoverFileHash)
+                && string.Equals(page.Sha256Hash, request.CoverFileHash, StringComparison.OrdinalIgnoreCase))
+            {
+                tags.Add(coverTag);
+            }
+
+            tagsByHash[page.Sha256Hash] = tags
+                .Where(tag => !string.IsNullOrWhiteSpace(tag))
+                .Select(tag => tag.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        return tagsByHash;
+    }
+
+    private static List<string> ExtractManagedTags(FileMetadata metadata, HydrusSettings settings, string tagServiceKey)
+    {
+        var configuredTags = metadata.GetStorageTagsForService(tagServiceKey);
+        var candidateTags = configuredTags.Count > 0
+            ? configuredTags
+            : metadata.GetAllStorageTags();
+
+        return candidateTags
+            .Where(tag => IsManagedStructuralTag(tag, settings))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsManagedStructuralTag(string tag, HydrusSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(tag))
+        {
+            return false;
+        }
+
+        var coverTag = settings.CoverPageTag.Trim();
+        if (!string.IsNullOrWhiteSpace(coverTag)
+            && string.Equals(tag.Trim(), coverTag, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "title:");
+        var volumeNamespace = NormalizeNamespace(settings.VolumeNamespace, "volume:");
+        var chapterNamespace = NormalizeNamespace(settings.ChapterNamespace, "chapter:");
+        var pageNamespace = NormalizeNamespace(settings.PageNamespace, "page:");
+        var alternatePageNamespace = NormalizeNamespace(settings.AlternatePageNamespace, "variant:");
+
+        return tag.StartsWith(titleNamespace, StringComparison.OrdinalIgnoreCase)
+               || tag.StartsWith(volumeNamespace, StringComparison.OrdinalIgnoreCase)
+               || tag.StartsWith(chapterNamespace, StringComparison.OrdinalIgnoreCase)
+               || tag.StartsWith(pageNamespace, StringComparison.OrdinalIgnoreCase)
+               || tag.StartsWith(alternatePageNamespace, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ResolveEditedCoverHash(
+        HydrusMetadataEditRequest request,
+        HydrusSettings settings,
+        Dictionary<string, List<string>> tagsByHash)
+    {
+        if (!string.IsNullOrWhiteSpace(request.CoverFileHash)
+            && tagsByHash.ContainsKey(request.CoverFileHash.Trim()))
+        {
+            return request.CoverFileHash.Trim();
+        }
+
+        var coverTag = settings.CoverPageTag.Trim();
+        if (!string.IsNullOrWhiteSpace(coverTag))
+        {
+            var taggedCover = tagsByHash
+                .FirstOrDefault(entry => entry.Value.Contains(coverTag, StringComparer.OrdinalIgnoreCase))
+                .Key;
+
+            if (!string.IsNullOrWhiteSpace(taggedCover))
+            {
+                return taggedCover;
+            }
+        }
+
+        return request.Pages
+            .Select(page => page.Sha256Hash?.Trim())
+            .FirstOrDefault(hash => !string.IsNullOrWhiteSpace(hash));
+    }
+
+    private static int ResolvePageNumber(int? pageNumber, int fallback)
+        => pageNumber is > 0 ? pageNumber.Value : fallback;
+
+    private static int? GetVolumeForPage(int pageIndex, IReadOnlyDictionary<int, int> volumeStarts)
+    {
+        if (volumeStarts.Count == 0)
+        {
+            return null;
+        }
+
+        return volumeStarts
+            .Where(kv => kv.Key <= pageIndex)
+            .OrderByDescending(kv => kv.Key)
+            .Select(kv => (int?)kv.Value)
+            .FirstOrDefault();
+    }
+
+    private static int GetChapterWithinVolume(int pageIndex, IReadOnlyList<int> chapterStarts, IReadOnlyDictionary<int, int> volumeStarts)
+    {
+        if (chapterStarts.Count == 0)
+        {
+            return 1;
+        }
+
+        var chapterStart = chapterStarts.Where(start => start <= pageIndex).DefaultIfEmpty(0).Max();
+        var volumeStart = volumeStarts.Count > 0
+            ? volumeStarts.Keys.Where(key => key <= chapterStart).DefaultIfEmpty(0).Max()
+            : 0;
+
+        return chapterStarts.Count(start => start >= volumeStart && start <= chapterStart);
+    }
+
+    private static int GetPageWithinChapter(int pageIndex, IReadOnlyList<int> chapterStarts)
+    {
+        if (chapterStarts.Count == 0)
+        {
+            return pageIndex + 1;
+        }
+
+        var chapterStart = chapterStarts.Where(start => start <= pageIndex).DefaultIfEmpty(0).Max();
+        return pageIndex - chapterStart + 1;
+    }
+
+    private static string ResolveAlternateTagValue(ImportPage page, string defaultValue, int variantOrdinal)
+    {
+        if (page.IsDefaultVariant)
+        {
+            return string.IsNullOrWhiteSpace(defaultValue) ? "default" : defaultValue;
+        }
+
+        var label = page.VariantLabel?.Trim();
+        if (!string.IsNullOrWhiteSpace(label))
+        {
+            return label;
+        }
+
+        return $"alt-{variantOrdinal}";
+    }
+
+    private static string BuildTag(string namespaceName, string value)
+    {
+        var trimmedValue = value.Trim();
+        var prefix = namespaceName.Trim().TrimEnd(':');
+
+        return string.IsNullOrWhiteSpace(prefix)
+            ? trimmedValue
+            : $"{prefix}:{trimmedValue}";
+    }
+
+    private static void RebuildSeriesStructureFromEdit(ComicsRecord series, HydrusMetadataEditRequest request)
+    {
+        var existingOcrByHash = series.Chapters
+            .SelectMany(chapter => chapter.Pages)
+            .SelectMany(page => page.Variants)
+            .Where(variant => !string.IsNullOrWhiteSpace(variant.FileHash))
+            .GroupBy(variant => variant.FileHash, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(variant => variant.OcrText).FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)),
+                StringComparer.OrdinalIgnoreCase);
+
+        series.Chapters.Clear();
+
+        var chapterStarts = request.ChapterStartPageIndices
+            .Where(i => i >= 0 && i < request.Pages.Count)
+            .Distinct()
+            .OrderBy(i => i)
+            .ToList();
+
+        if (chapterStarts.Count == 0 && request.Pages.Count > 0)
+        {
+            chapterStarts.Add(0);
+        }
+        else if (chapterStarts.Count > 0 && chapterStarts[0] != 0)
+        {
+            chapterStarts.Insert(0, 0);
+        }
+
+        var volumeStarts = request.VolumeStarts
+            .Where(entry => entry.PageIndex >= 0 && entry.PageIndex < request.Pages.Count)
+            .OrderBy(entry => entry.PageIndex)
+            .ToDictionary(entry => entry.PageIndex, entry => entry.VolumeNumber);
+
+        var logicalGroups = request.Pages
+            .Select((page, index) => new { Page = page, Index = index })
+            .GroupBy(entry => entry.Page.LogicalPageGroupId)
+            .Select(group => new
+            {
+                GroupId = group.Key,
+                PrimaryIndex = group.Min(entry => entry.Index),
+                Entries = group.OrderBy(entry => entry.Index).ToList()
+            })
+            .OrderBy(group => group.PrimaryIndex)
+            .ToList();
+
+        for (var chapterIndex = 0; chapterIndex < chapterStarts.Count; chapterIndex++)
+        {
+            var chapterStart = chapterStarts[chapterIndex];
+            var chapterEnd = chapterIndex + 1 < chapterStarts.Count
+                ? chapterStarts[chapterIndex + 1]
+                : request.Pages.Count;
+
+            var chapterGroups = logicalGroups
+                .Where(group => group.PrimaryIndex >= chapterStart && group.PrimaryIndex < chapterEnd)
+                .ToList();
+
+            if (chapterGroups.Count == 0)
+            {
+                continue;
+            }
+
+            var volumeNumber = GetVolumeForPage(chapterStart, volumeStarts);
+            var chapterNumber = GetChapterWithinVolume(chapterStart, chapterStarts, volumeStarts);
+
+            var chapter = new ChapterRecord
+            {
+                VolumeNumber = volumeNumber,
+                ChapterNumber = chapterNumber,
+                Title = $"Ch. {chapterNumber}"
+            };
+
+            foreach (var group in chapterGroups)
+            {
+                var primaryEntry = group.Entries.FirstOrDefault(entry => entry.Page.IsDefaultVariant) ?? group.Entries[0];
+                var pageNumber = ResolvePageNumber(primaryEntry.Page.PageNumber, chapter.Pages.Count + 1);
+
+                var pageRecord = new PageRecord
+                {
+                    PageNumber = pageNumber
+                };
+
+                foreach (var variantEntry in group.Entries)
+                {
+                    existingOcrByHash.TryGetValue(variantEntry.Page.Sha256Hash, out var ocrText);
+
+                    pageRecord.Variants.Add(new PageVariantRecord
+                    {
+                        FileHash = variantEntry.Page.Sha256Hash,
+                        MimeType = variantEntry.Page.MimeType,
+                        OcrText = ocrText,
+                        IsDefault = variantEntry.Page.IsDefaultVariant,
+                        Label = string.IsNullOrWhiteSpace(variantEntry.Page.VariantLabel)
+                            ? null
+                            : variantEntry.Page.VariantLabel.Trim()
+                    });
+                }
+
+                if (!pageRecord.Variants.Any(variant => variant.IsDefault) && pageRecord.Variants.Count > 0)
+                {
+                    pageRecord.Variants.First().IsDefault = true;
+                }
+
+                chapter.Pages.Add(pageRecord);
+            }
+
+            series.Chapters.Add(chapter);
+        }
+    }
+
     /// <summary>
     /// Builds the editable import payload for a Hydrus title.
     /// </summary>
     private ComicImportPreparation BuildImportPreparation(string seriesName, List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
-        var useConfiguredTagService = ShouldUseConfiguredTagServiceForStructuralTags(fileMetadata, settings);
-
-        var orderedFiles = fileMetadata
-            .Select(file => new HydrusImportFile(
-                file,
-                ExtractNumberFromTag(GetStructuralTags(file, settings, useConfiguredTagService), settings.VolumeNamespace),
-                ExtractDecimalFromTag(GetStructuralTags(file, settings, useConfiguredTagService), settings.ChapterNamespace),
-                ExtractNumberFromTag(GetStructuralTags(file, settings, useConfiguredTagService), settings.PageNamespace)))
-            .OrderBy(file => file.Volume ?? int.MaxValue)
-            .ThenBy(file => file.Chapter ?? decimal.MaxValue)
-            .ThenBy(file => file.Page ?? int.MaxValue)
-            .ThenBy(file => file.Metadata.FileId)
-            .ToList();
+        var orderedFiles = ParseImportFiles(fileMetadata, settings);
 
         var chapterStarts = new List<int>();
         (int? Volume, decimal? Chapter)? lastChapterKey = null;
+        var logicalGroupId = 1;
+        var pages = new List<ImportPage>();
 
-        for (var i = 0; i < orderedFiles.Count; i++)
+        foreach (var logicalGroup in orderedFiles
+                     .GroupBy(file => (file.Volume, file.Chapter, Page: file.Page ?? int.MaxValue))
+                     .OrderBy(group => group.Key.Volume ?? int.MaxValue)
+                     .ThenBy(group => group.Key.Chapter ?? decimal.MaxValue)
+                     .ThenBy(group => group.Key.Page)
+                     .ThenBy(group => group.Min(f => f.Metadata.FileId)))
         {
-            var currentKey = (orderedFiles[i].Volume, orderedFiles[i].Chapter);
-            if (lastChapterKey != currentKey)
+            var chapterKey = (logicalGroup.Key.Volume, logicalGroup.Key.Chapter);
+            if (lastChapterKey != chapterKey)
             {
-                chapterStarts.Add(i);
-                lastChapterKey = currentKey;
+                chapterStarts.Add(pages.Count);
+                lastChapterKey = chapterKey;
             }
+
+            var orderedVariants = logicalGroup
+                .OrderByDescending(file => file.IsDefaultVariant)
+                .ThenBy(file => file.Metadata.FileId)
+                .ToList();
+
+            var explicitDefaultFileId = orderedVariants
+                .FirstOrDefault(file => file.IsDefaultVariant)
+                ?.Metadata.FileId;
+
+            for (var variantIndex = 0; variantIndex < orderedVariants.Count; variantIndex++)
+            {
+                var file = orderedVariants[variantIndex];
+
+                pages.Add(new ImportPage
+                {
+                    Index = pages.Count,
+                    ArchiveFileName = file.Metadata.Hash,
+                    Data = [],
+                    Sha256Hash = file.Metadata.Hash,
+                    MimeType = file.Metadata.MimeType,
+                    PageNumber = file.Page ?? pages.Count + 1,
+                    LogicalPageGroupId = logicalGroupId,
+                    IsDefaultVariant = explicitDefaultFileId.HasValue
+                        ? file.Metadata.FileId == explicitDefaultFileId.Value
+                        : variantIndex == 0,
+                    VariantLabel = file.VariantLabel
+                });
+            }
+
+            logicalGroupId++;
         }
 
         var metadata = new ComicMetadata
@@ -456,64 +916,105 @@ public class HydrusSyncService : IHydrusSyncService
 
         return new ComicImportPreparation
         {
-            Pages = orderedFiles
-                .Select((file, index) => new ImportPage
-                {
-                    Index = index,
-                    ArchiveFileName = file.Metadata.Hash,
-                    Data = [],
-                    Sha256Hash = file.Metadata.Hash,
-                    MimeType = file.Metadata.MimeType,
-                    PageNumber = file.Page ?? index + 1
-                })
-                .ToList(),
+            Pages = pages,
             Metadata = metadata,
             ChapterStartPageIndices = chapterStarts.Count == 0 ? [0] : chapterStarts
         };
     }
 
-    /// <summary>
-    /// Parses files into a chapter/volume/page structure based on tags
-    /// </summary>
-    private Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>> ParseFilesIntoChapters(
-        List<FileMetadata> fileMetadata, HydrusSettings settings)
+    private List<HydrusImportFile> ParseImportFiles(List<FileMetadata> fileMetadata, HydrusSettings settings)
     {
-        var chapters = new Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>>();
         var useConfiguredTagService = ShouldUseConfiguredTagServiceForStructuralTags(fileMetadata, settings);
 
-        foreach (var file in fileMetadata)
+        return fileMetadata
+            .Select(file =>
+            {
+                var structuralTags = GetStructuralTags(file, settings, useConfiguredTagService);
+                if (structuralTags.Count == 0)
+                {
+                    return null;
+                }
+
+                var titleTag = ExtractNamespaceValue(structuralTags, settings.TitleNamespace);
+                if (string.IsNullOrWhiteSpace(titleTag))
+                {
+                    _logger.LogWarning("File {Hash} is missing a title tag in the structural tag service and will be skipped.", file.Hash);
+                    return null;
+                }
+
+                var pageNumber = ExtractNumberFromTag(structuralTags, settings.PageNamespace);
+                if (!pageNumber.HasValue)
+                {
+                    _logger.LogWarning("File {Hash} is missing a page tag in the structural tag service and will be skipped.", file.Hash);
+                    return null;
+                }
+
+                var alternateValue = ExtractNamespaceValue(structuralTags, settings.AlternatePageNamespace)?.Trim();
+                var hasAlternateValue = !string.IsNullOrWhiteSpace(alternateValue);
+                var defaultAlternateValue = settings.AlternatePageDefaultValue.Trim();
+                var isDefaultVariant = !hasAlternateValue ||
+                    string.Equals(alternateValue, defaultAlternateValue, StringComparison.OrdinalIgnoreCase);
+
+                return new HydrusImportFile(
+                    file,
+                    ExtractNumberFromTag(structuralTags, settings.VolumeNamespace),
+                    ExtractDecimalFromTag(structuralTags, settings.ChapterNamespace),
+                    pageNumber,
+                    isDefaultVariant,
+                    hasAlternateValue && !isDefaultVariant ? alternateValue : null);
+            })
+            .Where(file => file is not null)
+            .Select(file => file!)
+            .OrderBy(file => file.Volume ?? int.MaxValue)
+            .ThenBy(file => file.Chapter ?? decimal.MaxValue)
+            .ThenBy(file => file.Page ?? int.MaxValue)
+            .ThenByDescending(file => file.IsDefaultVariant)
+            .ThenBy(file => file.Metadata.FileId)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Parses files into a chapter/volume/logical-page structure based on tags.
+    /// </summary>
+    private Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, List<SyncedPageVariant> Variants)>> ParseFilesIntoChapters(
+        List<FileMetadata> fileMetadata,
+        HydrusSettings settings)
+    {
+        var chapters = new Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, List<SyncedPageVariant> Variants)>>();
+
+        foreach (var chapterGroup in ParseImportFiles(fileMetadata, settings)
+                     .GroupBy(file => (file.Volume, file.Chapter)))
         {
-            var structuralTags = GetStructuralTags(file, settings, useConfiguredTagService);
-            if (structuralTags.Count == 0)
-            {
-                continue;
-            }
+            var logicalPages = chapterGroup
+                .GroupBy(file => file.Page ?? int.MaxValue)
+                .OrderBy(group => group.Key)
+                .Select(group =>
+                {
+                    var variants = group
+                        .OrderByDescending(file => file.IsDefaultVariant)
+                        .ThenBy(file => file.Metadata.FileId)
+                        .Select(file => new SyncedPageVariant(
+                            file.Metadata,
+                            file.IsDefaultVariant,
+                            file.VariantLabel))
+                        .ToList();
 
-            var titleTag = ExtractNamespaceValue(structuralTags, settings.TitleNamespace);
-            if (string.IsNullOrWhiteSpace(titleTag))
-            {
-                _logger.LogWarning("File {Hash} is missing a title tag in the structural tag service and will be skipped.", file.Hash);
-                continue;
-            }
+                    var defaultVariantIndex = variants.FindIndex(v => v.IsDefault);
+                    if (defaultVariantIndex < 0 && variants.Count > 0)
+                    {
+                        defaultVariantIndex = 0;
+                    }
 
-            var pageNumber = ExtractNumberFromTag(structuralTags, settings.PageNamespace);
-            if (!pageNumber.HasValue)
-            {
-                _logger.LogWarning("File {Hash} is missing a page tag in the structural tag service and will be skipped.", file.Hash);
-                continue;
-            }
+                    for (var i = 0; i < variants.Count; i++)
+                    {
+                        variants[i] = variants[i] with { IsDefault = i == defaultVariantIndex };
+                    }
 
-            var volumeNumber = ExtractNumberFromTag(structuralTags, settings.VolumeNamespace);
-            var chapterNumber = ExtractDecimalFromTag(structuralTags, settings.ChapterNamespace);
+                    return (PageNumber: group.Key, Variants: variants);
+                })
+                .ToList();
 
-            var key = (volumeNumber, chapterNumber);
-
-            if (!chapters.ContainsKey(key))
-            {
-                chapters[key] = new List<(int, FileMetadata)>();
-            }
-
-            chapters[key].Add((pageNumber.Value, file));
+            chapters[chapterGroup.Key] = logicalPages;
         }
 
         return chapters;
@@ -523,7 +1024,14 @@ public class HydrusSyncService : IHydrusSyncService
         FileMetadata Metadata,
         int? Volume,
         decimal? Chapter,
-        int? Page);
+        int? Page,
+        bool IsDefaultVariant,
+        string? VariantLabel);
+
+    private sealed record SyncedPageVariant(
+        FileMetadata Metadata,
+        bool IsDefault,
+        string? Label);
 
     private string ExtractCreatorMetadata(IEnumerable<HydrusImportFile> orderedFiles, string structuralTagServiceKey)
     {
@@ -550,7 +1058,7 @@ public class HydrusSyncService : IHydrusSyncService
     /// </summary>
     private async Task<int> StoreSeriesInDatabaseAsync(
         string seriesName,
-        Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>> chapters,
+        Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, List<SyncedPageVariant> Variants)>> chapters,
         List<FileMetadata> allFileMetadata,
         CancellationToken cancellationToken)
     {
@@ -560,6 +1068,7 @@ public class HydrusSyncService : IHydrusSyncService
         var series = await dbContext.Comic
             .Include(s => s.Chapters)
             .ThenInclude(c => c.Pages)
+            .ThenInclude(p => p.Variants)
             .Include(s => s.Metadata)
             .FirstOrDefaultAsync(s => s.Title == seriesName, cancellationToken);
 
@@ -586,16 +1095,32 @@ public class HydrusSyncService : IHydrusSyncService
                 Title = chapterNumber.HasValue ? $"Ch. {chapterNumber.Value}" : null
             };
 
-            // Add pages sorted by page number
-            foreach (var (pageNumber, fileMetadata) in pages.OrderBy(p => p.PageNumber))
+            // Add logical pages and their variants sorted by page number.
+            foreach (var (pageNumber, variants) in pages.OrderBy(p => p.PageNumber))
             {
                 var page = new PageRecord
                 {
-                    FileHash = fileMetadata.Hash,
-                    PageNumber = pageNumber,
-                    MimeType = fileMetadata.MimeType,
-                    OcrText = ExtractNoteValue(fileMetadata, settings.OcrTextNoteName)
+                    PageNumber = pageNumber
                 };
+
+                foreach (var variant in variants)
+                {
+                    page.Variants.Add(new PageVariantRecord
+                    {
+                        FileHash = variant.Metadata.Hash,
+                        MimeType = variant.Metadata.MimeType,
+                        OcrText = ExtractNoteValue(variant.Metadata, settings.OcrTextNoteName),
+                        IsDefault = variant.IsDefault,
+                        Label = variant.Label
+                    });
+                }
+
+                if (!page.Variants.Any(v => v.IsDefault) && page.Variants.Count > 0)
+                {
+                    var firstVariant = page.Variants.First();
+                    firstVariant.IsDefault = true;
+                }
+
                 chapter.Pages.Add(page);
             }
 
@@ -675,7 +1200,7 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
-    /// Checks if a namespace is a structural namespace (title, volume, chapter, page)
+    /// Checks if a namespace is a structural namespace (title, volume, chapter, page, alternate page)
     /// </summary>
     private bool IsStructuralNamespace(string ns, HydrusSettings settings)
     {
@@ -683,7 +1208,8 @@ public class HydrusSyncService : IHydrusSyncService
         return normalized == settings.TitleNamespace.TrimEnd(':').ToLowerInvariant() ||
                normalized == settings.VolumeNamespace.TrimEnd(':').ToLowerInvariant() ||
                normalized == settings.ChapterNamespace.TrimEnd(':').ToLowerInvariant() ||
-               normalized == settings.PageNamespace.TrimEnd(':').ToLowerInvariant();
+               normalized == settings.PageNamespace.TrimEnd(':').ToLowerInvariant() ||
+               normalized == settings.AlternatePageNamespace.TrimEnd(':').ToLowerInvariant();
     }
 
     private string BuildTitleTag(string seriesName, HydrusSettings settings)
@@ -813,7 +1339,7 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     private static string? ResolveCoverFileHash(
-        Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, FileMetadata Metadata)>> chapters,
+        Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, List<SyncedPageVariant> Variants)>> chapters,
         List<FileMetadata> allFileMetadata,
         HydrusSettings settings)
     {
@@ -831,16 +1357,19 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         var orderedPages = chapters
-            .SelectMany(chapter => chapter.Value.Select(page => new
-            {
-                chapter.Key.Volume,
-                chapter.Key.Chapter,
-                page.PageNumber,
-                page.Metadata
-            }))
+            .SelectMany(chapter => chapter.Value.SelectMany(page =>
+                page.Variants.Select(variant => new
+                {
+                    chapter.Key.Volume,
+                    chapter.Key.Chapter,
+                    page.PageNumber,
+                    variant.Metadata,
+                    variant.IsDefault
+                })))
             .OrderBy(page => page.Volume ?? 0)
             .ThenBy(page => page.Chapter ?? 0m)
             .ThenBy(page => page.PageNumber)
+            .ThenByDescending(page => page.IsDefault)
             .ThenBy(page => page.Metadata.FileId);
 
         if (!string.IsNullOrWhiteSpace(coverTag))

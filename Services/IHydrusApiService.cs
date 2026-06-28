@@ -139,6 +139,20 @@ public interface IHydrusApiService
     Task AddTagsAsync(string hash, string serviceKey, List<string> tags, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Updates tags on a file in Hydrus by applying both removals and additions on the same tag service.
+    /// </summary>
+    /// <param name="hash">File hash.</param>
+    /// <param name="serviceKey">Tag service key.</param>
+    /// <param name="tagsToDelete">Managed tags to delete.</param>
+    /// <param name="tagsToAdd">Managed tags to add.</param>
+    Task UpdateTagsAsync(
+        string hash,
+        string serviceKey,
+        List<string> tagsToDelete,
+        List<string> tagsToAdd,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Uploads raw file bytes to Hydrus via POST /add_files/add_file.
     /// </summary>
     /// <param name="content">Raw bytes of the file to upload.</param>

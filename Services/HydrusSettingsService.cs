@@ -39,6 +39,8 @@ public sealed class HydrusSettingsService(
         settings.VolumeNamespace = stored.VolumeNamespace;
         settings.ChapterNamespace = stored.ChapterNamespace;
         settings.PageNamespace = stored.PageNamespace;
+        settings.AlternatePageNamespace = stored.AlternatePageNamespace;
+        settings.AlternatePageDefaultValue = stored.AlternatePageDefaultValue;
         settings.CoverPageTag = stored.CoverPageTag;
         settings.FullTitleNoteName = stored.FullTitleNoteName;
         settings.ComicCommentNoteName = stored.ComicCommentNoteName;
@@ -76,6 +78,8 @@ public sealed class HydrusSettingsService(
         stored.VolumeNamespace = normalized.VolumeNamespace;
         stored.ChapterNamespace = normalized.ChapterNamespace;
         stored.PageNamespace = normalized.PageNamespace;
+        stored.AlternatePageNamespace = normalized.AlternatePageNamespace;
+        stored.AlternatePageDefaultValue = normalized.AlternatePageDefaultValue;
         stored.CoverPageTag = normalized.CoverPageTag;
         stored.FullTitleNoteName = normalized.FullTitleNoteName;
         stored.ComicCommentNoteName = normalized.ComicCommentNoteName;
@@ -140,6 +144,8 @@ public sealed class HydrusSettingsService(
         normalized.VolumeNamespace = NormalizeNamespace(normalized.VolumeNamespace, "volume:");
         normalized.ChapterNamespace = NormalizeNamespace(normalized.ChapterNamespace, "chapter:");
         normalized.PageNamespace = NormalizeNamespace(normalized.PageNamespace, "page:");
+        normalized.AlternatePageNamespace = NormalizeNamespace(normalized.AlternatePageNamespace, "variant:");
+        normalized.AlternatePageDefaultValue = NormalizeNoteName(normalized.AlternatePageDefaultValue, "default");
         normalized.CoverPageTag = NormalizeCoverPageTag(normalized.CoverPageTag, "meta:cover page");
         normalized.FullTitleNoteName = NormalizeNoteName(normalized.FullTitleNoteName, "title");
         normalized.ComicCommentNoteName = NormalizeNoteName(normalized.ComicCommentNoteName, "comment");

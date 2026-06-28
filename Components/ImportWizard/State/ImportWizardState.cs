@@ -91,6 +91,8 @@ public class ImportWizardState
     public bool IsPreloadingThumbnails { get; set; }
     public bool UseChapterTags { get; set; } = true;
 
+    private int _nextLogicalPageGroupId = 1;
+
     // ─── Metadata Fields ────────────────────────────────────────────────
     public string TitleName { get; set; } = string.Empty;
     public string DisplayTitle { get; set; } = string.Empty;
@@ -304,6 +306,7 @@ public class ImportWizardState
     {
         Pages = preparation.Pages;
         ReindexPages();
+        InitializeLogicalPageGroups();
 
         TitleName = preparation.Metadata?.Series?.Trim() ?? string.Empty;
         DisplayTitle = TitleName;
@@ -368,6 +371,92 @@ public class ImportWizardState
         ThumbnailPreloadQueued = true;
     }
 
+    public bool IsPrimaryVariant(int pageIndex)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return false;
+        }
+
+        var groupId = Pages[pageIndex].LogicalPageGroupId;
+        var firstGroupIndex = FindPrimaryVariantIndex(groupId);
+        return firstGroupIndex == pageIndex;
+    }
+
+    public bool HasAlternateVariants(int pageIndex)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return false;
+        }
+
+        var groupId = Pages[pageIndex].LogicalPageGroupId;
+        return Pages.Count(p => p.LogicalPageGroupId == groupId) > 1;
+    }
+
+    public void GroupWithPreviousPage(int pageIndex)
+    {
+        if (pageIndex <= 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        var targetGroupId = Pages[pageIndex - 1].LogicalPageGroupId;
+        Pages[pageIndex].LogicalPageGroupId = targetGroupId;
+
+        if (!Pages.Any(p => p.LogicalPageGroupId == targetGroupId && p.IsDefaultVariant))
+        {
+            Pages[pageIndex - 1].IsDefaultVariant = true;
+        }
+
+        EnsureSingleDefaultVariant(targetGroupId, FindPrimaryVariantIndex(targetGroupId));
+    }
+
+    public void UngroupPage(int pageIndex)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        var currentGroupId = Pages[pageIndex].LogicalPageGroupId;
+        var hasSibling = false;
+        for (var i = 0; i < Pages.Count; i++)
+        {
+            if (i == pageIndex)
+            {
+                continue;
+            }
+
+            if (Pages[i].LogicalPageGroupId == currentGroupId)
+            {
+                hasSibling = true;
+                break;
+            }
+        }
+
+        if (!hasSibling)
+        {
+            return;
+        }
+
+        Pages[pageIndex].LogicalPageGroupId = _nextLogicalPageGroupId++;
+        Pages[pageIndex].IsDefaultVariant = true;
+
+        EnsureSingleDefaultVariant(currentGroupId, FindPrimaryVariantIndex(currentGroupId));
+    }
+
+    public void SetDefaultVariant(int pageIndex)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        var groupId = Pages[pageIndex].LogicalPageGroupId;
+        EnsureSingleDefaultVariant(groupId, pageIndex);
+    }
+
     // ─── Page Gap Management ─────────────────────────────────────────────
 
     /// <summary>Returns true when the page at <paramref name="pageIndex"/> has at least one gap marker.</summary>
@@ -406,6 +495,18 @@ public class ImportWizardState
             return pageIndex + 1;
         }
 
+        var groupId = Pages[pageIndex].LogicalPageGroupId;
+        var primaryIndex = FindPrimaryVariantIndex(groupId);
+        return ComputeFinalPageNumberCore(primaryIndex);
+    }
+
+    private int ComputeFinalPageNumberCore(int pageIndex)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return pageIndex + 1;
+        }
+
         var chapterStart = 0;
         if (UseChapterTags && ChapterStartIndices.Count > 0)
         {
@@ -415,10 +516,16 @@ public class ImportWizardState
                 .Max();
         }
 
-        var withinChapterPos = pageIndex - chapterStart + 1;
+        var withinChapterPos = 0;
         var gapCount = 0;
         for (var i = chapterStart; i <= pageIndex; i++)
         {
+            if (!IsPrimaryVariant(i))
+            {
+                continue;
+            }
+
+            withinChapterPos++;
             gapCount += Pages[i].GapBefore;
         }
 
@@ -564,6 +671,70 @@ public class ImportWizardState
         }
     }
 
+    private void InitializeLogicalPageGroups()
+    {
+        _nextLogicalPageGroupId = 1;
+
+        foreach (var page in Pages)
+        {
+            if (page.LogicalPageGroupId <= 0)
+            {
+                page.LogicalPageGroupId = _nextLogicalPageGroupId++;
+                page.IsDefaultVariant = true;
+                continue;
+            }
+
+            _nextLogicalPageGroupId = Math.Max(_nextLogicalPageGroupId, page.LogicalPageGroupId + 1);
+        }
+
+        foreach (var groupId in Pages.Select(p => p.LogicalPageGroupId).Distinct())
+        {
+            EnsureSingleDefaultVariant(groupId, FindPrimaryVariantIndex(groupId));
+        }
+    }
+
+    private int FindPrimaryVariantIndex(int groupId)
+    {
+        for (var i = 0; i < Pages.Count; i++)
+        {
+            if (Pages[i].LogicalPageGroupId == groupId)
+            {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+
+    private void EnsureSingleDefaultVariant(int groupId, int defaultIndex)
+    {
+        var hasGroup = false;
+        for (var i = 0; i < Pages.Count; i++)
+        {
+            if (Pages[i].LogicalPageGroupId != groupId)
+            {
+                continue;
+            }
+
+            hasGroup = true;
+            Pages[i].IsDefaultVariant = i == defaultIndex;
+        }
+
+        if (!hasGroup)
+        {
+            return;
+        }
+
+        if (!Pages.Any(p => p.LogicalPageGroupId == groupId && p.IsDefaultVariant))
+        {
+            var primaryIndex = FindPrimaryVariantIndex(groupId);
+            if (primaryIndex >= 0 && primaryIndex < Pages.Count)
+            {
+                Pages[primaryIndex].IsDefaultVariant = true;
+            }
+        }
+    }
+
     // ─── Reset Methods ──────────────────────────────────────────────────
 
     public void ResetToSourceSelection()
@@ -591,6 +762,7 @@ public class ImportWizardState
         Queue = [];
         CurrentQueueIndex = -1;
         SourceMapping = new();
+        _nextLogicalPageGroupId = 1;
     }
 
     public void ResetToSourceSpecific()
@@ -613,6 +785,7 @@ public class ImportWizardState
         ProgressCurrent = 0;
         ProgressTotal = 0;
         ProgressMessage = string.Empty;
+        _nextLogicalPageGroupId = 1;
     }
 
     // ─── Progress Update ────────────────────────────────────────────────
@@ -638,6 +811,9 @@ public class ImportWizardState
                 Sha256Hash = p.Sha256Hash,
                 MimeType = p.MimeType,
                 GapBefore = p.GapBefore,
+                LogicalPageGroupId = p.LogicalPageGroupId,
+                IsDefaultVariant = p.IsDefaultVariant,
+                VariantLabel = p.VariantLabel,
                 PageNumber = ComputeFinalPageNumber(i)
             })
             .ToList();

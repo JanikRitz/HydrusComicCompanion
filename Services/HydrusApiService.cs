@@ -424,7 +424,90 @@ public class HydrusApiService : IHydrusApiService
         }
     }
 
-    // TODO add a way to add + remove tags to update the metadata when import needs to change it (e.g. removing old page:1 and setting it to page:2)
+    public async Task UpdateTagsAsync(
+        string hash,
+        string serviceKey,
+        List<string> tagsToDelete,
+        List<string> tagsToAdd,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            throw new ArgumentException("Hash is required.", nameof(hash));
+        }
+
+        if (string.IsNullOrWhiteSpace(serviceKey))
+        {
+            throw new ArgumentException("Tag service key is required.", nameof(serviceKey));
+        }
+
+        var addTags = tagsToAdd
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Select(tag => tag.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var deleteTags = tagsToDelete
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Select(tag => tag.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Except(addTags)
+            .ToList();
+
+        if (deleteTags.Count == 0 && addTags.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/add_tags/add_tags";
+
+            var request = new UpdateTagsRequest
+            {
+                Hash = hash,
+                ServiceKeysToActionsToTags = new Dictionary<string, Dictionary<int, List<string>>>
+                {
+                    [serviceKey] = new Dictionary<int, List<string>>()
+                }
+            };
+
+            if (addTags.Count > 0)
+            {
+                request.ServiceKeysToActionsToTags[serviceKey][0] = addTags;
+            }
+
+            if (deleteTags.Count > 0)
+            {
+                request.ServiceKeysToActionsToTags[serviceKey][1] = deleteTags;
+            }
+
+            var jsonContent = JsonSerializer.Serialize(request);
+            var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = httpContent
+            };
+            AddApiKeyHeader(httpRequest, settings);
+
+            var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            _logger.LogInformation(
+                "Updated tags for file {Hash} in service {Service}: deleted={DeleteCount}, added={AddCount}",
+                hash,
+                serviceKey,
+                deleteTags.Count,
+                addTags.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating tags for file {Hash} in Hydrus", hash);
+            throw;
+        }
+    }
 
     public async Task<Dictionary<string, string>> SetNotesAsync(
         string hash,

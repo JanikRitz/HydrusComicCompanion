@@ -12,6 +12,8 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
 
     public DbSet<PageRecord> Pages => Set<PageRecord>();
 
+    public DbSet<PageVariantRecord> PageVariants => Set<PageVariantRecord>();
+
     public DbSet<MetadataRecord> Metadata => Set<MetadataRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -32,6 +34,8 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.VolumeNamespace).IsRequired();
             entity.Property(x => x.ChapterNamespace).IsRequired();
             entity.Property(x => x.PageNamespace).IsRequired();
+            entity.Property(x => x.AlternatePageNamespace).IsRequired();
+            entity.Property(x => x.AlternatePageDefaultValue).IsRequired();
             entity.Property(x => x.CoverPageTag).IsRequired();
             entity.Property(x => x.FullTitleNoteName).IsRequired();
             entity.Property(x => x.ComicCommentNoteName).IsRequired();
@@ -82,12 +86,30 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.ToTable("Pages");
             entity.HasKey(x => x.Id);
 
-            entity.Property(x => x.FileHash).IsRequired();
             entity.Property(x => x.PageNumber).IsRequired();
-            entity.Property(x => x.MimeType);
-            entity.Property(x => x.OcrText);
 
             entity.HasIndex(x => x.ChapterId);
+            entity.HasIndex(x => new { x.ChapterId, x.PageNumber }).IsUnique();
+
+            entity.HasMany(x => x.Variants)
+                .WithOne(x => x.Page)
+                .HasForeignKey(x => x.PageId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PageVariantRecord>(entity =>
+        {
+            entity.ToTable("PageVariants");
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.FileHash).IsRequired();
+            entity.Property(x => x.MimeType);
+            entity.Property(x => x.OcrText);
+            entity.Property(x => x.IsDefault).IsRequired();
+            entity.Property(x => x.Label);
+
+            entity.HasIndex(x => x.PageId);
+            entity.HasIndex(x => new { x.PageId, x.FileHash }).IsUnique();
         });
 
         modelBuilder.Entity<MetadataRecord>(entity =>

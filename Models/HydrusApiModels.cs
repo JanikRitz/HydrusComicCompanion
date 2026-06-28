@@ -187,6 +187,15 @@ public class AddTagsRequest
     public Dictionary<string, List<string>> ServiceKeysToTags { get; set; } = new();
 }
 
+public sealed class UpdateTagsRequest
+{
+    [JsonPropertyName("hash")]
+    public string Hash { get; set; } = string.Empty;
+
+    [JsonPropertyName("service_keys_to_actions_to_tags")]
+    public Dictionary<string, Dictionary<int, List<string>>> ServiceKeysToActionsToTags { get; set; } = new();
+}
+
 public sealed class SetNotesRequest
 {
     [JsonPropertyName("hash")]
