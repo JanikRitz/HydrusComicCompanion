@@ -11,45 +11,6 @@
 <PageTitle>Library</PageTitle>
 
 <MudStack Spacing="3">
-    <div>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-            <MudText Typo="Typo.h4" GutterBottom="true">Library</MudText>
-            <MudSpacer></MudSpacer>
-            <MudButton 
-                Variant="Variant.Filled" 
-                Color="Color.Primary" 
-                OnClick="SyncOcrNow"
-                Disabled="@_isSyncingOcr"
-                StartIcon="@Icons.Material.Filled.Refresh">
-                @if (_isSyncingOcr)
-                {
-                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                    <span style="margin-left: 8px;">Syncing OCR Data...</span>
-                }
-                else
-                {
-                    <span>Sync OCR Data</span>
-                }
-            </MudButton>
-            <MudButton 
-                Variant="Variant.Filled" 
-                Color="Color.Primary" 
-                OnClick="SyncNow"
-                Disabled="@_isSyncing"
-                StartIcon="@Icons.Material.Filled.Refresh">
-                @if (_isSyncing)
-                {
-                    <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-                    <span style="margin-left: 8px;">Syncing Existing Titles...</span>
-                }
-                else
-                {
-                    <span>Sync Existing Titles</span>
-                }
-            </MudButton>
-        </MudStack>
-    </div>
-
     @if (!string.IsNullOrEmpty(_syncError))
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
@@ -71,67 +32,96 @@
             </MudStack>
         </MudAlert>
     }
+    <MudStack Row AlignItems="AlignItems.Start">
+        <MudExpansionPanels>
+            <MudExpansionPanel Text="Search and filters">
+                <MudStack Spacing="2">
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string"
+                                          Label="Title contains"
+                                          @bind-Value="_titleFilter"
+                                          Clearable="true"/>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string"
+                                          Label="Comment contains"
+                                          @bind-Value="_commentFilter"
+                                          Clearable="true"/>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string"
+                                          Label="OCR contains"
+                                          @bind-Value="_ocrFilter"
+                                          Clearable="true"/>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string"
+                                          Label="Tag contains"
+                                          HelperText="Supports namespace:value and partial matches"
+                                          @bind-Value="_tagFilter"
+                                          Clearable="true"/>
+                        </MudItem>
+                        <MudItem xs="6" md="2">
+                            <MudNumericField T="int?" Label="Min volumes" @bind-Value="_minVolumes" Min="0" Clearable="true"/>
+                        </MudItem>
+                        <MudItem xs="6" md="2">
+                            <MudNumericField T="int?" Label="Max volumes" @bind-Value="_maxVolumes" Min="0" Clearable="true"/>
+                        </MudItem>
+                        <MudItem xs="6" md="2">
+                            <MudNumericField T="int?" Label="Min chapters" @bind-Value="_minChapters" Min="0" Clearable="true"/>
+                        </MudItem>
+                        <MudItem xs="6" md="2">
+                            <MudNumericField T="int?" Label="Max chapters" @bind-Value="_maxChapters" Min="0" Clearable="true"/>
+                        </MudItem>
+                        <MudItem xs="6" md="2">
+                            <MudNumericField T="int?" Label="Min pages" @bind-Value="_minTotalPages" Min="0" Clearable="true"/>
+                        </MudItem>
+                        <MudItem xs="6" md="2">
+                            <MudNumericField T="int?" Label="Max pages" @bind-Value="_maxTotalPages" Min="0" Clearable="true"/>
+                        </MudItem>
+                    </MudGrid>
 
-    <MudExpansionPanels>
-        <MudExpansionPanel Text="Search and filters">
-            <MudStack Spacing="2">
-                <MudGrid Spacing="2">
-                    <MudItem xs="12" md="6">
-                        <MudTextField T="string"
-                                      Label="Title contains"
-                                      @bind-Value="_titleFilter"
-                                      Clearable="true"/>
-                    </MudItem>
-                    <MudItem xs="12" md="6">
-                        <MudTextField T="string"
-                                      Label="Comment contains"
-                                      @bind-Value="_commentFilter"
-                                      Clearable="true" />
-                    </MudItem>
-                    <MudItem xs="12" md="6">
-                        <MudTextField T="string"
-                                      Label="OCR contains"
-                                      @bind-Value="_ocrFilter"
-                                      Clearable="true" />
-                    </MudItem>
-                    <MudItem xs="12" md="6">
-                        <MudTextField T="string"
-                                      Label="Tag contains"
-                                      HelperText="Supports namespace:value and partial matches"
-                                      @bind-Value="_tagFilter"
-                                      Clearable="true"/>
-                    </MudItem>
-                    <MudItem xs="6" md="2">
-                        <MudNumericField T="int?" Label="Min volumes" @bind-Value="_minVolumes" Min="0" Clearable="true"/>
-                    </MudItem>
-                    <MudItem xs="6" md="2">
-                        <MudNumericField T="int?" Label="Max volumes" @bind-Value="_maxVolumes" Min="0" Clearable="true"/>
-                    </MudItem>
-                    <MudItem xs="6" md="2">
-                        <MudNumericField T="int?" Label="Min chapters" @bind-Value="_minChapters" Min="0" Clearable="true"/>
-                    </MudItem>
-                    <MudItem xs="6" md="2">
-                        <MudNumericField T="int?" Label="Max chapters" @bind-Value="_maxChapters" Min="0" Clearable="true"/>
-                    </MudItem>
-                    <MudItem xs="6" md="2">
-                        <MudNumericField T="int?" Label="Min pages" @bind-Value="_minTotalPages" Min="0" Clearable="true"/>
-                    </MudItem>
-                    <MudItem xs="6" md="2">
-                        <MudNumericField T="int?" Label="Max pages" @bind-Value="_maxTotalPages" Min="0" Clearable="true"/>
-                    </MudItem>
-                </MudGrid>
-
-                <MudStack Row="true" Spacing="1">
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ApplyFiltersAsync">Apply filters</MudButton>
-                    <MudButton Variant="Variant.Outlined" OnClick="ResetFiltersAsync" Disabled="@(!HasActiveFilters)">Reset</MudButton>
+                    <MudStack Row="true" Spacing="1">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ApplyFiltersAsync">Apply filters</MudButton>
+                        <MudButton Variant="Variant.Outlined" OnClick="ResetFiltersAsync" Disabled="@(!HasActiveFilters)">Reset</MudButton>
+                    </MudStack>
                 </MudStack>
-            </MudStack>
-        </MudExpansionPanel>
-    </MudExpansionPanels>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+
+        <MudTooltip>
+            <ChildContent>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           OnClick="SyncOcrNow"
+                           Size="Size.Large"
+                           Disabled="@_isSyncingOcr"
+                           StartIcon="@Icons.Material.Filled.Abc"
+                           EndIcon="@Icons.Material.Filled.Refresh">
+                </MudButton>
+            </ChildContent>
+            <TooltipContent>Sync OCR for known comics</TooltipContent>
+        </MudTooltip>
+        <MudTooltip>
+            <ChildContent>
+                <MudButton
+                    Variant="Variant.Filled"
+                    Color="Color.Primary"
+                    OnClick="SyncNow"
+                    Size="Size.Large"
+                    Disabled="@_isSyncing"
+                    StartIcon="@Icons.Material.Filled.MenuBook"
+                    EndIcon="@Icons.Material.Filled.Refresh">
+                </MudButton>
+            </ChildContent>
+            <TooltipContent>Sync Hydrus data for known comics</TooltipContent>
+        </MudTooltip>
+    </MudStack>
 
     @if (_isLoading)
     {
-        <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true"/>
     }
     else if (_comics.Count == 0)
     {
@@ -193,6 +183,7 @@
 </MudStack>
 
 @code {
+
     private sealed class ComicsCardItem
     {
         public int Id { get; init; }
@@ -207,6 +198,7 @@
 
     private const int PageSize = 12;
     private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
+
     private readonly DialogOptions _progressDialogOptions = new()
     {
         Position = DialogPosition.Center,
@@ -315,9 +307,9 @@
             {
                 var ocrFilter = $"%{_ocrFilter.Trim()}%";
 
-                query = query.Where(x => 
-                    x.Chapters.Any(c => 
-                        c.Pages.Any(p => 
+                query = query.Where(x =>
+                    x.Chapters.Any(c =>
+                        c.Pages.Any(p =>
                             p.Variants.Any(v => EF.Functions.Like(v.OcrText, ocrFilter))
                         )
                     )
@@ -573,4 +565,5 @@
     {
         NavigationManager.NavigateTo($"/comic/{comicId}");
     }
+
 }

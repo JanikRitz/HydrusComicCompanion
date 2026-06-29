@@ -11,7 +11,19 @@
     {
         <MudAppBar Elevation="1">
             <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
-            <MudText Typo="Typo.h5" Class="ml-3">Hydrus Comic Companion</MudText>
+            <MudText Typo="Typo.h5" Class="ml-3">Hydrus Comic Companion
+                @if (IsImportRoute)
+                {
+                    @("- Import")
+                }else if (IsSettingsRoute)
+                {
+                    @("- Settings")
+                }
+                else
+                {
+                    @("- Library")
+                }
+            </MudText>
             <MudSpacer />
             <MudIconButton Icon="@(DarkLightModeButtonIcon)" Color="Color.Inherit" OnClick="@DarkModeToggle" />
         </MudAppBar>
@@ -56,12 +68,9 @@
         InvokeAsync(StateHasChanged);
     }
 
-    private bool IsReaderRoute => IsReaderPath(NavigationManager.ToBaseRelativePath(NavigationManager.Uri));
-
-    private static bool IsReaderPath(string relativePath)
-    {
-        return relativePath.StartsWith("read/", StringComparison.OrdinalIgnoreCase);
-    }
+    private bool IsReaderRoute => NavigationManager.ToBaseRelativePath(NavigationManager.Uri).StartsWith("read/", StringComparison.OrdinalIgnoreCase);
+    private bool IsImportRoute => NavigationManager.ToBaseRelativePath(NavigationManager.Uri).StartsWith("import", StringComparison.OrdinalIgnoreCase);
+    private bool IsSettingsRoute => NavigationManager.ToBaseRelativePath(NavigationManager.Uri).StartsWith("settings", StringComparison.OrdinalIgnoreCase);
 
     public void Dispose()
     {
