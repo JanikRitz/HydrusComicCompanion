@@ -3,8 +3,6 @@ using HydrusComicCompanion.Components;
 using HydrusComicCompanion.Data;
 using HydrusComicCompanion.Models;
 using HydrusComicCompanion.Services;
-using HydrusComicCompanion.Services.Abstractions;
-using HydrusComicCompanion.Services.ImportSourceHandlers;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -47,9 +45,8 @@ builder.Services.AddScoped<IHydrusMediaService, HydrusMediaService>();
 builder.Services.AddScoped<IComicImportService, ComicImportService>();
 builder.Services.AddScoped<ICalibreService, CalibreService>();
 
-// Add import source handlers for extensible import workflow
-builder.Services.AddScoped<ArchiveImportHandler>();
-builder.Services.AddScoped<TitleImportHandler>();
+// OCR service
+builder.Services.AddScoped<IOcrReader, OcrReader>();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
