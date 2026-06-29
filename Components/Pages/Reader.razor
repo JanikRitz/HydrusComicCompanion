@@ -112,7 +112,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 <div class="front">
                     @if (_frontVariant is not null)
                     {
-                        <img class="reader-page reader-page--front"
+                        <img class="reader-page reader-page--front @(CurrentVariants.Count > 1 ? "reader-page--animated-border" : "")"
                              src="@MediaService.BuildRenderUrl(_frontVariant.FileHash)"
                              alt="@GetPageAltText()"
                              draggable="false" />
@@ -121,7 +121,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 <div class="back">
                     @if (_backVariant is not null)
                     {
-                        <img class="reader-page reader-page--back"
+                        <img class="reader-page reader-page--back @(CurrentVariants.Count > 1 ? "reader-page--animated-border" : "")"
                              src="@MediaService.BuildRenderUrl(_backVariant.FileHash)"
                              alt="@GetPageAltText()"
                              draggable="false" />
