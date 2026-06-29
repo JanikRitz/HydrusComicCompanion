@@ -191,7 +191,10 @@ public sealed class ComicImportService : IComicImportService
             await _apiService.AddTagsAsync(pageHashes[i], settings.TagServiceKey, tags, cancellationToken);
         }
 
-        // Step 3: Apply optional notes to cover page
+        // Step 3: Remove stale title/page tags from user-excluded Hydrus rows.
+        await CleanupExcludedPageTagsAsync(request, settings, titleTag, cancellationToken);
+
+        // Step 4: Apply optional notes to cover page
         var notes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrWhiteSpace(request.DisplayTitle) && !string.IsNullOrWhiteSpace(settings.FullTitleNoteName))
         {
@@ -208,7 +211,7 @@ public sealed class ComicImportService : IComicImportService
             await _apiService.SetNotesAsync(pageHashes[0], notes, cancellationToken: cancellationToken);
         }
 
-        // Step 4: Persist to local cache
+        // Step 5: Persist to local cache
         progress?.Report(new ImportProgressUpdate
         {
             Current = total,
@@ -226,6 +229,67 @@ public sealed class ComicImportService : IComicImportService
         });
 
         return seriesId;
+    }
+
+    private async Task CleanupExcludedPageTagsAsync(
+        ComicImportRequest request,
+        HydrusSettings settings,
+        string titleTag,
+        CancellationToken cancellationToken)
+    {
+        var excludedHashes = request.ExcludedPageHashes
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Select(hash => hash.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (excludedHashes.Count == 0)
+        {
+            return;
+        }
+
+        var pageNamespacePrefix = settings.PageNamespace.Trim().TrimEnd(':');
+        pageNamespacePrefix = string.IsNullOrWhiteSpace(pageNamespacePrefix)
+            ? string.Empty
+            : $"{pageNamespacePrefix}:";
+
+        var metadata = await _apiService.GetFileMetadataByHashesAsync(excludedHashes, cancellationToken: cancellationToken);
+
+        foreach (var file in metadata)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var existingTags = file.GetStorageTagsForService(settings.TagServiceKey);
+            if (existingTags.Count == 0)
+            {
+                continue;
+            }
+
+            var tagsToDelete = existingTags
+                .Where(tag => string.Equals(tag, titleTag, StringComparison.OrdinalIgnoreCase)
+                    || (!string.IsNullOrWhiteSpace(pageNamespacePrefix)
+                        && tag.StartsWith(pageNamespacePrefix, StringComparison.OrdinalIgnoreCase)))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (tagsToDelete.Count == 0)
+            {
+                continue;
+            }
+
+            await _apiService.UpdateTagsAsync(
+                file.Hash,
+                settings.TagServiceKey,
+                tagsToDelete,
+                [],
+                cancellationToken);
+
+            _logger.LogInformation(
+                "Removed {TagCount} structural tags from excluded page {Hash} in service {ServiceKey}",
+                tagsToDelete.Count,
+                file.Hash,
+                settings.TagServiceKey);
+        }
     }
 
     // ─── Private helpers ────────────────────────────────────────────────────

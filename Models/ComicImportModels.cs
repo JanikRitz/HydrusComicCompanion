@@ -48,6 +48,12 @@ public sealed class ImportPage
     /// Optional user-facing label for this variant.
     /// </summary>
     public string? VariantLabel { get; set; }
+
+    /// <summary>
+    /// Marks this page row as excluded from the next import request.
+    /// Excluded rows remain in the editor UI but are filtered out when importing.
+    /// </summary>
+    public bool IsExcluded { get; set; }
 }
 
 /// <summary>
@@ -162,6 +168,12 @@ public sealed class ComicImportRequest
     /// When non-empty, overrides <see cref="VolumeNumber"/> and resets chapter numbering at each entry.
     /// </summary>
     public List<VolumeStartEntry> VolumeStarts { get; set; } = [];
+
+    /// <summary>
+    /// Hydrus file hashes for rows the user excluded during chapter placement.
+    /// Used to clean up stale structural tags after import.
+    /// </summary>
+    public List<string> ExcludedPageHashes { get; set; } = [];
 }
 
 /// <summary>

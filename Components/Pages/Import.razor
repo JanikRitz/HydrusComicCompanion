@@ -131,6 +131,7 @@
                                   OnGroupWithPrevious="@HandleGroupWithPrevious"
                                   OnUngroupPage="@HandleUngroupPage"
                                   OnDefaultVariantSelected="@HandleDefaultVariantSelected"
+                                  OnPageExclusionChanged="@HandlePageExclusionChanged"
                                   OnImport="@StartImportAsync"
                                   OnBack="@_state.GoToMetadata" />
             break;
@@ -635,10 +636,22 @@
         _state.SetDefaultVariant(pageIndex);
     }
 
+    private void HandlePageExclusionChanged((int PageIndex, bool IsExcluded) args)
+    {
+        _state.SetPageExcluded(args.PageIndex, args.IsExcluded);
+    }
+
     // ─── Import Execution ───────────────────────────────────────────────
 
     private async Task StartImportAsync()
     {
+        if (!_state.HasIncludedPages)
+        {
+            _state.ErrorMessage = "At least one page must be included before importing.";
+            _state.CurrentStep = ImportWizardState.Step.Chapters;
+            return;
+        }
+
         _state.GoToProgress();
 
         var request = _state.BuildImportRequest();

@@ -10,7 +10,7 @@
         </MudText>
 
         <MudText Typo="Typo.caption" Color="Color.Secondary">
-            @LogicalPageCount logical page(s) · @Pages.Count file variant(s) · @ChapterSummary
+            @LogicalPageCount logical page(s) · @IncludedVariantCount included variant(s) · @ExcludedPageCount excluded · @ChapterSummary
         </MudText>
 
         <MudTable Items="@Pages" Dense="true" Hover="true" FixedHeader="true" Height="100%" Style="flex: 1 1 auto; min-height: 0;">
@@ -30,15 +30,16 @@
                             <MudIconButton Icon="@Icons.Material.Filled.DragIndicator"
                                            Variant="Variant.Text"
                                            Color="Color.Default"
+                                           Disabled="@context.IsExcluded"
                                            draggable="true"
                                            @ondragstart="@(() => OnDragStart(pageIndex))" />
                             <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp"
-                                           Disabled="@(pageIndex == 0)"
+                                           Disabled="@(pageIndex == 0 || context.IsExcluded)"
                                            Size="Size.Small"
                                            Variant="Variant.Text"
                                            OnClick="@(() => OnMoveClicked(pageIndex, pageIndex - 1))" />
                             <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown"
-                                           Disabled="@(pageIndex >= Pages.Count - 1)"
+                                           Disabled="@(pageIndex >= Pages.Count - 1 || context.IsExcluded)"
                                            Size="Size.Small"
                                            Variant="Variant.Text"
                                            OnClick="@(() => OnMoveClicked(pageIndex, pageIndex + 1))" />
@@ -47,14 +48,14 @@
                         {
                             <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
                                 <MudIconButton Icon="@Icons.Material.Filled.KeyboardDoubleArrowUp"
-                                               Disabled="@(pageIndex == GetChapterStartIndex(pageIndex))"
+                                               Disabled="@(pageIndex == GetChapterStartIndex(pageIndex) || context.IsExcluded)"
                                                Size="Size.Small"
                                                Variant="Variant.Text"
                                                Color="Color.Primary"
                                                Title="Move to chapter start"
                                                OnClick="@(() => OnMoveToChapterStart(pageIndex))" />
                                 <MudIconButton Icon="@Icons.Material.Filled.KeyboardDoubleArrowDown"
-                                               Disabled="@(pageIndex == GetChapterEndIndex(pageIndex))"
+                                               Disabled="@(pageIndex == GetChapterEndIndex(pageIndex) || context.IsExcluded)"
                                                Size="Size.Small"
                                                Variant="Variant.Text"
                                                Color="Color.Primary"
@@ -63,14 +64,14 @@
                                 @if (VolumeStartIndices.Count > 1)
                                 {
                                     <MudIconButton Icon="@Icons.Material.Filled.VerticalAlignTop"
-                                                   Disabled="@(pageIndex == GetVolumeStartIndex(pageIndex))"
+                                                   Disabled="@(pageIndex == GetVolumeStartIndex(pageIndex) || context.IsExcluded)"
                                                    Size="Size.Small"
                                                    Variant="Variant.Text"
                                                    Color="Color.Secondary"
                                                    Title="Move to volume start"
                                                    OnClick="@(() => OnMoveToVolumeStart(pageIndex))" />
                                     <MudIconButton Icon="@Icons.Material.Filled.VerticalAlignBottom"
-                                                   Disabled="@(pageIndex == GetVolumeEndIndex(pageIndex))"
+                                                   Disabled="@(pageIndex == GetVolumeEndIndex(pageIndex) || context.IsExcluded)"
                                                    Size="Size.Small"
                                                    Variant="Variant.Text"
                                                    Color="Color.Secondary"
@@ -101,10 +102,17 @@
                     }
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
-                    <MudText Typo="Typo.body1">@ComputeFinalPageNumber(pageIndex)</MudText>
-                    @if (context.GapBefore > 0)
+                    @if (context.IsExcluded)
                     {
-                        <MudText Typo="Typo.caption" Color="Color.Warning">+@context.GapBefore gap</MudText>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined">Excluded</MudChip>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body1">@ComputeFinalPageNumber(pageIndex)</MudText>
+                        @if (context.GapBefore > 0)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Warning">+@context.GapBefore gap</MudText>
+                        }
                     }
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
@@ -161,6 +169,7 @@
                                                Color="Color.Default"
                                                Title="Set as default variant"
                                                Variant="Variant.Text"
+                                               Disabled="@context.IsExcluded"
                                                OnClick="@(() => OnDefaultVariantClicked(pageIndex))" />
                             }
                         </MudStack>
@@ -170,6 +179,7 @@
                             <MudButton Size="Size.Small"
                                        Variant="Variant.Outlined"
                                        Color="Color.Secondary"
+                                       Disabled="@context.IsExcluded"
                                        OnClick="@(() => OnGroupWithPreviousClicked(pageIndex))">
                                 Group with previous
                             </MudButton>
@@ -179,11 +189,13 @@
                             <MudTextField @bind-Value="context.VariantLabel"
                                           Label="Variant label"
                                           Immediate="true"
+                                          Disabled="@context.IsExcluded"
                                           Variant="Variant.Outlined"
                                           Margin="Margin.Dense"/>
                             <MudButton Size="Size.Small"
                                        Variant="Variant.Text"
                                        Color="Color.Warning"
+                                       Disabled="@context.IsExcluded"
                                        OnClick="@(() => OnUngroupClicked(pageIndex))">
                                 Ungroup
                             </MudButton>
@@ -192,6 +204,12 @@
                 </MudTd>
                 <MudTd @ondragover:preventDefault="true" @ondrop="@(() => OnDrop(pageIndex))">
                     <MudStack Spacing="1">
+                        <MudButton Size="Size.Small"
+                                   Variant="Variant.Text"
+                                   Color="@(context.IsExcluded ? Color.Success : Color.Error)"
+                                   OnClick="@(() => OnTogglePageExcluded(pageIndex))">
+                            @(context.IsExcluded ? "Include" : "Exclude")
+                        </MudButton>
                         @if (!IsPrimaryVariant(pageIndex))
                         {
                             <MudText Typo="Typo.caption" Color="Color.Secondary">Shared with primary variant</MudText>
@@ -207,6 +225,7 @@
                                                      ValueChanged="@((int v) => OnVolumeNumberEdited(pageIndex, v))"
                                                      Immediate="true"
                                                      Min="1"
+                                                     Disabled="@context.IsExcluded"
                                                      Variant="Variant.Outlined"
                                                      Margin="Margin.Dense"
                                                      Style="max-width:70px;" />
@@ -216,6 +235,7 @@
                                                        Icon="@Icons.Material.Filled.Close"
                                                        Color="Color.Error"
                                                        Variant="Variant.Text"
+                                                       Disabled="@context.IsExcluded"
                                                        Title="Remove volume start"
                                                        OnClick="@(() => OnRemoveVolumeStart(pageIndex))" />
                                     }
@@ -231,6 +251,7 @@
                                     <MudButton Size="Size.Small"
                                                Color="Color.Error"
                                                Variant="Variant.Text"
+                                               Disabled="@context.IsExcluded"
                                                OnClick="@(() => OnRemoveChapterStart(pageIndex))">
                                         Remove Chapter
                                     </MudButton>
@@ -238,6 +259,7 @@
                                                    Icon="@Icons.Material.Filled.Upgrade"
                                                    Color="Color.Secondary"
                                                    Variant="Variant.Text"
+                                                   Disabled="@context.IsExcluded"
                                                    Title="Promote to volume start"
                                                    OnClick="@(() => OnAddVolumeStart(pageIndex))" />
                                 </MudStack>
@@ -248,12 +270,14 @@
                                     <MudButton Size="Size.Small"
                                                Color="Color.Primary"
                                                Variant="Variant.Outlined"
+                                               Disabled="@context.IsExcluded"
                                                OnClick="@(() => OnAddChapterStart(pageIndex))">
                                         New Chapter
                                     </MudButton>
                                     <MudButton Size="Size.Small"
                                                Color="Color.Secondary"
                                                Variant="Variant.Outlined"
+                                               Disabled="@context.IsExcluded"
                                                OnClick="@(() => OnAddVolumeStart(pageIndex))">
                                         New Volume
                                     </MudButton>
@@ -275,12 +299,14 @@
                                                    Icon="@Icons.Material.Filled.Remove"
                                                    Color="Color.Default"
                                                    Variant="Variant.Text"
+                                                   Disabled="@context.IsExcluded"
                                                    Title="Remove one gap"
                                                    OnClick="@(() => OnRemovePageGap(pageIndex))" />
                                     <MudIconButton Size="Size.Small"
                                                    Icon="@Icons.Material.Filled.Add"
                                                    Color="Color.Warning"
                                                    Variant="Variant.Text"
+                                                   Disabled="@context.IsExcluded"
                                                    Title="Add another gap"
                                                    OnClick="@(() => OnAddPageGap(pageIndex))" />
                                 </MudStack>
@@ -290,6 +316,7 @@
                                 <MudButton Size="Size.Small"
                                            Color="Color.Default"
                                            Variant="Variant.Outlined"
+                                           Disabled="@context.IsExcluded"
                                            OnClick="@(() => OnAddPageGap(pageIndex))">
                                     + Gap
                                 </MudButton>
@@ -307,6 +334,7 @@
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Success"
                            StartIcon="@Icons.Material.Filled.CloudUpload"
+                           Disabled="@(IncludedVariantCount == 0)"
                            OnClick="OnImportClicked">
                     @PrimaryActionLabel
                 </MudButton>
@@ -365,6 +393,9 @@
     public EventCallback<int> OnDefaultVariantSelected { get; set; }
 
     [Parameter]
+    public EventCallback<(int PageIndex, bool IsExcluded)> OnPageExclusionChanged { get; set; }
+
+    [Parameter]
     public EventCallback OnImport { get; set; }
 
     [Parameter]
@@ -391,7 +422,9 @@
             : $"{ChapterStartIndices.Count} chapter(s)"
         : "flat pages";
 
-    private int LogicalPageCount => Pages.Select(p => p.LogicalPageGroupId).Distinct().Count();
+    private int LogicalPageCount => Pages.Where(p => !p.IsExcluded).Select(p => p.LogicalPageGroupId).Distinct().Count();
+    private int IncludedVariantCount => Pages.Count(p => !p.IsExcluded);
+    private int ExcludedPageCount => Pages.Count(p => p.IsExcluded);
 
     private string GetFullImageSource(ImportPage page, string fallbackSource)
     {
@@ -587,7 +620,11 @@
         }
 
         var groupId = Pages[pageIndex].LogicalPageGroupId;
-        var primaryIndex = FindPrimaryVariantIndex(groupId);
+        var primaryIndex = FindPrimaryIncludedVariantIndex(groupId);
+        if (primaryIndex < 0)
+        {
+            return 0;
+        }
 
         var chapterStart = 0;
         if (UseChapterTags && ChapterStartIndices.Count > 0)
@@ -602,7 +639,7 @@
         var gapCount = 0;
         for (var i = chapterStart; i <= primaryIndex; i++)
         {
-            if (!IsPrimaryVariant(i))
+            if (!IsPrimaryVariant(i) || Pages[i].IsExcluded)
             {
                 continue;
             }
@@ -635,6 +672,19 @@
         }
 
         return 0;
+    }
+
+    private int FindPrimaryIncludedVariantIndex(int logicalPageGroupId)
+    {
+        for (var i = 0; i < Pages.Count; i++)
+        {
+            if (Pages[i].LogicalPageGroupId == logicalPageGroupId && !Pages[i].IsExcluded)
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private bool CanGroupWithPrevious(int pageIndex)
@@ -676,6 +726,16 @@
     private async Task OnDefaultVariantClicked(int pageIndex)
     {
         await OnDefaultVariantSelected.InvokeAsync(pageIndex);
+    }
+
+    private async Task OnTogglePageExcluded(int pageIndex)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        await OnPageExclusionChanged.InvokeAsync((pageIndex, !Pages[pageIndex].IsExcluded));
     }
 
     private async Task OnImportClicked()

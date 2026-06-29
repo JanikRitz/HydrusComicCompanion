@@ -1071,7 +1071,7 @@ public class HydrusSyncService : IHydrusSyncService
         var useConfiguredTagService = ShouldUseConfiguredTagServiceForStructuralTags(fileMetadata, settings);
 
         return fileMetadata
-            .Select(file =>
+            .Select((file, idx) =>
             {
                 var structuralTags = GetStructuralTags(file, settings, useConfiguredTagService);
                 if (structuralTags.Count == 0)
@@ -1090,7 +1090,8 @@ public class HydrusSyncService : IHydrusSyncService
                 if (!pageNumber.HasValue)
                 {
                     _logger.LogWarning("File {Hash} is missing a page tag in the structural tag service and will be skipped.", file.Hash);
-                    return null;
+                    pageNumber = idx; // use position as page instead of excluding it entirely, works well for not paged, works semi when there are already some pages
+                    // return null;
                 }
 
                 var alternateValue = ExtractNamespaceValue(structuralTags, settings.AlternatePageNamespace)?.Trim();

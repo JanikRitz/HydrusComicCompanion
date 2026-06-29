@@ -91,6 +91,9 @@ public class ImportWizardState
     public bool IsPreloadingThumbnails { get; set; }
     public bool UseChapterTags { get; set; } = true;
 
+    public bool HasIncludedPages => Pages.Any(p => !p.IsExcluded);
+    public int IncludedPageCount => Pages.Count(p => !p.IsExcluded);
+
     private int _nextLogicalPageGroupId = 1;
 
     // ─── Metadata Fields ────────────────────────────────────────────────
@@ -325,6 +328,7 @@ public class ImportWizardState
         foreach (var p in Pages)
         {
             p.PageNumber = null;
+            p.IsExcluded = false;
         }
 
         PageThumbnailDataUrls = [];
@@ -457,6 +461,22 @@ public class ImportWizardState
         EnsureSingleDefaultVariant(groupId, pageIndex);
     }
 
+    public void SetPageExcluded(int pageIndex, bool isExcluded)
+    {
+        if (pageIndex < 0 || pageIndex >= Pages.Count)
+        {
+            return;
+        }
+
+        if (Pages[pageIndex].IsExcluded == isExcluded)
+        {
+            return;
+        }
+
+        Pages[pageIndex].IsExcluded = isExcluded;
+        EnsureIncludedDefaultVariant(Pages[pageIndex].LogicalPageGroupId);
+    }
+
     // ─── Page Gap Management ─────────────────────────────────────────────
 
     /// <summary>Returns true when the page at <paramref name="pageIndex"/> has at least one gap marker.</summary>
@@ -495,8 +515,13 @@ public class ImportWizardState
             return pageIndex + 1;
         }
 
+        if (Pages[pageIndex].IsExcluded)
+        {
+            return 0;
+        }
+
         var groupId = Pages[pageIndex].LogicalPageGroupId;
-        var primaryIndex = FindPrimaryVariantIndex(groupId);
+        var primaryIndex = FindPrimaryIncludedVariantIndex(groupId);
         return ComputeFinalPageNumberCore(primaryIndex);
     }
 
@@ -504,7 +529,7 @@ public class ImportWizardState
     {
         if (pageIndex < 0 || pageIndex >= Pages.Count)
         {
-            return pageIndex + 1;
+            return 0;
         }
 
         var chapterStart = 0;
@@ -520,7 +545,7 @@ public class ImportWizardState
         var gapCount = 0;
         for (var i = chapterStart; i <= pageIndex; i++)
         {
-            if (!IsPrimaryVariant(i))
+            if (!IsPrimaryVariant(i) || Pages[i].IsExcluded)
             {
                 continue;
             }
@@ -706,6 +731,43 @@ public class ImportWizardState
         return 0;
     }
 
+    private int FindPrimaryIncludedVariantIndex(int groupId)
+    {
+        for (var i = 0; i < Pages.Count; i++)
+        {
+            if (Pages[i].LogicalPageGroupId == groupId && !Pages[i].IsExcluded)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private void EnsureIncludedDefaultVariant(int groupId)
+    {
+        var includedIndexes = Pages
+            .Select((page, index) => new { page, index })
+            .Where(x => x.page.LogicalPageGroupId == groupId && !x.page.IsExcluded)
+            .Select(x => x.index)
+            .ToList();
+
+        if (includedIndexes.Count == 0)
+        {
+            return;
+        }
+
+        var selectedDefaultIndex = includedIndexes
+            .Where(i => Pages[i].IsDefaultVariant)
+            .Select(i => (int?)i)
+            .FirstOrDefault() ?? includedIndexes[0];
+
+        foreach (var i in includedIndexes)
+        {
+            Pages[i].IsDefaultVariant = i == selectedDefaultIndex;
+        }
+    }
+
     private void EnsureSingleDefaultVariant(int groupId, int defaultIndex)
     {
         var hasGroup = false;
@@ -801,22 +863,76 @@ public class ImportWizardState
 
     public ComicImportRequest BuildImportRequest()
     {
-        // Compute final page numbers and snapshot into a new list so the wizard state is not mutated.
-        var pagesWithNumbers = Pages
-            .Select((p, i) => new ImportPage
+        var includedPages = Pages
+            .Select((p, index) => new { Page = p, OriginalIndex = index })
+            .Where(x => !x.Page.IsExcluded)
+            .ToList();
+
+        if (includedPages.Count == 0)
+        {
+            throw new InvalidOperationException("At least one page must be included before importing.");
+        }
+
+        var chapterStarts = UseChapterTags
+            ? ChapterStartIndices.Where(i => i >= 0 && i < Pages.Count).Distinct().OrderBy(i => i).ToList()
+            : [];
+
+        var remappedChapterStarts = new Dictionary<int, int>();
+        var remappedVolumeStarts = new Dictionary<int, (int NewIndex, int VolumeNumber)>();
+        var orderedVolumeStarts = VolumeStartIndices.OrderBy(kv => kv.Key).ToList();
+
+        var pagesWithNumbers = includedPages
+            .Select((entry, newIndex) =>
             {
-                Index = p.Index,
-                ArchiveFileName = p.ArchiveFileName,
-                Data = p.Data,
-                Sha256Hash = p.Sha256Hash,
-                MimeType = p.MimeType,
-                GapBefore = p.GapBefore,
-                LogicalPageGroupId = p.LogicalPageGroupId,
-                IsDefaultVariant = p.IsDefaultVariant,
-                VariantLabel = p.VariantLabel,
-                PageNumber = ComputeFinalPageNumber(i)
+                var originalIndex = entry.OriginalIndex;
+                var chapterStart = chapterStarts.Count > 0
+                    ? chapterStarts.Where(s => s <= originalIndex).DefaultIfEmpty(0).Max()
+                    : 0;
+
+                if (!remappedChapterStarts.ContainsKey(chapterStart))
+                {
+                    remappedChapterStarts[chapterStart] = newIndex;
+                }
+
+                if (orderedVolumeStarts.Count > 0)
+                {
+                    var activeVolumeStart = orderedVolumeStarts
+                        .Where(kv => kv.Key <= originalIndex)
+                        .Select(kv => (Key: (int?)kv.Key, Value: (int?)kv.Value))
+                        .LastOrDefault();
+
+                    if (activeVolumeStart.Key.HasValue && activeVolumeStart.Value.HasValue
+                        && !remappedVolumeStarts.ContainsKey(activeVolumeStart.Key.Value))
+                    {
+                        remappedVolumeStarts[activeVolumeStart.Key.Value] = (newIndex, activeVolumeStart.Value.Value);
+                    }
+                }
+
+                return new ImportPage
+                {
+                    Index = newIndex,
+                    ArchiveFileName = entry.Page.ArchiveFileName,
+                    Data = entry.Page.Data,
+                    Sha256Hash = entry.Page.Sha256Hash,
+                    MimeType = entry.Page.MimeType,
+                    GapBefore = entry.Page.GapBefore,
+                    LogicalPageGroupId = entry.Page.LogicalPageGroupId,
+                    IsDefaultVariant = entry.Page.IsDefaultVariant,
+                    VariantLabel = entry.Page.VariantLabel,
+                    IsExcluded = false,
+                    PageNumber = ComputeFinalPageNumber(originalIndex)
+                };
             })
             .ToList();
+
+        foreach (var group in pagesWithNumbers.GroupBy(p => p.LogicalPageGroupId))
+        {
+            var defaultVariant = group.FirstOrDefault(p => p.IsDefaultVariant) ?? group.First();
+            foreach (var page in group)
+            {
+                page.IsDefaultVariant = ReferenceEquals(page, defaultVariant);
+            }
+        }
 
         return new ComicImportRequest
         {
@@ -832,11 +948,17 @@ public class ImportWizardState
                     .Where(tag => !string.IsNullOrWhiteSpace(tag))
                     .Distinct(StringComparer.OrdinalIgnoreCase)],
             ChapterStartPageIndices = UseChapterTags
-                ? [.. ChapterStartIndices.Where(i => i >= 0 && i < Pages.Count).OrderBy(i => i)]
+                ? [.. remappedChapterStarts.Values.OrderBy(i => i)]
                 : [],
-            VolumeStarts = VolumeStartIndices.Count > 0
-                ? [.. VolumeStartIndices.OrderBy(kv => kv.Key).Select(kv => new VolumeStartEntry { PageIndex = kv.Key, VolumeNumber = kv.Value })]
-                : []
+            VolumeStarts = remappedVolumeStarts.Count > 0
+                ? [.. remappedVolumeStarts.Values
+                    .OrderBy(v => v.NewIndex)
+                    .Select(v => new VolumeStartEntry { PageIndex = v.NewIndex, VolumeNumber = v.VolumeNumber })]
+                : [],
+            ExcludedPageHashes = [.. Pages
+                .Where(p => p.IsExcluded && !string.IsNullOrWhiteSpace(p.Sha256Hash))
+                .Select(p => p.Sha256Hash.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)]
         };
     }
 }
