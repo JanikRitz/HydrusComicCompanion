@@ -158,6 +158,162 @@ public class HydrusSyncService : IHydrusSyncService
     }
 
     /// <summary>
+    /// Syncs only titles that already exist in the local cache database.
+    /// </summary>
+    public async Task<int> SyncOcrOnExistingLibrariesAsync(IOcrReader ocrReader, IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var syncedCount = 0;
+
+        try
+        {
+            _logger.LogInformation("Starting ocr sync on known comics");
+
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var existingComicTitles = await dbContext.Comic
+                .AsNoTracking()
+                .Select(s => s.Title)
+                .Where(title => !string.IsNullOrWhiteSpace(title))
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            _logger.LogInformation("Found {Count} existing titles in local cache", existingComicTitles.Count);
+
+            progress?.Report(new SyncProgressUpdate { Current = 0, Total = existingComicTitles.Count });
+
+            for (var index = 0; index < existingComicTitles.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var comicTitle = existingComicTitles[index];
+                progress?.Report(new SyncProgressUpdate
+                {
+                    Current = index + 1,
+                    Total = existingComicTitles.Count,
+                    CurrentTitle = comicTitle
+                });
+
+                try
+                {
+                    var comicId = await OcrSyncComic(ocrReader, comicTitle, cancellationToken);
+                    
+                    if (comicId.HasValue)
+                    {
+                        syncedCount++;
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error syncing existing title: {ComicTitle}", comicTitle);
+                }
+            }
+
+            _logger.LogInformation("Completed existing libraries sync: {SyncedCount} titles synchronized", syncedCount);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("Existing libraries sync was canceled after syncing {SyncedCount} titles", syncedCount);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during existing libraries sync");
+            throw;
+        }
+
+        return syncedCount;
+    }
+
+    /// <summary>
+    /// Syncs a specific title: fetches all files tagged with the title and structures them.
+    /// Implements fallback: if no files found with configured tag service, retries with default tag service.
+    /// </summary>
+    private async Task<int?> OcrSyncComic(IOcrReader reader, string comicTitle, CancellationToken cancellationToken)
+
+    {
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        var normalizedComicTitle = NormalizeTitleName(comicTitle, settings);
+
+        if (string.IsNullOrWhiteSpace(normalizedComicTitle))
+        {
+            throw new ArgumentException("Title name cannot be empty.", nameof(comicTitle));
+        }
+
+        try
+        {
+            _logger.LogInformation("Syncing OCR for title: {ComicTitle}", normalizedComicTitle);
+
+            // Build the title search tag
+            var titleTag = BuildTitleTag(normalizedComicTitle, settings);
+
+            // Step 1: Search for files with this title tag
+            var fileIds = await _apiService.SearchFilesAsync(new List<string> { titleTag }, cancellationToken: cancellationToken);
+
+            // Fallback: if no files found with configured tag service, retry with default tag service
+            if (fileIds.Count == 0 && !string.IsNullOrWhiteSpace(settings.TagServiceKey))
+            {
+                _logger.LogInformation("No files found for title {ComicTitle} with configured tag service. Retrying with default tag service.", normalizedComicTitle);
+                fileIds = await _apiService.SearchFilesAsync(new List<string> { titleTag }, fileDomain: null, skipTagService: true, cancellationToken: cancellationToken);
+            }
+
+            if (fileIds.Count == 0)
+            {
+                _logger.LogWarning("No files found for title: {ComicTitle}", normalizedComicTitle);
+                return null;
+            }
+
+            _logger.LogInformation("Found {Count} files for title {ComicTitle}", fileIds.Count, normalizedComicTitle);
+
+            var fileHashes = await _apiService.GetHashesAsync(fileIds, cancellationToken);
+
+            foreach (var fileHash in fileHashes)
+            {
+                var path = await _apiService.GetFilePathAsync(fileHash, cancellationToken);
+                var text = await reader.ReadOcrPlaintextForFileAsync(path, cancellationToken);
+
+                if(string.IsNullOrEmpty(path) || string.IsNullOrEmpty(text)) continue;
+
+                // Set OCR text as note on Hydrus
+                await _apiService.SetNotesAsync(fileHash, new Dictionary<string, string>() {{settings.OcrTextNoteName, text}});
+
+                // Cache the OCR text in local database
+                await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+                
+                var comic = await dbContext.Comic
+                    .Include(s => s.Chapters)
+                    .ThenInclude(c => c.Pages)
+                    .ThenInclude(p => p.Variants)
+                    .FirstOrDefaultAsync(s => s.Title == normalizedComicTitle, cancellationToken);
+
+                if (comic != null)
+                {
+                    // Find the page variant matching this file hash and update OCR text
+                    var variant = comic.Chapters
+                        .SelectMany(c => c.Pages)
+                        .SelectMany(p => p.Variants)
+                        .FirstOrDefault(v => v.FileHash == fileHash);
+
+                    if (variant != null)
+                    {
+                        variant.OcrText = text;
+                        await dbContext.SaveChangesAsync(cancellationToken);
+                    }
+                }
+            }
+
+            return fileIds.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error syncing title: {ComicTitle}", normalizedComicTitle);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Extracts a Hydrus title into pages plus initial metadata/chapter state for the import UI.
     /// Implements fallback: if no files found with configured tag service, retries with default tag service.
     /// </summary>

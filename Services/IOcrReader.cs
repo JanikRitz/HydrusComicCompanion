@@ -2,8 +2,8 @@
 {
     public interface IOcrReader
     {
-        public OcrData ReadOcrDataForFile(string path);
-        public string ReadOcrPlaintextForFile(string path, IEnumerable<string>? textTypesToExclude = null);
+        public Task<OcrData?> ReadOcrDataForFileAsync(string path, CancellationToken cancellationToken);
+        public Task<string?> ReadOcrPlaintextForFileAsync(string path, CancellationToken cancellationToken, IEnumerable<string>? textTypesToExclude = null);
     }
 
     public struct OcrData

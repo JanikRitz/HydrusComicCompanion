@@ -37,6 +37,28 @@ public class FileSearchResponse
 }
 
 /// <summary>
+/// Response from Hydrus file search endpoint
+/// </summary>
+public class MetadataIdentifierOnlyResponse
+{
+    [JsonPropertyName("services")]
+    public JsonElement Services { get; set; }
+
+    [JsonPropertyName("metadata")]
+    public List<IdentifierMetadata> Metadata { get; set; } = new();
+}
+
+/// <summary>
+/// Individual file metadata when only requesting identifiers
+/// </summary>
+public class IdentifierMetadata
+{
+    [JsonPropertyName("file_id")] public long FileId { get; set; }
+
+    [JsonPropertyName("hash")] public string Hash { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// File metadata response from Hydrus
 /// </summary>
 public class FileMetadataResponse

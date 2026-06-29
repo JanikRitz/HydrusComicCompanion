@@ -5,6 +5,7 @@
 @inject NavigationManager NavigationManager
 @inject IHydrusSyncService SyncService
 @inject IDialogService DialogService
+@inject IOcrReader OcrReader
 @inject ISnackbar Snackbar
 
 <PageTitle>Library</PageTitle>
@@ -141,10 +142,25 @@
     else
     {
         <MudStack Spacing="2">
+            @if (TotalPages > 1)
+            {
+                <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="gap: 12px;">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        Showing @StartItemIndex-@EndItemIndex of @_totalComicsCount titles
+                    </MudText>
+                    <MudPagination Count="@TotalPages"
+                                   Selected="@_currentPage"
+                                   SelectedChanged="OnPageChanged"/>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        Showing @StartItemIndex-@EndItemIndex of @_totalComicsCount titles
+                    </MudText>
+                </MudStack>
+            }
+
             <MudGrid Spacing="3">
                 @foreach (var comic in _comics)
                 {
-                    <MudItem xs="12" sm="6" md="4" lg="3">
+                    <MudItem xs="12" sm="8" md="4" lg="3" xxl="2">
                         <ComicCard
                             Title="@GetComicCardTitle(comic)"
                             CoverFileHash="@comic.CoverFileHash"
@@ -153,20 +169,23 @@
                             MetadataCount="@comic.MetadataCount"
                             TotalPageCount="@comic.TotalPageCount"
                             OnClick="() => OpenComic(comic.Id)"
-                            OnDelete="() => DeleteComicAsync(comic.Id, GetComicCardTitle(comic))" />
+                            OnDelete="() => DeleteComicAsync(comic.Id, GetComicCardTitle(comic))"/>
                     </MudItem>
                 }
             </MudGrid>
 
             @if (TotalPages > 1)
             {
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="gap: 12px;">
+                <MudStack Row AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Style="gap: 12px;">
                     <MudText Typo="Typo.body2" Color="Color.Secondary">
                         Showing @StartItemIndex-@EndItemIndex of @_totalComicsCount titles
                     </MudText>
                     <MudPagination Count="@TotalPages"
                                    Selected="@_currentPage"
-                                   SelectedChanged="OnPageChanged" />
+                                   SelectedChanged="OnPageChanged"/>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        Showing @StartItemIndex-@EndItemIndex of @_totalComicsCount titles
+                    </MudText>
                 </MudStack>
             }
         </MudStack>
@@ -402,6 +421,7 @@
     private async Task ResetFiltersAsync()
     {
         _titleFilter = string.Empty;
+        _ocrFilter = string.Empty;
         _tagFilter = string.Empty;
         _commentFilter = string.Empty;
         _minVolumes = null;
@@ -484,7 +504,7 @@
 
         try
         {
-            // TODO: _syncedComicsCount = await SyncService.SyncExistingLibrariesAsync(progress, cancellationSource.Token);
+            _syncedComicsCount = await SyncService.SyncOcrOnExistingLibrariesAsync(OcrReader, progress, cancellationSource.Token);
             _lastSyncTime = DateTime.Now;
         }
         catch (OperationCanceledException) when (cancellationSource.IsCancellationRequested)

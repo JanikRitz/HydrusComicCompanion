@@ -61,6 +61,14 @@ public interface IHydrusSyncService
     Task<int> SyncExistingLibrariesAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Syncs only series that already exist in the local library cache.
+    /// </summary>
+    /// <param name="progress">Optional progress callback for current title and counts.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Number of existing titles synchronized</returns>
+    Task<int> SyncOcrOnExistingLibrariesAsync(IOcrReader ocrReader, IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets the count of unsynced comics
     /// </summary>
     Task<int> GetUnsyncedComicsCountAsync(CancellationToken cancellationToken = default);

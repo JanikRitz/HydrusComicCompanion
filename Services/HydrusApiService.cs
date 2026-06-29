@@ -608,6 +608,70 @@ public class HydrusApiService : IHydrusApiService
         }
     }
 
+    public async Task<List<string>> GetHashesAsync(List<long> fileIds, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+
+            // Hydrus API expects arguments as percent-encoded JSON query parameters (GET), not a JSON body.
+            // Example: /get_files/file_metadata?file_ids=%5B123%2C%204567%5D&only_return_identifiers=true
+            var fileIdsJson = JsonSerializer.Serialize(fileIds);
+            var encodedFileIds = Uri.EscapeDataString(fileIdsJson);
+
+            var url = $"{settings.ApiUrl}/get_files/file_metadata?file_ids={encodedFileIds}&only_return_identifiers=true";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            AddApiKeyHeader(request, settings);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+                return JsonSerializer.Deserialize<MetadataIdentifierOnlyResponse>(responseJson)?.Metadata.Select(ids => ids.Hash).ToList() ?? [];
+            }
+
+            _logger.LogWarning("Hydrus API connection failed with status code: {StatusCode}", response.StatusCode);
+            return [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file hashes for {FileIds}", string.Join(", ", fileIds));
+            return [];
+        }
+    }
+
+    public record struct FilePathRespone(string path, string filetype, int size);
+
+    public async Task<string> GetFilePathAsync(string fileHash, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/get_files/file_path?hash={fileHash}";
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            AddApiKeyHeader(request, settings);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                var result = JsonSerializer.Deserialize<FilePathRespone?>(jsonContent) ?? new FilePathRespone();
+                return result.path;
+            }
+
+            _logger.LogWarning("Hydrus API connection failed with status code: {StatusCode}", response.StatusCode);
+            return "";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting file path for {FileId}", fileHash);
+            return "";
+        }
+    }
+
     /// <summary>
     /// Uploads raw file bytes to Hydrus via POST /add_files/add_file.
     /// </summary>

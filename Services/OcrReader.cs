@@ -11,16 +11,27 @@ public class OcrReader : IOcrReader
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public OcrData ReadOcrDataForFile(string path)
+    public async Task<OcrData?> ReadOcrDataForFileAsync(string path, CancellationToken cancellationToken)
     {
-        var json = File.ReadAllText(path);
+        var readerPath = path;
+        if (!path.EndsWith(".ocr.json", StringComparison.OrdinalIgnoreCase))
+            readerPath = Path.ChangeExtension(path, ".ocr.json");
+
+        if (!Path.Exists(readerPath))
+            return null;
+
+        var json = await File.ReadAllTextAsync(readerPath, cancellationToken);
         return JsonSerializer.Deserialize<OcrData>(json, JsonOptions)!;
     }
 
-    public string ReadOcrPlaintextForFile(string path, IEnumerable<string>? textTypesToExclude = null)
+    public async Task<string?> ReadOcrPlaintextForFileAsync(string path, CancellationToken cancellationToken, IEnumerable<string>? textTypesToExclude = null)
     {
-        var excludeSet = (textTypesToExclude ?? new[] { "WATERMARK" }).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var data = ReadOcrDataForFile(path);
+        var excludeSet = (textTypesToExclude ?? new[] { "WATERMARK", "ARTIST SIGNATURE", "PLATFORM SIGNATURE" }).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var uncheckedData = await ReadOcrDataForFileAsync(path, cancellationToken);
+
+        if (uncheckedData is null) return null;
+
+        var data = (OcrData) uncheckedData!;
 
         // Order blocks by their "order" property, join segments with space, then join blocks with newline
         var lines = new List<string>();

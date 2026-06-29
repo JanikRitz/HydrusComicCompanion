@@ -176,10 +176,13 @@ public interface IHydrusApiService
         bool extendExistingNoteIfPossible = true,
         int conflictResolution = 3,
         CancellationToken cancellationToken = default);
-
+    
     /// <summary>
     /// Tests the Hydrus API connection
     /// </summary>
     /// <returns>True if connection is successful</returns>
     Task<bool> TestConnectionAsync(CancellationToken cancellationToken = default);
+
+    Task<List<string>> GetHashesAsync(List<long> fileIds, CancellationToken cancellationToken);
+    Task<string> GetFilePathAsync(string fileHash, CancellationToken cancellationToken);
 }
