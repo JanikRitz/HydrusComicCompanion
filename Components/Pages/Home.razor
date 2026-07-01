@@ -197,6 +197,11 @@
         public int TotalPageCount { get; init; }
     }
 
+    private record FilterSnapshot(
+        string Title, string Tag, string Comment, string Ocr,
+        int? MinVol, int? MaxVol, int? MinCh, int? MaxCh, int? MinPg, int? MaxPg,
+        int Page);
+
     private const int PageSize = 12;
     private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
 
@@ -210,6 +215,19 @@
         CloseOnEscapeKey = false
     };
 
+    [Parameter][SupplyParameterFromQuery(Name = "title")] public string? TitleQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "tag")] public string? TagQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "comment")] public string? CommentQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "ocr")] public string? OcrQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "minVol")] public int? MinVolumesQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "maxVol")] public int? MaxVolumesQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "minCh")] public int? MinChaptersQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "maxCh")] public int? MaxChaptersQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "minPg")] public int? MinPagesQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "maxPg")] public int? MaxPagesQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "page")] public int? PageQuery { get; set; }
+
+    private FilterSnapshot? _lastLoadedFilter;
     private List<ComicsCardItem> _comics = [];
     private bool _isLoading = true;
     private bool _isSyncing;
@@ -255,8 +273,37 @@
         ? "No titles are cached yet. Use the settings page to connect Hydrus, then add the discovery and sync flow."
         : "No titles matched your current search and filters.";
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
+        var current = new FilterSnapshot(
+            TitleQuery ?? string.Empty,
+            TagQuery ?? string.Empty,
+            CommentQuery ?? string.Empty,
+            OcrQuery ?? string.Empty,
+            MinVolumesQuery,
+            MaxVolumesQuery,
+            MinChaptersQuery,
+            MaxChaptersQuery,
+            MinPagesQuery,
+            MaxPagesQuery,
+            PageQuery ?? 1);
+
+        if (_lastLoadedFilter == current)
+            return;
+
+        _lastLoadedFilter = current;
+        _titleFilter = current.Title;
+        _tagFilter = current.Tag;
+        _commentFilter = current.Comment;
+        _ocrFilter = current.Ocr;
+        _minVolumes = current.MinVol;
+        _maxVolumes = current.MaxVol;
+        _minChapters = current.MinCh;
+        _maxChapters = current.MaxCh;
+        _minTotalPages = current.MinPg;
+        _maxTotalPages = current.MaxPg;
+        _currentPage = current.Page;
+
         await LoadComicsAsync();
     }
 
@@ -405,26 +452,14 @@
         }
     }
 
-    private async Task ApplyFiltersAsync()
+    private void ApplyFiltersAsync()
     {
-        _currentPage = 1;
-        await LoadComicsAsync();
+        NavigationManager.NavigateTo(BuildQueryUrl());
     }
 
-    private async Task ResetFiltersAsync()
+    private void ResetFiltersAsync()
     {
-        _titleFilter = string.Empty;
-        _ocrFilter = string.Empty;
-        _tagFilter = string.Empty;
-        _commentFilter = string.Empty;
-        _minVolumes = null;
-        _maxVolumes = null;
-        _minChapters = null;
-        _maxChapters = null;
-        _minTotalPages = null;
-        _maxTotalPages = null;
-        _currentPage = 1;
-        await LoadComicsAsync();
+        NavigationManager.NavigateTo(NavigationManager.BaseUri);
     }
 
     private async Task SyncNow()
@@ -517,15 +552,29 @@
         }
     }
 
-    private async Task OnPageChanged(int page)
+    private void OnPageChanged(int page)
     {
         if (page == _currentPage)
-        {
             return;
-        }
 
-        _currentPage = page;
-        await LoadComicsAsync();
+        NavigationManager.NavigateTo(BuildQueryUrl(page));
+    }
+
+    private string BuildQueryUrl(int page = 1)
+    {
+        var queryParams = new Dictionary<string, object?>();
+        if (!string.IsNullOrWhiteSpace(_titleFilter)) queryParams["title"] = _titleFilter.Trim();
+        if (!string.IsNullOrWhiteSpace(_tagFilter)) queryParams["tag"] = _tagFilter.Trim();
+        if (!string.IsNullOrWhiteSpace(_commentFilter)) queryParams["comment"] = _commentFilter.Trim();
+        if (!string.IsNullOrWhiteSpace(_ocrFilter)) queryParams["ocr"] = _ocrFilter.Trim();
+        if (_minVolumes.HasValue) queryParams["minVol"] = _minVolumes;
+        if (_maxVolumes.HasValue) queryParams["maxVol"] = _maxVolumes;
+        if (_minChapters.HasValue) queryParams["minCh"] = _minChapters;
+        if (_maxChapters.HasValue) queryParams["maxCh"] = _maxChapters;
+        if (_minTotalPages.HasValue) queryParams["minPg"] = _minTotalPages;
+        if (_maxTotalPages.HasValue) queryParams["maxPg"] = _maxTotalPages;
+        if (page > 1) queryParams["page"] = page;
+        return NavigationManager.GetUriWithQueryParameters(NavigationManager.BaseUri, queryParams);
     }
 
     private string GetComicCardTitle(ComicsCardItem comic)
