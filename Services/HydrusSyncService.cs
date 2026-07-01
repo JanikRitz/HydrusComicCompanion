@@ -1310,26 +1310,33 @@ public class HydrusSyncService : IHydrusSyncService
             var infoTags = file.GetStorageTagsExcludingService(settings.TagServiceKey);
             foreach (var tag in infoTags)
             {
-                // Extract metadata namespace:value tags (e.g., creator:Neil Gaiman)
                 var colonIndex = tag.IndexOf(':');
+                string ns, value;
+
                 if (colonIndex > 0)
                 {
-                    var ns = tag[..colonIndex];
-                    var value = tag[(colonIndex + 1)..];
+                    ns = tag[..colonIndex];
+                    value = tag[(colonIndex + 1)..];
 
                     // Skip known structural namespaces
                     if (IsStructuralNamespace(ns, settings))
                     {
                         continue;
                     }
-
-                    if (!metadataDict.ContainsKey(ns))
-                    {
-                        metadataDict[ns] = new HashSet<string>();
-                    }
-
-                    metadataDict[ns].Add(value);
                 }
+                else
+                {
+                    // Bare tag with no namespace (e.g. "manga", "english")
+                    ns = string.Empty;
+                    value = tag;
+                }
+
+                if (!metadataDict.ContainsKey(ns))
+                {
+                    metadataDict[ns] = new HashSet<string>();
+                }
+
+                metadataDict[ns].Add(value);
             }
         }
 
