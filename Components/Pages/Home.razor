@@ -152,6 +152,7 @@
                 {
                     <MudItem xs="12" sm="8" md="4" lg="3" xxl="2">
                         <ComicCard
+                            @key="@comic.Id"
                             Title="@GetComicCardTitle(comic)"
                             CoverFileHash="@comic.CoverFileHash"
                             LastSyncedAt="@comic.LastSyncedAt"

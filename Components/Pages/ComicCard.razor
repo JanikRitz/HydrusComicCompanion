@@ -3,7 +3,8 @@
 
 <div class="comic-card @(IsClickable ? "comic-card--clickable" : string.Empty)"
      @onclick="HandleClick"
-     role="@(IsClickable ? "button" : null)">
+     role="@(IsClickable ? "button" : null)"
+     @key=@CoverFileHash>
     <MudCard Outlined="true" Class="comic-card__surface">
         <div class="comic-card__media-wrap">
             @if (!string.IsNullOrWhiteSpace(CoverFileHash))
