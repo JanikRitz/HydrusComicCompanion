@@ -91,7 +91,7 @@ else
                     <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
                         @foreach (var item in _comic.Metadata)
                         {
-                            <MudChip T="string" Variant="Variant.Outlined">@item.Key: @item.Value</MudChip>
+                            <MudChip T="string" Variant="Variant.Outlined" Href="@($"./?tag={Uri.EscapeDataString($"{@item.Key}:{item.Value}")}")">@item.Key: @item.Value</MudChip>
                         }
                     </MudStack>
                 }

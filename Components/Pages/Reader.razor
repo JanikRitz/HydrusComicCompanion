@@ -56,7 +56,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                                 <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="reader-topbar__tags">
                                     @foreach (var tag in _currentPageTags)
                                     {
-                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@tag</MudChip>
+                                        <MudChip T="string" Variant="Variant.Outlined" Href="@($"./?tag={Uri.EscapeDataString($"{tag}")}")">@tag</MudChip>
                                     }
                                 </MudStack>
                             </MudExpansionPanel>
