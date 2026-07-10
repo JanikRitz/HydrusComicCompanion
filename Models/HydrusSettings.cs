@@ -28,6 +28,8 @@ public sealed class HydrusSettings
 
     public string CoverPageTag { get; set; } = "meta:cover page";
 
+    public string SinglePageComicTag { get; set; } = "meta:single page comic";
+
     public string FullTitleNoteName { get; set; } = "title";
 
     public string ComicCommentNoteName { get; set; } = "comment";
@@ -53,6 +55,7 @@ public sealed class HydrusSettings
             AlternatePageNamespace = AlternatePageNamespace,
             AlternatePageDefaultValue = AlternatePageDefaultValue,
             CoverPageTag = CoverPageTag,
+            SinglePageComicTag = SinglePageComicTag,
             FullTitleNoteName = FullTitleNoteName,
             ComicCommentNoteName = ComicCommentNoteName,
             OcrTextNoteName = OcrTextNoteName,

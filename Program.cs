@@ -229,7 +229,7 @@ app.MapGet("/media/render/{hash}", async (
 .Produces(304)
 .Produces(400);
 
-app.MapGet("/media/file/{hash}", async (string hash, bool download, IHydrusMediaService mediaService, CancellationToken cancellationToken) =>
+app.MapGet("/media/file/{hash}", async (string hash, IHydrusMediaService mediaService, CancellationToken cancellationToken, bool download = false) =>
 {
     try
     {

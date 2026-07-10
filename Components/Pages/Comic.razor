@@ -7,6 +7,7 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 @inject IHydrusApiService ApiService
+@inject IHydrusMediaService MediaService
 @inject IHydrusSettingsService SettingsService
 
 <PageTitle>Title</PageTitle>
@@ -25,84 +26,89 @@ else if (_comic is null)
 else
 {
     <MudStack Spacing="3" Class="pa-4">
-        <MudPaper Class="pa-4" Outlined="true">
-            <MudOverlay @bind-Visible="_isSyncingMetadata" DarkBackground="true" Absolute="true">
-                <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
-            </MudOverlay>
-            <MudStack Spacing="2">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.h6">Comic Details</MudText>
-                    @if (!_isEditingDetails)
-                    {
-                        <MudSpacer></MudSpacer>
-                        <MudIconButton Icon="@Icons.Material.Filled.Sync"
-                                       aria-label="sync"
-                                       Size="Size.Small"
-                                       OnClick="SyncComic" />
-                        <MudIconButton Icon="@Icons.Material.Filled.Edit"
-                                       aria-label="edit"
-                                       Size="Size.Small"
-                                       OnClick="BeginEditDetails" />
-                    }
-                </MudStack>
-                @if (_isEditingDetails)
-                {
-                    <MudTextField @bind-Value="_displayTitleInput"
-                                  Label="Full Title"
-                                  Immediate="true"
-                                  ReadOnly="@(!_isEditingDetails)" />
-                    <MudTextField @bind-Value="_commentInput"
-                                  Label="Comment"
-                                  Lines="4"
-                                  Immediate="true"
-                                  ReadOnly="@(!_isEditingDetails)" />
-                    <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="1">
-                        <MudButton Variant="Variant.Outlined"
-                                   Disabled="@_isSavingDetails"
-                                   OnClick="CancelEditDetails">
-                            Cancel
-                        </MudButton>
-                        <MudButton Variant="Variant.Filled"
-                                   Color="Color.Primary"
-                                   Disabled="@_isSavingDetails"
-                                   OnClick="SaveDetailsAsync">
-                            @(_isSavingDetails ? "Saving..." : "Save Details")
-                        </MudButton>
-                    </MudStack>
-                }
-                else
-                {
-                    <MudText Typo="@Typo.caption">Title</MudText>
-                    <MudText>@_displayTitleInput</MudText>
-                    <MudText Typo="@Typo.caption">Comments</MudText>
-                    <MudText>@_commentInput</MudText>
-                }
-            </MudStack>
-        </MudPaper>
-        <MudPaper Class="pa-4" Outlined="true">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Metadata</MudText>
-                @if (_comic.Metadata.Count == 0)
-                {
-                    <MudText Color="Color.Secondary">No metadata cached yet.</MudText>
-                }
-                else
-                {
-                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                        @foreach (var item in _comic.Metadata)
+        <MudExpansionPanels MultiExpansion="true">
+            <MudExpansionPanel Text="@($"Title / Comment · {(string.IsNullOrWhiteSpace(_displayTitleInput) ? _comic.Title : _displayTitleInput)}")">
+                <MudPaper Class="pa-4 mt-2" Outlined="true">
+                    <MudOverlay @bind-Visible="_isSyncingMetadata" DarkBackground="true" Absolute="true">
+                        <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+                    </MudOverlay>
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+                            <MudText Typo="Typo.h6">Comic Details</MudText>
+                            @if (!_isEditingDetails)
+                            {
+                                <MudSpacer></MudSpacer>
+                                <MudIconButton Icon="@Icons.Material.Filled.Sync"
+                                               aria-label="sync"
+                                               Size="Size.Small"
+                                               OnClick="SyncComic" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit"
+                                               aria-label="edit"
+                                               Size="Size.Small"
+                                               OnClick="BeginEditDetails" />
+                            }
+                        </MudStack>
+                        @if (_isEditingDetails)
                         {
-                            var tagString = string.IsNullOrEmpty(item.Key) ? item.Value : $"{item.Key}:{item.Value}";
-                            var displayText = string.IsNullOrEmpty(item.Key) ? item.Value : $"{item.Key}: {item.Value}";
-                            <MudChip T="string" Variant="Variant.Outlined" Href="@($"./?tag={Uri.EscapeDataString(tagString)}")">@displayText</MudChip>
+                            <MudTextField @bind-Value="_displayTitleInput"
+                                          Label="Full Title"
+                                          Immediate="true"
+                                          ReadOnly="@(!_isEditingDetails)" />
+                            <MudTextField @bind-Value="_commentInput"
+                                          Label="Comment"
+                                          Lines="4"
+                                          Immediate="true"
+                                          ReadOnly="@(!_isEditingDetails)" />
+                            <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="1">
+                                <MudButton Variant="Variant.Outlined"
+                                           Disabled="@_isSavingDetails"
+                                           OnClick="CancelEditDetails">
+                                    Cancel
+                                </MudButton>
+                                <MudButton Variant="Variant.Filled"
+                                           Color="Color.Primary"
+                                           Disabled="@_isSavingDetails"
+                                           OnClick="SaveDetailsAsync">
+                                    @(_isSavingDetails ? "Saving..." : "Save Details")
+                                </MudButton>
+                            </MudStack>
+                        }
+                        else
+                        {
+                            <MudText Typo="@Typo.caption">Title</MudText>
+                            <MudText>@_displayTitleInput</MudText>
+                            <MudText Typo="@Typo.caption">Comments</MudText>
+                            <MudText>@_commentInput</MudText>
                         }
                     </MudStack>
-                }
-            </MudStack>
-        </MudPaper>
+                </MudPaper>
+            </MudExpansionPanel>
+            <MudExpansionPanel Text="Metadata">
+                <MudPaper Class="pa-4 mt-2" Outlined="true">
+                    <MudStack Spacing="2">
+                        @if (_comic.Metadata.Count == 0)
+                        {
+                            <MudText Color="Color.Secondary">No metadata cached yet.</MudText>
+                        }
+                        else
+                        {
+                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                                @foreach (var item in _comic.Metadata)
+                                {
+                                    var tagString = string.IsNullOrEmpty(item.Key) ? item.Value : $"{item.Key}:{item.Value}";
+                                    var displayText = string.IsNullOrEmpty(item.Key) ? item.Value : $"{item.Key}: {item.Value}";
+                                    <MudChip T="string" Variant="Variant.Outlined" Href="@($"./?tag={Uri.EscapeDataString(tagString)}")">@displayText</MudChip>
+                                }
+                            </MudStack>
+                        }
+                    </MudStack>
+                </MudPaper>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
         <MudPaper Class="pa-4" Outlined="true">
             <MudStack Spacing="2">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.h6">Chapters</MudText>
+                    <MudText Typo="Typo.h6">@(HasInlineSinglePageComic ? "Comic" : "Chapters")</MudText>
                     <MudButton Variant="Variant.Outlined"
                                StartIcon="@Icons.Material.Filled.EditNote"
                                Disabled="@_isOpeningMetadataEditor"
@@ -113,6 +119,18 @@ else
                 @if (_orderedChapters.Count == 0)
                 {
                     <MudText Color="Color.Secondary">No chapters cached yet.</MudText>
+                }
+                else if (HasInlineSinglePageComic && InlineSinglePageVariant is not null)
+                {
+                    <MudPaper Outlined="true" Class="pa-2">
+                        <HydrusImage Src="@MediaService.BuildOriginalFileUrl(InlineSinglePageVariant.FileHash)"
+                                     Alt="@GetInlineSinglePageAltText()"
+                                     ShowHoverPreview="false"
+                                     Loading="eager"
+                                     Decoding="sync"
+                                     Draggable="false"
+                                     Style="height: auto; max-width: 100%; object-fit: contain;" />
+                    </MudPaper>
                 }
                 else
                 {
@@ -188,6 +206,14 @@ else
         .Skip((_chapterPage - 1) * ChapterPageSize)
         .Take(ChapterPageSize);
 
+    private bool HasInlineSinglePageComic => _orderedChapters.Count == 1
+        && _orderedChapters[0].Pages.Count == 1
+        && _orderedChapters[0].Pages.First().Variants.Count == 1;
+
+    private PageVariantRecord? InlineSinglePageVariant => !HasInlineSinglePageComic
+        ? null
+        : _orderedChapters[0].Pages.First().Variants.First();
+
     private static int GetTotalPageCount(ComicsRecord comics)
     {
         return comics.Chapters.Sum(chapter => chapter.Pages.Count);
@@ -225,6 +251,15 @@ else
         }
 
         return string.Join(" · ", labelParts);
+    }
+
+    private string GetInlineSinglePageAltText()
+    {
+        return string.IsNullOrWhiteSpace(_displayTitleInput)
+            ? _comic?.Title is { Length: > 0 } title
+                ? title
+                : "Comic page"
+            : _displayTitleInput;
     }
 
     private void BeginEditDetails()

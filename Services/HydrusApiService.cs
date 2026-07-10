@@ -51,13 +51,18 @@ public class HydrusApiService : IHydrusApiService
                 ? "meta:cover page"
                 : settings.CoverPageTag.Trim();
 
+            var singlePageComicTag = string.IsNullOrWhiteSpace(settings.SinglePageComicTag)
+                ? "meta:single page comic"
+                : settings.SinglePageComicTag.Trim();
+
             var discoveryTags = new List<object>
             {
                 $"{titleNamespace}*",
                 new List<string>
                 {
                     $"{pageNamespace}1",
-                    coverPageTag
+                    coverPageTag,
+                    singlePageComicTag
                 }
             };
 
@@ -139,8 +144,19 @@ public class HydrusApiService : IHydrusApiService
                 : $"{titleNamespacePrefix}:{titleName}";
 
             var pageWildcard = $"{normalizedPageNamespace}*";
+            var singlePageComicTag = string.IsNullOrWhiteSpace(settings.SinglePageComicTag)
+                ? "meta:single page comic"
+                : settings.SinglePageComicTag.Trim();
 
-            var searchTags = new List<string> { titleTag, pageWildcard };
+            var searchTags = new List<object>
+            {
+                titleTag,
+                new List<string>
+                {
+                    pageWildcard,
+                    singlePageComicTag
+                }
+            };
 
             var fileIds = await SearchFilesInternalAsync(settings, searchTags, settings.TargetFileDomain, skipTagService: false, cancellationToken);
             return fileIds.Count;

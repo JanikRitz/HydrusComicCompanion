@@ -1086,12 +1086,20 @@ public class HydrusSyncService : IHydrusSyncService
                     return null;
                 }
 
+                var isSinglePageComic = HasExactTag(structuralTags, settings.SinglePageComicTag);
+
                 var pageNumber = ExtractNumberFromTag(structuralTags, settings.PageNamespace);
                 if (!pageNumber.HasValue)
                 {
-                    _logger.LogWarning("File {Hash} is missing a page tag in the structural tag service and will be skipped.", file.Hash);
-                    pageNumber = idx; // use position as page instead of excluding it entirely, works well for not paged, works semi when there are already some pages
-                    // return null;
+                    if (isSinglePageComic)
+                    {
+                        pageNumber = 1;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("File {Hash} is missing a page tag in the structural tag service and will be assigned a fallback page number.", file.Hash);
+                        pageNumber = idx;
+                    }
                 }
 
                 var alternateValue = ExtractNamespaceValue(structuralTags, settings.AlternatePageNamespace)?.Trim();
@@ -1399,15 +1407,19 @@ public class HydrusSyncService : IHydrusSyncService
             return false;
         }
 
-        var hasConfiguredPageTags = fileMetadata.Any(file =>
-            ExtractNumberFromTag(file.GetStorageTagsForService(structuralTagServiceKey), settings.PageNamespace).HasValue);
-
-        if (!hasConfiguredPageTags)
+        var hasConfiguredStructuralMarkers = fileMetadata.Any(file =>
         {
-            _logger.LogInformation("Configured tag service {TagServiceKey} has no page tags for this title. Falling back to all tags for structural parsing.", structuralTagServiceKey);
+            var configuredTags = file.GetStorageTagsForService(structuralTagServiceKey);
+            return ExtractNumberFromTag(configuredTags, settings.PageNamespace).HasValue
+                || HasExactTag(configuredTags, settings.SinglePageComicTag);
+        });
+
+        if (!hasConfiguredStructuralMarkers)
+        {
+            _logger.LogInformation("Configured tag service {TagServiceKey} has no page tags or single-page markers for this title. Falling back to all tags for structural parsing.", structuralTagServiceKey);
         }
 
-        return hasConfiguredPageTags;
+        return hasConfiguredStructuralMarkers;
     }
 
     private IReadOnlyList<string> GetStructuralTags(FileMetadata file, HydrusSettings settings, bool useConfiguredTagService)
@@ -1432,6 +1444,25 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         return null;
+    }
+
+    private static bool HasExactTag(IReadOnlyList<string> tags, string expectedTag)
+    {
+        var trimmedExpectedTag = expectedTag.Trim();
+        if (string.IsNullOrWhiteSpace(trimmedExpectedTag))
+        {
+            return false;
+        }
+
+        foreach (var tag in tags)
+        {
+            if (string.Equals(tag.Trim(), trimmedExpectedTag, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

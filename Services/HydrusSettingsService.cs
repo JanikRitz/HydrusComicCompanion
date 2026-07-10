@@ -42,6 +42,9 @@ public sealed class HydrusSettingsService(
         settings.AlternatePageNamespace = stored.AlternatePageNamespace;
         settings.AlternatePageDefaultValue = stored.AlternatePageDefaultValue;
         settings.CoverPageTag = stored.CoverPageTag;
+        settings.SinglePageComicTag = string.IsNullOrWhiteSpace(stored.SinglePageComicTag)
+            ? settings.SinglePageComicTag
+            : stored.SinglePageComicTag;
         settings.FullTitleNoteName = stored.FullTitleNoteName;
         settings.ComicCommentNoteName = stored.ComicCommentNoteName;
         settings.OcrTextNoteName = stored.OcrTextNoteName;
@@ -81,6 +84,7 @@ public sealed class HydrusSettingsService(
         stored.AlternatePageNamespace = normalized.AlternatePageNamespace;
         stored.AlternatePageDefaultValue = normalized.AlternatePageDefaultValue;
         stored.CoverPageTag = normalized.CoverPageTag;
+        stored.SinglePageComicTag = normalized.SinglePageComicTag;
         stored.FullTitleNoteName = normalized.FullTitleNoteName;
         stored.ComicCommentNoteName = normalized.ComicCommentNoteName;
         stored.OcrTextNoteName = normalized.OcrTextNoteName;
@@ -146,7 +150,8 @@ public sealed class HydrusSettingsService(
         normalized.PageNamespace = NormalizeNamespace(normalized.PageNamespace, "page:");
         normalized.AlternatePageNamespace = NormalizeNamespace(normalized.AlternatePageNamespace, "variant:");
         normalized.AlternatePageDefaultValue = NormalizeNoteName(normalized.AlternatePageDefaultValue, "default");
-        normalized.CoverPageTag = NormalizeCoverPageTag(normalized.CoverPageTag, "meta:cover page");
+        normalized.CoverPageTag = NormalizeTag(normalized.CoverPageTag, "meta:cover page");
+        normalized.SinglePageComicTag = NormalizeTag(normalized.SinglePageComicTag, "meta:single page comic");
         normalized.FullTitleNoteName = NormalizeNoteName(normalized.FullTitleNoteName, "title");
         normalized.ComicCommentNoteName = NormalizeNoteName(normalized.ComicCommentNoteName, "comment");
         normalized.OcrTextNoteName = NormalizeNoteName(normalized.OcrTextNoteName, "ocr");
@@ -166,7 +171,7 @@ public sealed class HydrusSettingsService(
         return trimmed.EndsWith(':') ? trimmed : $"{trimmed}:";
     }
 
-    private static string NormalizeCoverPageTag(string value, string fallback)
+    private static string NormalizeTag(string value, string fallback)
     {
         var trimmed = value.Trim();
         return string.IsNullOrWhiteSpace(trimmed) ? fallback : trimmed;

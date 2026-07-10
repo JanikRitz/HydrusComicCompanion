@@ -37,6 +37,7 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.AlternatePageNamespace).IsRequired();
             entity.Property(x => x.AlternatePageDefaultValue).IsRequired();
             entity.Property(x => x.CoverPageTag).IsRequired();
+            entity.Property(x => x.SinglePageComicTag).IsRequired();
             entity.Property(x => x.FullTitleNoteName).IsRequired();
             entity.Property(x => x.ComicCommentNoteName).IsRequired();
             entity.Property(x => x.OcrTextNoteName).IsRequired();

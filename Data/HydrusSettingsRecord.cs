@@ -29,6 +29,8 @@ public sealed class HydrusSettingsRecord
 
     public string CoverPageTag { get; set; } = string.Empty;
 
+    public string SinglePageComicTag { get; set; } = string.Empty;
+
     public string FullTitleNoteName { get; set; } = string.Empty;
 
     public string ComicCommentNoteName { get; set; } = string.Empty;
