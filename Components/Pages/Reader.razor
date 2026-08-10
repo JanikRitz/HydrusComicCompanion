@@ -5,6 +5,7 @@
 @inject IHydrusApiService ApiService
 @inject IHydrusMediaService MediaService
 @inject IHydrusSettingsService SettingsService
+@inject IOcrReader OcrReader
 
 <PageTitle>Reader</PageTitle>
 
@@ -102,6 +103,11 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                            Disabled="@string.IsNullOrWhiteSpace(_ocrEditorUrl)">
                     OCR Editor
                 </MudButton>
+                <MudSwitch T="bool"
+                           @bind-Value="_showOcrOverlay"
+                           Disabled="@(_isLoadingCurrentVariantOcr || !HasCurrentVariantOcr)"
+                           Label="@GetOcrOverlayLabel()"
+                           Color="Color.Primary" />
                 @if (CurrentVariants.Count > 1)
                 {
                     <MudSpacer></MudSpacer>
@@ -120,19 +126,49 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 <div class="front">
                     @if (_frontVariant is not null)
                     {
-                        <img class="reader-page reader-page--front @(CurrentVariants.Count > 1 ? "reader-page--animated-border" : "")"
-                             src="@MediaService.BuildRenderUrl(_frontVariant.FileHash)"
-                             alt="@GetPageAltText()"
-                             draggable="false" />
+                        <div class="reader-page-wrapper">
+                            <div class="reader-page-frame">
+                                <img class="reader-page reader-page--front @(CurrentVariants.Count > 1 ? "reader-page--animated-border" : "")"
+                                     src="@MediaService.BuildRenderUrl(_frontVariant.FileHash)"
+                                     alt="@GetPageAltText()"
+                                     draggable="false" />
+                                @if (_showOcrOverlay)
+                                {
+                                    <div class="reader-ocr-layer">
+                                        @foreach (var area in GetOcrAreasForVariant(_frontVariant))
+                                        {
+                                            <div class="reader-ocr-box" style="@GetOcrAreaStyle(area)" @onclick:stopPropagation="true">
+                                                <div class="reader-ocr-popup">@area.Text</div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
                     }
                 </div>
                 <div class="back">
                     @if (_backVariant is not null)
                     {
-                        <img class="reader-page reader-page--back @(CurrentVariants.Count > 1 ? "reader-page--animated-border" : "")"
-                             src="@MediaService.BuildRenderUrl(_backVariant.FileHash)"
-                             alt="@GetPageAltText()"
-                             draggable="false" />
+                        <div class="reader-page-wrapper">
+                            <div class="reader-page-frame">
+                                <img class="reader-page reader-page--back @(CurrentVariants.Count > 1 ? "reader-page--animated-border" : "")"
+                                     src="@MediaService.BuildRenderUrl(_backVariant.FileHash)"
+                                     alt="@GetPageAltText()"
+                                     draggable="false" />
+                                @if (_showOcrOverlay)
+                                {
+                                    <div class="reader-ocr-layer">
+                                        @foreach (var area in GetOcrAreasForVariant(_backVariant))
+                                        {
+                                            <div class="reader-ocr-box" style="@GetOcrAreaStyle(area)" @onclick:stopPropagation="true">
+                                                <div class="reader-ocr-popup">@area.Text</div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
                     }
                 </div>
             </div>
@@ -168,6 +204,9 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
     private int _currentPageNumber;
     private bool _isFlipped;
     private bool _isVariantChanging;
+    private bool _showOcrOverlay = false;
+    private bool _isLoadingCurrentVariantOcr;
+    private readonly Dictionary<int, IReadOnlyList<OcrOverlayArea>> _ocrAreasByVariantId = [];
     private string _ocrEditorBaseUrl = string.Empty;
     private string _ocrEditorUrl = string.Empty;
     private bool _syncUrlAfterRender;
@@ -228,6 +267,8 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         _isFlipped = false; // Reset flip state for new page
         _isVariantChanging = false; // Reset lock
         _ocrEditorUrl = string.Empty;
+        _isLoadingCurrentVariantOcr = false;
+        _ocrAreasByVariantId.Clear();
 
         try
         {
@@ -308,8 +349,10 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 _selectedVariantByPageId[_currentPage.Id] = _currentVariant.Id;
                 var tagLoadingTask = LoadCurrentPageTagsAsync(_currentVariant.FileHash);
                 var ocrEditorUrlTask = BuildOcrEditorUrlAsync(_currentVariant.FileHash);
+                var ocrOverlayTask = EnsureOcrOverlayForVariantAsync(_currentVariant);
                 _currentPageTags = await tagLoadingTask;
                 _ocrEditorUrl = await ocrEditorUrlTask;
+                await ocrOverlayTask;
 
                 // Initialize the front and back faces
                 _frontVariant = _currentVariant;
@@ -511,6 +554,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             // Fetch metadata in parallel with the animation
             var tagLoadingTask = LoadCurrentPageTagsAsync(nextVariant.FileHash);
             var ocrEditorUrlTask = BuildOcrEditorUrlAsync(nextVariant.FileHash);
+            var ocrOverlayTask = EnsureOcrOverlayForVariantAsync(nextVariant);
 
             // Allow the UI to process the _isFlipped change so the animation begins
             StateHasChanged();
@@ -531,12 +575,152 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
             _currentPageTags = await tagLoadingTask;
             _ocrEditorUrl = await ocrEditorUrlTask;
+            await ocrOverlayTask;
         }
         finally
         {
             _isVariantChanging = false;
         }
     }
+
+    private string GetOcrOverlayLabel()
+    {
+        if (_isLoadingCurrentVariantOcr)
+        {
+            return "OCR loading...";
+        }
+
+        return HasCurrentVariantOcr
+            ? $"OCR overlay ({CurrentVariantOcrCount})"
+            : "No OCR";
+    }
+
+    private int CurrentVariantOcrCount => _currentVariant is null
+        ? 0
+        : GetOcrAreasForVariant(_currentVariant).Count;
+
+    private bool HasCurrentVariantOcr => CurrentVariantOcrCount > 0;
+
+    private IReadOnlyList<OcrOverlayArea> GetOcrAreasForVariant(PageVariantRecord variant)
+    {
+        if (_ocrAreasByVariantId.TryGetValue(variant.Id, out var areas))
+        {
+            return areas;
+        }
+
+        return [];
+    }
+
+    private static string GetOcrAreaStyle(OcrOverlayArea area)
+    {
+        return FormattableString.Invariant(
+            $"left:{area.LeftPercent:0.####}%; top:{area.TopPercent:0.####}%; width:{area.WidthPercent:0.####}%; height:{area.HeightPercent:0.####}%;");
+    }
+
+    private static List<OcrOverlayArea> BuildOcrOverlayAreas(IEnumerable<Segment> segments, int imageWidth, int imageHeight)
+    {
+        var validSegments = segments
+            .Where(segment => !string.IsNullOrWhiteSpace(segment.Text) && segment.Corners.Count > 0)
+            .ToList();
+
+        if (validSegments.Count == 0)
+        {
+            return [];
+        }
+
+        var maxCornerX = validSegments
+            .SelectMany(segment => segment.Corners)
+            .Max(corner => corner.X);
+
+        var maxCornerY = validSegments
+            .SelectMany(segment => segment.Corners)
+            .Max(corner => corner.Y);
+
+        var normalizedWidth = imageWidth > 0 ? imageWidth : maxCornerX;
+        var normalizedHeight = imageHeight > 0 ? imageHeight : maxCornerY;
+
+        if (normalizedWidth <= 0 || normalizedHeight <= 0)
+        {
+            return [];
+        }
+
+        var overlayAreas = new List<OcrOverlayArea>(validSegments.Count);
+        foreach (var segment in validSegments)
+        {
+            var minX = segment.Corners.Min(corner => corner.X);
+            var maxX = segment.Corners.Max(corner => corner.X);
+            var minY = segment.Corners.Min(corner => corner.Y);
+            var maxY = segment.Corners.Max(corner => corner.Y);
+
+            var leftPercent = Math.Clamp((minX / (double)normalizedWidth) * 100d, 0d, 100d);
+            var rightPercent = Math.Clamp((maxX / (double)normalizedWidth) * 100d, 0d, 100d);
+            var topPercent = Math.Clamp((minY / (double)normalizedHeight) * 100d, 0d, 100d);
+            var bottomPercent = Math.Clamp((maxY / (double)normalizedHeight) * 100d, 0d, 100d);
+
+            var widthPercent = Math.Clamp(rightPercent - leftPercent, 0.35d, 100d - leftPercent);
+            var heightPercent = Math.Clamp(bottomPercent - topPercent, 0.35d, 100d - topPercent);
+
+            overlayAreas.Add(new OcrOverlayArea(
+                segment.Text.Trim(),
+                leftPercent,
+                topPercent,
+                widthPercent,
+                heightPercent));
+        }
+
+        return overlayAreas;
+    }
+
+    private async Task EnsureOcrOverlayForVariantAsync(PageVariantRecord variant)
+    {
+        if (_ocrAreasByVariantId.ContainsKey(variant.Id))
+        {
+            return;
+        }
+
+        if (_currentVariant is not null && variant.Id == _currentVariant.Id)
+        {
+            _isLoadingCurrentVariantOcr = true;
+        }
+
+        try
+        {
+            var sourceFilePath = await ApiService.GetFilePathAsync(variant.FileHash, CancellationToken.None);
+            if (string.IsNullOrWhiteSpace(sourceFilePath))
+            {
+                _ocrAreasByVariantId[variant.Id] = [];
+                return;
+            }
+
+            var metadata = await ApiService.GetFileMetadataByHashesAsync([variant.FileHash], cancellationToken: CancellationToken.None);
+            var pageMetadata = metadata.FirstOrDefault();
+            var imageWidth = pageMetadata?.Width ?? 0;
+            var imageHeight = pageMetadata?.Height ?? 0;
+
+            var data = await OcrReader.ReadOcrDataForFileAsync(sourceFilePath, CancellationToken.None);
+            _ocrAreasByVariantId[variant.Id] = data is null
+                ? []
+                : BuildOcrOverlayAreas(data.Value.Segments, imageWidth, imageHeight);
+        }
+        catch
+        {
+            _ocrAreasByVariantId[variant.Id] = [];
+        }
+        finally
+        {
+            if (_currentVariant is not null && variant.Id == _currentVariant.Id)
+            {
+                _isLoadingCurrentVariantOcr = false;
+            }
+        }
+    }
+
+    private readonly record struct OcrOverlayArea(
+        string Text,
+        double LeftPercent,
+        double TopPercent,
+        double WidthPercent,
+        double HeightPercent);
 
     private async Task<string> BuildOcrEditorUrlAsync(string fileHash)
     {
