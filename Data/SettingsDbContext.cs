@@ -41,6 +41,7 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.FullTitleNoteName).IsRequired();
             entity.Property(x => x.ComicCommentNoteName).IsRequired();
             entity.Property(x => x.OcrTextNoteName).IsRequired();
+            entity.Property(x => x.OcrEditorUrl).IsRequired();
         });
 
         modelBuilder.Entity<ComicsRecord>(entity =>

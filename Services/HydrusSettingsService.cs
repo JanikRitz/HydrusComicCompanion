@@ -48,6 +48,9 @@ public sealed class HydrusSettingsService(
         settings.FullTitleNoteName = stored.FullTitleNoteName;
         settings.ComicCommentNoteName = stored.ComicCommentNoteName;
         settings.OcrTextNoteName = stored.OcrTextNoteName;
+        settings.OcrEditorUrl = string.IsNullOrWhiteSpace(stored.OcrEditorUrl)
+            ? settings.OcrEditorUrl
+            : stored.OcrEditorUrl;
         settings.BackgroundSyncIntervalMinutes = stored.BackgroundSyncIntervalMinutes;
 
         if (TryUnprotectApiAccessKey(stored.ProtectedApiAccessKey, out var apiAccessKey))
@@ -88,6 +91,7 @@ public sealed class HydrusSettingsService(
         stored.FullTitleNoteName = normalized.FullTitleNoteName;
         stored.ComicCommentNoteName = normalized.ComicCommentNoteName;
         stored.OcrTextNoteName = normalized.OcrTextNoteName;
+        stored.OcrEditorUrl = normalized.OcrEditorUrl;
         stored.BackgroundSyncIntervalMinutes = normalized.BackgroundSyncIntervalMinutes;
 
         await context.SaveChangesAsync(cancellationToken);
@@ -155,6 +159,7 @@ public sealed class HydrusSettingsService(
         normalized.FullTitleNoteName = NormalizeNoteName(normalized.FullTitleNoteName, "title");
         normalized.ComicCommentNoteName = NormalizeNoteName(normalized.ComicCommentNoteName, "comment");
         normalized.OcrTextNoteName = NormalizeNoteName(normalized.OcrTextNoteName, "ocr");
+        normalized.OcrEditorUrl = NormalizeOptionalUrl(normalized.OcrEditorUrl);
         normalized.BackgroundSyncIntervalMinutes = Math.Max(0, normalized.BackgroundSyncIntervalMinutes);
 
         return normalized;
@@ -204,6 +209,11 @@ public sealed class HydrusSettingsService(
         }
 
         return trimmed.TrimEnd('/');
+    }
+
+    private static string NormalizeOptionalUrl(string value)
+    {
+        return value.Trim();
     }
 
     private static HydrusServiceCatalog ParseServiceCatalog(JsonObject root)

@@ -36,6 +36,8 @@ public sealed class HydrusSettings
 
     public string OcrTextNoteName { get; set; } = "ocr";
 
+    public string OcrEditorUrl { get; set; } = "http://127.0.0.1:5045/ocr-editor";
+
     public int BackgroundSyncIntervalMinutes { get; set; } = 15;
 
     public HydrusSettings Clone()
@@ -59,6 +61,7 @@ public sealed class HydrusSettings
             FullTitleNoteName = FullTitleNoteName,
             ComicCommentNoteName = ComicCommentNoteName,
             OcrTextNoteName = OcrTextNoteName,
+            OcrEditorUrl = OcrEditorUrl,
             BackgroundSyncIntervalMinutes = BackgroundSyncIntervalMinutes
         };
     }

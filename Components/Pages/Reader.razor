@@ -4,6 +4,7 @@
 @inject NavigationManager NavigationManager
 @inject IHydrusApiService ApiService
 @inject IHydrusMediaService MediaService
+@inject IHydrusSettingsService SettingsService
 
 <PageTitle>Reader</PageTitle>
 
@@ -94,6 +95,13 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.MenuBook" OnClick="GoBackToComic">
                     Comic
                 </MudButton>
+                <MudButton Variant="Variant.Text"
+                           StartIcon="@Icons.Material.Filled.OpenInNew"
+                           Href="@_ocrEditorUrl"
+                           Target="_blank"
+                           Disabled="@string.IsNullOrWhiteSpace(_ocrEditorUrl)">
+                    OCR Editor
+                </MudButton>
                 @if (CurrentVariants.Count > 1)
                 {
                     <MudSpacer></MudSpacer>
@@ -160,6 +168,8 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
     private int _currentPageNumber;
     private bool _isFlipped;
     private bool _isVariantChanging;
+    private string _ocrEditorBaseUrl = string.Empty;
+    private string _ocrEditorUrl = string.Empty;
     private bool _syncUrlAfterRender;
     private int _syncedSeriesId;
     private int _syncedChapterId;
@@ -217,9 +227,13 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         _currentPageNumber = 0;
         _isFlipped = false; // Reset flip state for new page
         _isVariantChanging = false; // Reset lock
+        _ocrEditorUrl = string.Empty;
 
         try
         {
+            var settings = await SettingsService.GetSettingsAsync();
+            _ocrEditorBaseUrl = settings.OcrEditorUrl;
+
             await using var context = await DbContextFactory.CreateDbContextAsync();
 
             _series = await context.Comic
@@ -292,7 +306,10 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 }
 
                 _selectedVariantByPageId[_currentPage.Id] = _currentVariant.Id;
-                _currentPageTags = await LoadCurrentPageTagsAsync(_currentVariant.FileHash);
+                var tagLoadingTask = LoadCurrentPageTagsAsync(_currentVariant.FileHash);
+                var ocrEditorUrlTask = BuildOcrEditorUrlAsync(_currentVariant.FileHash);
+                _currentPageTags = await tagLoadingTask;
+                _ocrEditorUrl = await ocrEditorUrlTask;
 
                 // Initialize the front and back faces
                 _frontVariant = _currentVariant;
@@ -304,6 +321,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                 _frontVariant = null;
                 _backVariant = null;
                 _currentPageTags = Array.Empty<string>();
+                _ocrEditorUrl = string.Empty;
             }
 
             _syncedSeriesId = _series.Id;
@@ -492,6 +510,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
             // Fetch metadata in parallel with the animation
             var tagLoadingTask = LoadCurrentPageTagsAsync(nextVariant.FileHash);
+            var ocrEditorUrlTask = BuildOcrEditorUrlAsync(nextVariant.FileHash);
 
             // Allow the UI to process the _isFlipped change so the animation begins
             StateHasChanged();
@@ -511,11 +530,29 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             }
 
             _currentPageTags = await tagLoadingTask;
+            _ocrEditorUrl = await ocrEditorUrlTask;
         }
         finally
         {
             _isVariantChanging = false;
         }
+    }
+
+    private async Task<string> BuildOcrEditorUrlAsync(string fileHash)
+    {
+        if (string.IsNullOrWhiteSpace(_ocrEditorBaseUrl))
+        {
+            return string.Empty;
+        }
+
+        var sourceFilePath = await ApiService.GetFilePathAsync(fileHash, CancellationToken.None);
+        if (string.IsNullOrWhiteSpace(sourceFilePath))
+        {
+            return string.Empty;
+        }
+
+        var delimiter = _ocrEditorBaseUrl.Contains('?') ? "&" : "?";
+        return $"{_ocrEditorBaseUrl}{delimiter}sourceFile={Uri.EscapeDataString(sourceFilePath)}";
     }
 
     private string GetPageAltText()

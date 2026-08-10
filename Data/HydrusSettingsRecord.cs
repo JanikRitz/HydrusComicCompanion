@@ -37,5 +37,7 @@ public sealed class HydrusSettingsRecord
 
     public string OcrTextNoteName { get; set; } = string.Empty;
 
+    public string OcrEditorUrl { get; set; } = string.Empty;
+
     public int BackgroundSyncIntervalMinutes { get; set; }
 }
