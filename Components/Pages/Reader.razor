@@ -617,24 +617,20 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             $"left:{area.LeftPercent:0.####}%; top:{area.TopPercent:0.####}%; width:{area.WidthPercent:0.####}%; height:{area.HeightPercent:0.####}%;");
     }
 
-    private static List<OcrOverlayArea> BuildOcrOverlayAreas(IEnumerable<Segment> segments, int imageWidth, int imageHeight)
+    private static List<OcrOverlayArea> BuildOcrOverlayAreas(OcrData ocrData, int imageWidth, int imageHeight)
     {
-        var validSegments = segments
-            .Where(segment => !string.IsNullOrWhiteSpace(segment.Text) && segment.Corners.Count > 0)
-            .ToList();
+        var segmentById = ocrData.Segments
+            .Where(s => !string.IsNullOrWhiteSpace(s.Text) && s.Corners.Count > 0)
+            .ToDictionary(s => s.Uid);
 
-        if (validSegments.Count == 0)
+        var allValidCorners = segmentById.Values.SelectMany(s => s.Corners).ToList();
+        if (allValidCorners.Count == 0)
         {
             return [];
         }
 
-        var maxCornerX = validSegments
-            .SelectMany(segment => segment.Corners)
-            .Max(corner => corner.X);
-
-        var maxCornerY = validSegments
-            .SelectMany(segment => segment.Corners)
-            .Max(corner => corner.Y);
+        var maxCornerX = allValidCorners.Max(c => c.X);
+        var maxCornerY = allValidCorners.Max(c => c.Y);
 
         var normalizedWidth = imageWidth > 0 ? imageWidth : maxCornerX;
         var normalizedHeight = imageHeight > 0 ? imageHeight : maxCornerY;
@@ -644,13 +640,24 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             return [];
         }
 
-        var overlayAreas = new List<OcrOverlayArea>(validSegments.Count);
-        foreach (var segment in validSegments)
+        var overlayAreas = new List<OcrOverlayArea>();
+        foreach (var block in ocrData.Blocks.OrderBy(b => b.Order))
         {
-            var minX = segment.Corners.Min(corner => corner.X);
-            var maxX = segment.Corners.Max(corner => corner.X);
-            var minY = segment.Corners.Min(corner => corner.Y);
-            var maxY = segment.Corners.Max(corner => corner.Y);
+            var blockSegments = block.SegmentIds
+                .Where(id => segmentById.ContainsKey(id))
+                .Select(id => segmentById[id])
+                .ToList();
+
+            if (blockSegments.Count == 0)
+            {
+                continue;
+            }
+
+            var corners = blockSegments.SelectMany(s => s.Corners).ToList();
+            var minX = corners.Min(c => c.X);
+            var maxX = corners.Max(c => c.X);
+            var minY = corners.Min(c => c.Y);
+            var maxY = corners.Max(c => c.Y);
 
             var leftPercent = Math.Clamp((minX / (double)normalizedWidth) * 100d, 0d, 100d);
             var rightPercent = Math.Clamp((maxX / (double)normalizedWidth) * 100d, 0d, 100d);
@@ -660,8 +667,10 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             var widthPercent = Math.Clamp(rightPercent - leftPercent, 0.35d, 100d - leftPercent);
             var heightPercent = Math.Clamp(bottomPercent - topPercent, 0.35d, 100d - topPercent);
 
+            var text = string.Join(" ", blockSegments.Select(s => s.Text.Trim()));
+
             overlayAreas.Add(new OcrOverlayArea(
-                segment.Text.Trim(),
+                text,
                 leftPercent,
                 topPercent,
                 widthPercent,
@@ -700,7 +709,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             var data = await OcrReader.ReadOcrDataForFileAsync(sourceFilePath, CancellationToken.None);
             _ocrAreasByVariantId[variant.Id] = data is null
                 ? []
-                : BuildOcrOverlayAreas(data.Value.Segments, imageWidth, imageHeight);
+                : BuildOcrOverlayAreas(data.Value, imageWidth, imageHeight);
         }
         catch
         {
