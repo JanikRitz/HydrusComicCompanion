@@ -18,7 +18,7 @@ else if (_current is null)
 }
 else
 {
-    <MudStack Spacing="2" tabindex="0" @onkeydown="HandleKeyDown">
+    <div style="display:flex; flex-direction:column; gap:16px;" tabindex="0" @onkeydown="HandleKeyDown" @onwheel="HandleWheelAsync" @onwheel:preventDefault="true">
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
             <MudButton Href="@($"/collection/{CollectionId}")" StartIcon="@Icons.Material.Filled.Collections">Gallery</MudButton>
             <MudText Typo="Typo.h6">@(_collection!.DisplayTitle ?? _collection.Title)</MudText>
@@ -37,7 +37,7 @@ else
                      Alt="@($"{_collection!.Title} · {_current.IndexLabel}")"
                      ShowHoverPreview="false" Loading="eager"
                      Style="width: 100%; height: calc(100vh - 230px); object-fit: contain;" />
-    </MudStack>
+    </div>
 }
 
 @code {
@@ -83,8 +83,22 @@ else
         var next = _position + offset;
         if (next >= 0 && next < _images.Count)
         {
-            NavigationManager.NavigateTo($"/collection/{CollectionId}/image/{_images[next].File.FileHash}");
+            NavigationManager.NavigateTo($"/collection/{CollectionId}/image/{_images[next].File.FileHash}", replace: true);
         }
+    }
+
+    private Task HandleWheelAsync(WheelEventArgs args)
+    {
+        if (args.DeltaY > 0)
+        {
+            Navigate(1);
+        }
+        else if (args.DeltaY < 0)
+        {
+            Navigate(-1);
+        }
+
+        return Task.CompletedTask;
     }
 
     private void HandleKeyDown(KeyboardEventArgs args)
