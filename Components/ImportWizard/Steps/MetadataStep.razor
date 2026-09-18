@@ -1,3 +1,5 @@
+@using HydrusComicCompanion.Models
+
 <MudPaper Class="pa-4" Outlined="true">
     <MudStack Spacing="2">
         <MudText Typo="Typo.h6">Step 3 — Metadata</MudText>
@@ -8,12 +10,29 @@
         <MudGrid Spacing="3" AlignItems="AlignItems.Stretch">
             <MudItem xs="12" md="@MetadataColumnMd">
                 <MudStack Spacing="2">
-                    <MudTextField Value="@TitleName"
-                                  ValueChanged="@TitleNameChanged"
+                    <MudTextField T="string"
+                                  Value="@TitleName"
+                                  ValueChanged="@OnTitleNameChanged"
                                   Label="Hydrus Title Tag"
                                   Required="true"
                                   Immediate="true"
                                   HelperText="Added as tag title:&lt;value&gt; (e.g. The Sandman)" />
+
+                    @if (VisibleTitleSuggestions.Count > 0)
+                    {
+                        <MudStack Spacing="1">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Possible existing Hydrus titles by hash overlap:</MudText>
+                            @foreach (var suggestion in VisibleTitleSuggestions)
+                            {
+                                <MudButton Variant="Variant.Text"
+                                           Color="Color.Secondary"
+                                           Class="justify-start"
+                                           OnClick="@(() => OnSuggestionSelected(suggestion.Title))">
+                                    @suggestion.Title (@suggestion.OverlapCount/@suggestion.ExistingPageCount overlap, @suggestion.IncomingPageCount incoming)
+                                </MudButton>
+                            }
+                        </MudStack>
+                    }
 
                     <MudTextField Value="@DisplayTitle"
                                   ValueChanged="@DisplayTitleChanged"
@@ -158,6 +177,9 @@
     public int? PageCount { get; set; }
 
     [Parameter]
+    public IReadOnlyList<TitleOverlapSuggestion> TitleSuggestions { get; set; } = Array.Empty<TitleOverlapSuggestion>();
+
+    [Parameter]
     public IReadOnlyList<string> PreviewImageSources { get; set; } = Array.Empty<string>();
 
     [Parameter]
@@ -186,6 +208,26 @@
     private string? PrimaryPreviewImageSource => ValidPreviewSources.FirstOrDefault();
 
     private string[] ThumbnailPreviewSources => ValidPreviewSources.Skip(1).Take(4).ToArray();
+
+    private IReadOnlyList<TitleOverlapSuggestion> VisibleTitleSuggestions =>
+        TitleSuggestions
+            .Where(suggestion => string.IsNullOrWhiteSpace(TitleName)
+                || suggestion.Title.Contains(TitleName, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(suggestion => suggestion.OverlapCount)
+            .ThenByDescending(suggestion => suggestion.ExistingPageCount)
+            .ThenBy(suggestion => suggestion.Title, StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToArray();
+
+    private async Task OnTitleNameChanged(string value)
+    {
+        await TitleNameChanged.InvokeAsync(value);
+    }
+
+    private async Task OnSuggestionSelected(string title)
+    {
+        await TitleNameChanged.InvokeAsync(title);
+    }
 
     private async Task OnContinueClicked()
     {

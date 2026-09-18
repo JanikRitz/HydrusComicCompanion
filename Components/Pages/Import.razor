@@ -105,6 +105,7 @@
                           VolumeNumber="@_state.VolumeNumber"
                           VolumeNumberChanged="@((value) => _state.VolumeNumber = value)"
                           PageCount="@MetadataPageCount"
+                          TitleSuggestions="@_titleOverlapSuggestions"
                           PreviewImageSources="@MetadataPreviewImageSources"
                           PreviewImageAlt="@MetadataPreviewImageAlt"
                           ShowSkip="@CanSkipCurrentMetadataItem"
@@ -153,6 +154,7 @@
     private ThumbnailPreloadService? _thumbnailService;
 
     private readonly List<CalibreBookEntry> _calibreDiscoveredBooks = [];
+    private IReadOnlyList<TitleOverlapSuggestion> _titleOverlapSuggestions = Array.Empty<TitleOverlapSuggestion>();
     private string _calibreLibraryPath = string.Empty;
     private string _calibreSearchQuery = "formats:true";
 
@@ -445,11 +447,13 @@
         }
 
         _state.ErrorMessage = string.Empty;
+        _titleOverlapSuggestions = Array.Empty<TitleOverlapSuggestion>();
 
         try
         {
             ComicImportPreparation preparation;
             CalibreMetadataSnapshot? calibreMetadata = null;
+            var shouldSuggestOverlaps = item.Source is ImportSource.Archive or ImportSource.CalibreBook;
 
             if (item.Source == ImportSource.Archive)
             {
@@ -493,6 +497,11 @@
             if (calibreMetadata is not null)
             {
                 ApplyCalibreMetadata(calibreMetadata);
+            }
+
+            if (shouldSuggestOverlaps)
+            {
+                _titleOverlapSuggestions = await ComicImportService.SuggestTitleOverlapsAsync(preparation.Pages);
             }
 
             _state.GoToMetadata();

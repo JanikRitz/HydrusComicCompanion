@@ -31,4 +31,14 @@ public interface IComicImportService
         ComicImportRequest request,
         IProgress<ImportProgressUpdate>? progress = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Suggests existing Hydrus titles that overlap with an incoming import by SHA-256 hash.
+    /// </summary>
+    /// <param name="pages">Incoming pages from extraction.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Ordered overlap suggestions with counts.</returns>
+    Task<IReadOnlyList<TitleOverlapSuggestion>> SuggestTitleOverlapsAsync(
+        IReadOnlyList<ImportPage> pages,
+        CancellationToken cancellationToken = default);
 }

@@ -127,6 +127,24 @@ public sealed class TitleWithPageCount
 }
 
 /// <summary>
+/// Represents an existing Hydrus title that overlaps with an incoming import payload by file hash.
+/// </summary>
+public sealed class TitleOverlapSuggestion
+{
+    /// <summary>Existing Hydrus title name.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Number of incoming pages whose hashes are already tagged with this title.</summary>
+    public int OverlapCount { get; set; }
+
+    /// <summary>Total number of pages currently associated with this title in Hydrus.</summary>
+    public int ExistingPageCount { get; set; }
+
+    /// <summary>Total number of pages in the incoming import payload.</summary>
+    public int IncomingPageCount { get; set; }
+}
+
+/// <summary>
 /// Marks the page index where a new volume begins, carrying the user-specified volume number.
 /// A volume start is always implicitly also a chapter start.
 /// </summary>

@@ -47,6 +47,112 @@ public sealed class ComicImportService : IComicImportService
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<TitleOverlapSuggestion>> SuggestTitleOverlapsAsync(
+        IReadOnlyList<ImportPage> pages,
+        CancellationToken cancellationToken = default)
+    {
+        if (pages.Count == 0)
+        {
+            return [];
+        }
+
+        var incomingHashes = pages
+            .Select(page => NormalizeHash(page.Sha256Hash))
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (incomingHashes.Count == 0)
+        {
+            return [];
+        }
+
+        var incomingHashSet = incomingHashes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "title:");
+        var pageNamespace = NormalizeNamespace(settings.PageNamespace, "page:");
+
+        var matchingMetadata = await _apiService.GetFileMetadataByHashesAsync(incomingHashes, cancellationToken: cancellationToken);
+        if (matchingMetadata.Count == 0)
+        {
+            return [];
+        }
+
+        var overlapByTitle = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var file in matchingMetadata)
+        {
+            var hash = NormalizeHash(file.Hash);
+            if (string.IsNullOrWhiteSpace(hash) || !incomingHashSet.Contains(hash))
+            {
+                continue;
+            }
+
+            var tagsToInspect = !string.IsNullOrWhiteSpace(settings.TagServiceKey)
+                ? file.GetStorageTagsForService(settings.TagServiceKey)
+                : file.GetStorageTagsExcludingService(null);
+
+            foreach (var tag in tagsToInspect)
+            {
+                var titleName = ExtractNamespaceValue(tag, titleNamespace);
+                if (string.IsNullOrWhiteSpace(titleName))
+                {
+                    continue;
+                }
+
+                if (!overlapByTitle.TryGetValue(titleName, out var overlappingHashes))
+                {
+                    overlappingHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    overlapByTitle[titleName] = overlappingHashes;
+                }
+
+                overlappingHashes.Add(hash);
+            }
+        }
+
+        if (overlapByTitle.Count == 0)
+        {
+            return [];
+        }
+
+        var suggestions = new List<TitleOverlapSuggestion>(overlapByTitle.Count);
+
+        foreach (var entry in overlapByTitle)
+        {
+            var overlapCount = entry.Value.Count;
+            if (overlapCount <= 0)
+            {
+                continue;
+            }
+
+            var existingPageCount = await _apiService.GetTitlePageCountAsync(
+                entry.Key,
+                titleNamespace,
+                pageNamespace,
+                cancellationToken);
+
+            if (existingPageCount <= 0)
+            {
+                continue;
+            }
+
+            suggestions.Add(new TitleOverlapSuggestion
+            {
+                Title = entry.Key,
+                OverlapCount = overlapCount,
+                ExistingPageCount = existingPageCount,
+                IncomingPageCount = incomingHashes.Count
+            });
+        }
+
+        return suggestions
+            .OrderByDescending(s => s.OverlapCount)
+            .ThenByDescending(s => s.ExistingPageCount)
+            .ThenBy(s => s.Title, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <inheritdoc/>
     public async Task<int> ImportComicAsync(
         ComicImportRequest request,
         IProgress<ImportProgressUpdate>? progress = null,
@@ -799,6 +905,32 @@ public sealed class ComicImportService : IComicImportService
     {
         var ns = @namespace.Trim().TrimEnd(':');
         return string.IsNullOrWhiteSpace(ns) ? value : $"{ns}:{value}";
+    }
+
+    private static string NormalizeNamespace(string? value, string fallback)
+    {
+        var ns = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        ns = ns.TrimEnd(':');
+        return string.IsNullOrWhiteSpace(ns) ? fallback : $"{ns}:";
+    }
+
+    private static string NormalizeHash(string? hash)
+    {
+        return string.IsNullOrWhiteSpace(hash)
+            ? string.Empty
+            : hash.Trim().ToLowerInvariant();
+    }
+
+    private static string ExtractNamespaceValue(string tag, string namespaceWithColon)
+    {
+        if (string.IsNullOrWhiteSpace(tag) || string.IsNullOrWhiteSpace(namespaceWithColon))
+        {
+            return string.Empty;
+        }
+
+        return tag.StartsWith(namespaceWithColon, StringComparison.OrdinalIgnoreCase)
+            ? tag[namespaceWithColon.Length..].Trim()
+            : string.Empty;
     }
 
     private static bool IsImageEntry(string name)
