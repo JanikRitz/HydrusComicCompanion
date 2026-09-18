@@ -4,7 +4,7 @@ This document describes the current SQLite-backed persistence model and the EF C
 
 ## Current Storage Scope
 
-The app now persists both **application settings** and the first **comic library cache** tables in SQLite through EF Core.
+The app persists **application settings** and a **collections cache** for comics and imagesets in SQLite through EF Core.
 
 - Database file: `App_Data/settings.db`
 - DbContext: `Data/SettingsDbContext.cs`
@@ -31,6 +31,8 @@ Columns:
 - `PrimaryTagService`
 - `TargetFileDomain`
 - `TitleNamespace`
+- `SetNamespace`
+- `IndexNamespace`
 - `VolumeNamespace`
 - `ChapterNamespace`
 - `PageNamespace`
@@ -38,16 +40,27 @@ Columns:
 
 `HydrusSettingsService` handles normalization and encryption/decryption of the API access key using ASP.NET Core Data Protection.
 
-## Comic Cache Model
+## Collection Cache Model
 
 The local cache currently includes these tables:
 
-- `Series` — title/work cache root (`Title`, `CoverFileHash`, `LastSyncedAt`)
+- `Series` — collection cache root (`Title`, `Kind`, `CoverFileHash`, `LastSyncedAt`); identity includes both title and kind
 - `Chapters` — `SeriesId`, `VolumeNumber?`, `ChapterNumber?`, `Title`
-- `Pages` — `ChapterId`, `FileHash`, `PageNumber`, `MimeType`
+- `Pages` — `ChapterId`, `PageNumber`
+- `PageVariants` — `PageId`, `FileHash`, `MimeType`, `OcrText`, `IsDefault`, `Label`, `ImageIndex?`
 - `Metadata` — `SeriesId`, `Key`, `Value`
 
-These entities back the library and title detail screens and are ready for later Hydrus sync work.
+Comics default to the `comic` title namespace and `volume` → `chapter` → `page` ordering. Files sharing a logical page are variants; `variant:default` is preferred, with manual reader switching. Hash ordering provides a deterministic fallback.
+
+Imagesets default to the `set` title namespace and `index` ordering. They reuse one internal cache chapter, but have no chapter/volume UI or variant hiding. Every image appears in the gallery and full-size navigation. `ImageIndex` preserves the nullable Hydrus index; cache page numbers are internal ordinals. Duplicate indices sort by hash, and missing indices sort last. All variant attributes are displayed; multiple attributes are stored in `Label` separated by newlines.
+
+Discovery respects both configured `page` and `index` namespaces, as well as cover and single-page markers. Files tagged with both title namespaces belong to both collection types. Namespaces remain configurable in Settings.
+
+The collection schema update does not rewrite Hydrus tags or convert existing saved namespace mappings. Existing installations can choose the desired comic title namespace in Settings.
+
+## Regression Checks
+
+Run `dotnet run --project Tests/CollectionChecks.csproj` from the repository root. This package-free runner uses a simulated Hydrus API and an in-memory SQLite database; it never connects to a live Hydrus client or changes `App_Data/settings.db`.
 
 ## Design-Time EF Tooling
 

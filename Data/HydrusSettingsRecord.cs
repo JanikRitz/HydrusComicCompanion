@@ -17,6 +17,8 @@ public sealed class HydrusSettingsRecord
     public string TargetFileDomain { get; set; } = string.Empty;
 
     public string TitleNamespace { get; set; } = string.Empty;
+    public string SetNamespace { get; set; } = "set:";
+    public string IndexNamespace { get; set; } = "index:";
     public string VolumeNamespace { get; set; } = string.Empty;
 
     public string ChapterNamespace { get; set; } = string.Empty;

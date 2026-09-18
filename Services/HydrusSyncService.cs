@@ -36,7 +36,7 @@ public class HydrusSyncService : IHydrusSyncService
             _logger.LogInformation("Starting library sync");
 
             // Step 1: Discover all titles
-            var comicTitles = await _apiService.DiscoverComicsAsync(cancellationToken);
+            var comicTitles = await _apiService.DiscoverCollectionsAsync(cancellationToken);
             _logger.LogInformation("Discovered {Count} titles", comicTitles.Count);
 
             progress?.Report(new SyncProgressUpdate { Current = 0, Total = comicTitles.Count });
@@ -51,12 +51,12 @@ public class HydrusSyncService : IHydrusSyncService
                 {
                     Current = index + 1,
                     Total = comicTitles.Count,
-                    CurrentTitle = comicTitle
+                    CurrentTitle = comicTitle.Title
                 });
 
                 try
                 {
-                    var comicId = await SyncComicAsync(comicTitle, cancellationToken);
+                    var comicId = await SyncCollectionAsync(comicTitle.Title, comicTitle.Kind, cancellationToken);
                     if (comicId.HasValue)
                     {
                         syncedCount++;
@@ -102,8 +102,8 @@ public class HydrusSyncService : IHydrusSyncService
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
             var existingComicTitles = await dbContext.Comic
                 .AsNoTracking()
-                .Select(s => s.Title)
-                .Where(title => !string.IsNullOrWhiteSpace(title))
+                .Where(s => s.Title != "")
+                .Select(s => new CollectionIdentity(s.Title, s.Kind))
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
@@ -120,12 +120,12 @@ public class HydrusSyncService : IHydrusSyncService
                 {
                     Current = index + 1,
                     Total = existingComicTitles.Count,
-                    CurrentTitle = comicTitle
+                    CurrentTitle = comicTitle.Title
                 });
 
                 try
                 {
-                    var comicId = await SyncComicAsync(comicTitle, cancellationToken);
+                    var comicId = await SyncCollectionAsync(comicTitle.Title, comicTitle.Kind, cancellationToken);
                     if (comicId.HasValue)
                     {
                         syncedCount++;
@@ -171,8 +171,8 @@ public class HydrusSyncService : IHydrusSyncService
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
             var existingComicTitles = await dbContext.Comic
                 .AsNoTracking()
-                .Select(s => s.Title)
-                .Where(title => !string.IsNullOrWhiteSpace(title))
+                .Where(s => s.Title != "")
+                .Select(s => new CollectionIdentity(s.Title, s.Kind))
                 .Distinct()
                 .ToListAsync(cancellationToken);
 
@@ -189,12 +189,12 @@ public class HydrusSyncService : IHydrusSyncService
                 {
                     Current = index + 1,
                     Total = existingComicTitles.Count,
-                    CurrentTitle = comicTitle
+                    CurrentTitle = comicTitle.Title
                 });
 
                 try
                 {
-                    var comicId = await OcrSyncComic(ocrReader, comicTitle, cancellationToken);
+                    var comicId = await OcrSyncComic(ocrReader, comicTitle.Title, comicTitle.Kind, cancellationToken);
                     
                     if (comicId.HasValue)
                     {
@@ -231,10 +231,15 @@ public class HydrusSyncService : IHydrusSyncService
     /// Syncs a specific title: fetches all files tagged with the title and structures them.
     /// Implements fallback: if no files found with configured tag service, retries with default tag service.
     /// </summary>
-    private async Task<int?> OcrSyncComic(IOcrReader reader, string comicTitle, CancellationToken cancellationToken)
+    private async Task<int?> OcrSyncComic(IOcrReader reader, string comicTitle, CollectionKind kind, CancellationToken cancellationToken)
 
     {
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        if (kind == CollectionKind.Imageset)
+        {
+            settings = settings.Clone();
+            settings.TitleNamespace = settings.SetNamespace;
+        }
         var normalizedComicTitle = NormalizeTitleName(comicTitle, settings);
 
         if (string.IsNullOrWhiteSpace(normalizedComicTitle))
@@ -286,7 +291,7 @@ public class HydrusSyncService : IHydrusSyncService
                     .Include(s => s.Chapters)
                     .ThenInclude(c => c.Pages)
                     .ThenInclude(p => p.Variants)
-                    .FirstOrDefaultAsync(s => s.Title == normalizedComicTitle, cancellationToken);
+                    .FirstOrDefaultAsync(s => s.Title == normalizedComicTitle && s.Kind == kind, cancellationToken);
 
                 if (comic != null)
                 {
@@ -321,8 +326,11 @@ public class HydrusSyncService : IHydrusSyncService
         => await ExtractComicAsync(comicTitle, sourceMapping: null, cancellationToken);
 
     public async Task<ComicImportPreparation> ExtractComicAsync(string comicTitle, HydrusSourceMapping? sourceMapping, CancellationToken cancellationToken = default)
+        => await ExtractCollectionAsync(comicTitle, CollectionKind.Comic, sourceMapping, cancellationToken);
+
+    public async Task<ComicImportPreparation> ExtractCollectionAsync(string comicTitle, CollectionKind kind, HydrusSourceMapping? sourceMapping = null, CancellationToken cancellationToken = default)
     {
-        var settings = ApplySourceMapping(await _settingsService.GetSettingsAsync(cancellationToken), sourceMapping);
+        var settings = ApplySourceMapping(await _settingsService.GetSettingsAsync(cancellationToken), sourceMapping, kind);
         var normalizedComicTitle = NormalizeTitleName(comicTitle, settings);
 
         if (string.IsNullOrWhiteSpace(normalizedComicTitle))
@@ -358,7 +366,7 @@ public class HydrusSyncService : IHydrusSyncService
         }
 
         var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken: cancellationToken);
-        return BuildImportPreparation(normalizedComicTitle, fileMetadata, settings);
+        return BuildImportPreparation(normalizedComicTitle, fileMetadata, settings, kind);
     }
 
     /// <summary>
@@ -367,7 +375,7 @@ public class HydrusSyncService : IHydrusSyncService
     /// </summary>
     public async Task<List<TitleWithPageCount>> DiscoverMappedTitlesAsync(HydrusSourceMapping mapping, CancellationToken cancellationToken = default)
     {
-        var settings = ApplySourceMapping(await _settingsService.GetSettingsAsync(cancellationToken), mapping);
+        var settings = ApplySourceMapping(await _settingsService.GetSettingsAsync(cancellationToken), mapping, mapping.Kind);
         var titleNames = await _apiService.DiscoverComicsAsync(settings, cancellationToken);
 
         // If no minimum pages filter, return all titles with page count 0 (for UI display)
@@ -382,7 +390,7 @@ public class HydrusSyncService : IHydrusSyncService
         var minimumPages = mapping.MinimumPages.Value;
         var titlesWithPageCounts = new List<TitleWithPageCount>();
 
-        var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "title:");
+        var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "comic:");
         var pageNamespace = NormalizeNamespace(settings.PageNamespace, "page:");
 
         foreach (var titleName in titleNames)
@@ -406,8 +414,13 @@ public class HydrusSyncService : IHydrusSyncService
 
     /// Only non-empty mapping fields override the global settings so blank inputs fall back safely.
     /// </summary>
-    private static HydrusSettings ApplySourceMapping(HydrusSettings settings, HydrusSourceMapping? mapping)
+    private static HydrusSettings ApplySourceMapping(HydrusSettings settings, HydrusSourceMapping? mapping, CollectionKind kind = CollectionKind.Comic)
     {
+        settings = settings.Clone();
+        if (kind == CollectionKind.Imageset)
+        {
+            settings.TitleNamespace = settings.SetNamespace;
+        }
         if (mapping is null)
         {
             return settings;
@@ -423,27 +436,30 @@ public class HydrusSyncService : IHydrusSyncService
 
         if (!string.IsNullOrWhiteSpace(mapping.TitleNamespace))
         {
-            effective.TitleNamespace = mapping.TitleNamespace.Trim();
+            effective.TitleNamespace = NormalizeNamespace(mapping.TitleNamespace, kind == CollectionKind.Imageset ? "set:" : "comic:");
         }
 
         if (!string.IsNullOrWhiteSpace(mapping.VolumeNamespace))
         {
-            effective.VolumeNamespace = mapping.VolumeNamespace.Trim();
+            effective.VolumeNamespace = NormalizeNamespace(mapping.VolumeNamespace, "volume:");
         }
 
         if (!string.IsNullOrWhiteSpace(mapping.ChapterNamespace))
         {
-            effective.ChapterNamespace = mapping.ChapterNamespace.Trim();
+            effective.ChapterNamespace = NormalizeNamespace(mapping.ChapterNamespace, "chapter:");
         }
 
         if (!string.IsNullOrWhiteSpace(mapping.PageNamespace))
         {
-            effective.PageNamespace = mapping.PageNamespace.Trim();
+            if (kind == CollectionKind.Imageset)
+                effective.IndexNamespace = NormalizeNamespace(mapping.PageNamespace, "index:");
+            else
+                effective.PageNamespace = NormalizeNamespace(mapping.PageNamespace, "page:");
         }
 
         if (!string.IsNullOrWhiteSpace(mapping.AlternatePageNamespace))
         {
-            effective.AlternatePageNamespace = mapping.AlternatePageNamespace.Trim();
+            effective.AlternatePageNamespace = NormalizeNamespace(mapping.AlternatePageNamespace, "variant:");
         }
 
         if (!string.IsNullOrWhiteSpace(mapping.AlternatePageDefaultValue))
@@ -463,9 +479,17 @@ public class HydrusSyncService : IHydrusSyncService
     /// Syncs a specific title: fetches all files tagged with the title and structures them.
     /// Implements fallback: if no files found with configured tag service, retries with default tag service.
     /// </summary>
-    public async Task<int?> SyncComicAsync(string comicTitle, CancellationToken cancellationToken = default)
+    public Task<int?> SyncComicAsync(string comicTitle, CancellationToken cancellationToken = default)
+        => SyncCollectionAsync(comicTitle, CollectionKind.Comic, cancellationToken);
+
+    public async Task<int?> SyncCollectionAsync(string comicTitle, CollectionKind kind, CancellationToken cancellationToken = default)
     {
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        if (kind == CollectionKind.Imageset)
+        {
+            settings = settings.Clone();
+            settings.TitleNamespace = settings.SetNamespace;
+        }
         var normalizedComicTitle = NormalizeTitleName(comicTitle, settings);
 
         if (string.IsNullOrWhiteSpace(normalizedComicTitle))
@@ -502,10 +526,10 @@ public class HydrusSyncService : IHydrusSyncService
             var fileMetadata = await _apiService.GetFileMetadataAsync(fileIds, includeNotes: true, cancellationToken: cancellationToken);
 
             // Step 3: Parse metadata and structure into volume/chapter/page hierarchy
-            var chapters = ParseFilesIntoChapters(fileMetadata, settings);
+            var chapters = ParseFilesIntoChapters(fileMetadata, settings, kind);
 
             // Step 4: Store in database
-            var comicId = await StoreComicsInDatabaseAsync(normalizedComicTitle, chapters, fileMetadata, cancellationToken);
+            var comicId = await StoreComicsInDatabaseAsync(normalizedComicTitle, chapters, fileMetadata, kind, cancellationToken);
 
             _logger.LogInformation("Successfully synced title {ComicTitle} with ID {ComicId}", normalizedComicTitle, comicId);
             return comicId;
@@ -524,12 +548,12 @@ public class HydrusSyncService : IHydrusSyncService
     {
         try
         {
-            var discoveredComics = await _apiService.DiscoverComicsAsync(cancellationToken);
+            var discoveredComics = await _apiService.DiscoverCollectionsAsync(cancellationToken);
 
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
             var syncedComics = await dbContext.Comic
                 .Where(s => s.LastSyncedAt != null)
-                .Select(s => s.Title)
+                .Select(s => new CollectionIdentity(s.Title, s.Kind))
                 .ToListAsync(cancellationToken);
 
             var unsyncedCount = discoveredComics.Count(s => !syncedComics.Contains(s));
@@ -608,6 +632,8 @@ public class HydrusSyncService : IHydrusSyncService
             throw new InvalidOperationException($"Comic with ID {request.ComicId} was not found.");
         }
 
+        request.Kind = comic.Kind;
+
         var hashes = request.Pages
             .Select(page => page.Sha256Hash?.Trim())
             .Where(hash => !string.IsNullOrWhiteSpace(hash))
@@ -636,7 +662,7 @@ public class HydrusSyncService : IHydrusSyncService
                 continue;
             }
 
-            var oldManagedTags = ExtractManagedTags(metadata, settings, tagServiceKey);
+            var oldManagedTags = ExtractManagedTags(metadata, settings, tagServiceKey, comic.Kind, comic.Title);
             var newManagedTags = newManagedTagsByHash.TryGetValue(hash, out var tags)
                 ? tags
                 : [];
@@ -655,6 +681,12 @@ public class HydrusSyncService : IHydrusSyncService
 
     private Dictionary<string, List<string>> BuildManagedTagsByHash(HydrusMetadataEditRequest request, HydrusSettings settings)
     {
+        if (request.Kind == CollectionKind.Imageset)
+        {
+            return request.Pages.ToDictionary(page => page.Sha256Hash,
+                page => BuildImagesetTags(page, request.HydrusTitle, request.CoverFileHash, settings),
+                StringComparer.OrdinalIgnoreCase);
+        }
         var titleTag = BuildTag(settings.TitleNamespace, request.HydrusTitle.Trim());
         var coverTag = settings.CoverPageTag.Trim();
 
@@ -745,7 +777,20 @@ public class HydrusSyncService : IHydrusSyncService
         return tagsByHash;
     }
 
-    private static List<string> ExtractManagedTags(FileMetadata metadata, HydrusSettings settings, string tagServiceKey)
+    private static List<string> BuildImagesetTags(ImportPage page, string title, string? coverHash, HydrusSettings settings)
+    {
+        var tags = new List<string> { BuildTag(settings.SetNamespace, title) };
+        if (page.PageNumber.HasValue)
+            tags.Add(BuildTag(settings.IndexNamespace, page.PageNumber.Value.ToString()));
+        tags.AddRange((page.VariantLabel ?? string.Empty)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(label => BuildTag(settings.AlternatePageNamespace, label)));
+        if (string.Equals(page.Sha256Hash, coverHash, StringComparison.OrdinalIgnoreCase))
+            tags.Add(settings.CoverPageTag);
+        return tags.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static List<string> ExtractManagedTags(FileMetadata metadata, HydrusSettings settings, string tagServiceKey, CollectionKind kind, string oldTitle)
     {
         var configuredTags = metadata.GetStorageTagsForService(tagServiceKey);
         var candidateTags = configuredTags.Count > 0
@@ -753,12 +798,12 @@ public class HydrusSyncService : IHydrusSyncService
             : metadata.GetAllStorageTags();
 
         return candidateTags
-            .Where(tag => IsManagedStructuralTag(tag, settings))
+            .Where(tag => IsManagedStructuralTag(tag, settings, kind, oldTitle))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
-    private static bool IsManagedStructuralTag(string tag, HydrusSettings settings)
+    private static bool IsManagedStructuralTag(string tag, HydrusSettings settings, CollectionKind kind, string oldTitle)
     {
         if (string.IsNullOrWhiteSpace(tag))
         {
@@ -772,13 +817,20 @@ public class HydrusSyncService : IHydrusSyncService
             return true;
         }
 
-        var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "title:");
+        var titleTag = BuildTag(kind == CollectionKind.Imageset ? settings.SetNamespace : settings.TitleNamespace, oldTitle);
         var volumeNamespace = NormalizeNamespace(settings.VolumeNamespace, "volume:");
         var chapterNamespace = NormalizeNamespace(settings.ChapterNamespace, "chapter:");
         var pageNamespace = NormalizeNamespace(settings.PageNamespace, "page:");
         var alternatePageNamespace = NormalizeNamespace(settings.AlternatePageNamespace, "variant:");
 
-        return tag.StartsWith(titleNamespace, StringComparison.OrdinalIgnoreCase)
+        if (kind == CollectionKind.Imageset)
+        {
+            return string.Equals(tag, titleTag, StringComparison.OrdinalIgnoreCase)
+                || tag.StartsWith(NormalizeNamespace(settings.IndexNamespace, "index:"), StringComparison.OrdinalIgnoreCase)
+                || tag.StartsWith(alternatePageNamespace, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(tag, titleTag, StringComparison.OrdinalIgnoreCase)
                || tag.StartsWith(volumeNamespace, StringComparison.OrdinalIgnoreCase)
                || tag.StartsWith(chapterNamespace, StringComparison.OrdinalIgnoreCase)
                || tag.StartsWith(pageNamespace, StringComparison.OrdinalIgnoreCase)
@@ -897,6 +949,30 @@ public class HydrusSyncService : IHydrusSyncService
 
         comic.Chapters.Clear();
 
+        if (comic.Kind == CollectionKind.Imageset)
+        {
+            var chapter = new ChapterRecord();
+            foreach (var image in request.Pages.OrderBy(page => page.PageNumber.HasValue ? 0 : 1)
+                         .ThenBy(page => page.PageNumber)
+                         .ThenBy(page => page.Sha256Hash, StringComparer.Ordinal))
+            {
+                var page = new PageRecord { PageNumber = chapter.Pages.Count + 1 };
+                existingOcrByHash.TryGetValue(image.Sha256Hash, out var ocrText);
+                page.Variants.Add(new PageVariantRecord
+                {
+                    FileHash = image.Sha256Hash,
+                    MimeType = image.MimeType,
+                    OcrText = ocrText,
+                    IsDefault = true,
+                    ImageIndex = image.PageNumber,
+                    Label = image.VariantLabel
+                });
+                chapter.Pages.Add(page);
+            }
+            comic.Chapters.Add(chapter);
+            return;
+        }
+
         var chapterStarts = request.ChapterStartPageIndices
             .Where(i => i >= 0 && i < request.Pages.Count)
             .Distinct()
@@ -996,21 +1072,46 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Builds the editable import payload for a Hydrus title.
     /// </summary>
-    private ComicImportPreparation BuildImportPreparation(string comicTitle, List<FileMetadata> fileMetadata, HydrusSettings settings)
+    private ComicImportPreparation BuildImportPreparation(string comicTitle, List<FileMetadata> fileMetadata, HydrusSettings settings, CollectionKind kind = CollectionKind.Comic)
     {
-        var orderedFiles = ParseImportFiles(fileMetadata, settings);
+        var orderedFiles = ParseImportFiles(fileMetadata, settings, kind);
+        if (kind == CollectionKind.Imageset)
+        {
+            return new ComicImportPreparation
+            {
+                Metadata = new ComicMetadata { Series = comicTitle },
+                Pages = orderedFiles.Select((file, index) => new ImportPage
+                {
+                    Index = index,
+                    ArchiveFileName = file.Metadata.Hash,
+                    Sha256Hash = file.Metadata.Hash,
+                    MimeType = file.Metadata.MimeType ?? "image/jpeg",
+                    PageNumber = file.Page,
+                    LogicalPageGroupId = index + 1,
+                    IsDefaultVariant = true,
+                    VariantLabel = file.VariantLabel
+                }).ToList()
+            };
+        }
 
         var chapterStarts = new List<int>();
+        orderedFiles = orderedFiles.GroupBy(file => (file.Volume, file.Chapter))
+            .SelectMany(group =>
+            {
+                var nextNumber = group.Where(file => file.Page.HasValue).Select(file => file.Page!.Value).DefaultIfEmpty(0).Max();
+                return group.Select(file => file.Page.HasValue ? file : file with { Page = checked(++nextNumber) }).ToList();
+            }).ToList();
         (int? Volume, decimal? Chapter)? lastChapterKey = null;
         var logicalGroupId = 1;
         var pages = new List<ImportPage>();
+        var useConfiguredTagService = ShouldUseConfiguredTagServiceForStructuralTags(fileMetadata, settings);
 
         foreach (var logicalGroup in orderedFiles
                      .GroupBy(file => (file.Volume, file.Chapter, Page: file.Page ?? int.MaxValue))
                      .OrderBy(group => group.Key.Volume ?? int.MaxValue)
                      .ThenBy(group => group.Key.Chapter ?? decimal.MaxValue)
                      .ThenBy(group => group.Key.Page)
-                     .ThenBy(group => group.Min(f => f.Metadata.FileId)))
+                     .ThenBy(group => group.Min(f => f.Metadata.Hash), StringComparer.Ordinal))
         {
             var chapterKey = (logicalGroup.Key.Volume, logicalGroup.Key.Chapter);
             if (lastChapterKey != chapterKey)
@@ -1020,8 +1121,11 @@ public class HydrusSyncService : IHydrusSyncService
             }
 
             var orderedVariants = logicalGroup
-                .OrderByDescending(file => file.IsDefaultVariant)
-                .ThenBy(file => file.Metadata.FileId)
+                .OrderByDescending(file => HasExactTag(
+                    GetStructuralTags(file.Metadata, settings, useConfiguredTagService),
+                    BuildTag(settings.AlternatePageNamespace, settings.AlternatePageDefaultValue)))
+                .ThenByDescending(file => file.IsDefaultVariant)
+                .ThenBy(file => file.Metadata.Hash, StringComparer.Ordinal)
                 .ToList();
 
             var explicitDefaultFileId = orderedVariants
@@ -1066,11 +1170,12 @@ public class HydrusSyncService : IHydrusSyncService
         };
     }
 
-    private List<HydrusImportFile> ParseImportFiles(List<FileMetadata> fileMetadata, HydrusSettings settings)
+    private List<HydrusImportFile> ParseImportFiles(List<FileMetadata> fileMetadata, HydrusSettings settings, CollectionKind kind = CollectionKind.Comic)
     {
         var useConfiguredTagService = ShouldUseConfiguredTagServiceForStructuralTags(fileMetadata, settings);
 
         return fileMetadata
+            .OrderBy(file => file.Hash, StringComparer.Ordinal)
             .Select((file, idx) =>
             {
                 var structuralTags = GetStructuralTags(file, settings, useConfiguredTagService);
@@ -1086,6 +1191,19 @@ public class HydrusSyncService : IHydrusSyncService
                     return null;
                 }
 
+                if (kind == CollectionKind.Imageset)
+                {
+                    var labels = structuralTags
+                        .Where(tag => tag.StartsWith(settings.AlternatePageNamespace, StringComparison.OrdinalIgnoreCase))
+                        .Select(tag => tag[settings.AlternatePageNamespace.Length..])
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(label => label, StringComparer.Ordinal)
+                        .ToList();
+                    return new HydrusImportFile(file, null, null,
+                        ExtractNumberFromTag(structuralTags, settings.IndexNamespace), true,
+                        labels.Count == 0 ? null : string.Join("\n", labels));
+                }
+
                 var isSinglePageComic = HasExactTag(structuralTags, settings.SinglePageComicTag);
 
                 var pageNumber = ExtractNumberFromTag(structuralTags, settings.PageNamespace);
@@ -1097,8 +1215,8 @@ public class HydrusSyncService : IHydrusSyncService
                     }
                     else
                     {
-                        _logger.LogWarning("File {Hash} is missing a page tag in the structural tag service and will be assigned a fallback page number.", file.Hash);
-                        pageNumber = idx;
+                        _logger.LogWarning("File {Hash} is missing a page tag and will be ordered after numbered pages by hash.", file.Hash);
+                        pageNumber = null;
                     }
                 }
 
@@ -1106,7 +1224,7 @@ public class HydrusSyncService : IHydrusSyncService
                 var hasAlternateValue = !string.IsNullOrWhiteSpace(alternateValue);
                 var defaultAlternateValue = settings.AlternatePageDefaultValue.Trim();
                 var isDefaultVariant = !hasAlternateValue ||
-                    string.Equals(alternateValue, defaultAlternateValue, StringComparison.OrdinalIgnoreCase);
+                    HasExactTag(structuralTags, BuildTag(settings.AlternatePageNamespace, defaultAlternateValue));
 
                 return new HydrusImportFile(
                     file,
@@ -1120,9 +1238,10 @@ public class HydrusSyncService : IHydrusSyncService
             .Select(file => file!)
             .OrderBy(file => file.Volume ?? int.MaxValue)
             .ThenBy(file => file.Chapter ?? decimal.MaxValue)
+            .ThenBy(file => file.Page.HasValue ? 0 : 1)
             .ThenBy(file => file.Page ?? int.MaxValue)
             .ThenByDescending(file => file.IsDefaultVariant)
-            .ThenBy(file => file.Metadata.FileId)
+            .ThenBy(file => file.Metadata.Hash, StringComparer.Ordinal)
             .ToList();
     }
 
@@ -1131,21 +1250,37 @@ public class HydrusSyncService : IHydrusSyncService
     /// </summary>
     private Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, List<SyncedPageVariant> Variants)>> ParseFilesIntoChapters(
         List<FileMetadata> fileMetadata,
-        HydrusSettings settings)
+        HydrusSettings settings,
+        CollectionKind kind = CollectionKind.Comic)
     {
         var chapters = new Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, List<SyncedPageVariant> Variants)>>();
+        var useConfiguredTagService = ShouldUseConfiguredTagServiceForStructuralTags(fileMetadata, settings);
 
-        foreach (var chapterGroup in ParseImportFiles(fileMetadata, settings)
+        if (kind == CollectionKind.Imageset)
+        {
+            chapters[(null, null)] = ParseImportFiles(fileMetadata, settings, kind)
+                .Select((file, index) => (index + 1,
+                    new List<SyncedPageVariant> { new(file.Metadata, true, file.VariantLabel) }))
+                .ToList();
+            return chapters;
+        }
+
+        foreach (var chapterGroup in ParseImportFiles(fileMetadata, settings, kind)
                      .GroupBy(file => (file.Volume, file.Chapter)))
         {
+            var fallbackNumber = chapterGroup.Where(file => file.Page.HasValue)
+                .Select(file => file.Page!.Value).DefaultIfEmpty(0).Max();
             var logicalPages = chapterGroup
-                .GroupBy(file => file.Page ?? int.MaxValue)
+                .GroupBy(file => file.Page ?? checked(++fallbackNumber))
                 .OrderBy(group => group.Key)
                 .Select(group =>
                 {
                     var variants = group
-                        .OrderByDescending(file => file.IsDefaultVariant)
-                        .ThenBy(file => file.Metadata.FileId)
+                        .OrderByDescending(file => HasExactTag(
+                            GetStructuralTags(file.Metadata, settings, useConfiguredTagService),
+                            BuildTag(settings.AlternatePageNamespace, settings.AlternatePageDefaultValue)))
+                        .ThenByDescending(file => file.IsDefaultVariant)
+                        .ThenBy(file => file.Metadata.Hash, StringComparer.Ordinal)
                         .Select(file => new SyncedPageVariant(
                             file.Metadata,
                             file.IsDefaultVariant,
@@ -1160,7 +1295,7 @@ public class HydrusSyncService : IHydrusSyncService
 
                     for (var i = 0; i < variants.Count; i++)
                     {
-                        variants[i] = variants[i] with { IsDefault = i == defaultVariantIndex };
+                        variants[i] = variants[i] with { IsDefault = kind == CollectionKind.Imageset || i == defaultVariantIndex };
                     }
 
                     return (PageNumber: group.Key, Variants: variants);
@@ -1213,6 +1348,7 @@ public class HydrusSyncService : IHydrusSyncService
         string comitTitle,
         Dictionary<(int? Volume, decimal? Chapter), List<(int PageNumber, List<SyncedPageVariant> Variants)>> chapters,
         List<FileMetadata> allFileMetadata,
+        CollectionKind kind,
         CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
@@ -1223,11 +1359,11 @@ public class HydrusSyncService : IHydrusSyncService
             .ThenInclude(c => c.Pages)
             .ThenInclude(p => p.Variants)
             .Include(s => s.Metadata)
-            .FirstOrDefaultAsync(s => s.Title == comitTitle, cancellationToken);
+            .FirstOrDefaultAsync(s => s.Title == comitTitle && s.Kind == kind, cancellationToken);
 
         if (comic == null)
         {
-            comic = new ComicsRecord { Title = comitTitle };
+            comic = new ComicsRecord { Title = comitTitle, Kind = kind };
             dbContext.Comic.Add(comic);
         }
 
@@ -1237,6 +1373,10 @@ public class HydrusSyncService : IHydrusSyncService
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
 
         // Add chapters from parsed data
+        var structuralSettings = settings.Clone();
+        if (kind == CollectionKind.Imageset)
+            structuralSettings.TitleNamespace = settings.SetNamespace;
+        var useConfiguredTagService = ShouldUseConfiguredTagServiceForStructuralTags(allFileMetadata, structuralSettings);
         foreach (var ((volumeNumber, chapterNumber), pages) in chapters
                      .OrderBy(c => c.Key.Volume ?? 0)
                      .ThenBy(c => c.Key.Chapter ?? 0m))
@@ -1263,6 +1403,9 @@ public class HydrusSyncService : IHydrusSyncService
                         FileHash = variant.Metadata.Hash,
                         MimeType = variant.Metadata.MimeType,
                         OcrText = ExtractNoteValue(variant.Metadata, settings.OcrTextNoteName),
+                        ImageIndex = kind == CollectionKind.Imageset
+                            ? ExtractNumberFromTag(GetStructuralTags(variant.Metadata, settings, useConfiguredTagService), settings.IndexNamespace)
+                            : null,
                         IsDefault = variant.IsDefault,
                         Label = variant.Label
                     });
@@ -1366,6 +1509,8 @@ public class HydrusSyncService : IHydrusSyncService
     {
         var normalized = ns.ToLowerInvariant();
         return normalized == settings.TitleNamespace.TrimEnd(':').ToLowerInvariant() ||
+               normalized == settings.SetNamespace.TrimEnd(':').ToLowerInvariant() ||
+               normalized == settings.IndexNamespace.TrimEnd(':').ToLowerInvariant() ||
                normalized == settings.VolumeNamespace.TrimEnd(':').ToLowerInvariant() ||
                normalized == settings.ChapterNamespace.TrimEnd(':').ToLowerInvariant() ||
                normalized == settings.PageNamespace.TrimEnd(':').ToLowerInvariant() ||
@@ -1411,6 +1556,8 @@ public class HydrusSyncService : IHydrusSyncService
         {
             var configuredTags = file.GetStorageTagsForService(structuralTagServiceKey);
             return ExtractNumberFromTag(configuredTags, settings.PageNamespace).HasValue
+                || ExtractNumberFromTag(configuredTags, settings.IndexNamespace).HasValue
+                || ExtractNamespaceValue(configuredTags, settings.TitleNamespace) is not null
                 || HasExactTag(configuredTags, settings.SinglePageComicTag);
         });
 
@@ -1553,7 +1700,7 @@ public class HydrusSyncService : IHydrusSyncService
             .ThenBy(page => page.Chapter ?? 0m)
             .ThenBy(page => page.PageNumber)
             .ThenByDescending(page => page.IsDefault)
-            .ThenBy(page => page.Metadata.FileId);
+            .ThenBy(page => page.Metadata.Hash, StringComparer.Ordinal);
 
         if (!string.IsNullOrWhiteSpace(coverTag))
         {

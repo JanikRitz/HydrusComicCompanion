@@ -29,6 +29,12 @@
                     }
                 </MudSelect>
 
+                @if (_model.Kind == CollectionKind.Imageset)
+                {
+                    <ImagesetPlacementStep Pages="_model.Pages" PageThumbnails="_model.PageThumbnails" />
+                }
+                else
+                {
                 <ChapterPlacementStep Pages="_model.Pages"
                                       PageThumbnails="_model.PageThumbnails"
                                       ChapterStartIndices="_model.ChapterStartIndices"
@@ -46,6 +52,7 @@
                                       OnUngroupPage="OnUngroupPage"
                                       OnDefaultVariantSelected="OnDefaultVariantSelected"
                                       ShowNavigationButtons="false" />
+                }
             </MudStack>
         }
     </DialogContent>
@@ -70,6 +77,8 @@
 
     private IReadOnlyList<(string Sha256Hash, string Label)> CoverCandidates => _model is null
         ? []
+        : _model.Kind == CollectionKind.Imageset
+        ? _model.Pages.Select(page => (page.Sha256Hash, $"Index {page.PageNumber?.ToString() ?? "(none)"} ({page.ArchiveFileName})")).ToList()
         : _model.Pages
             .Select((page, index) => (Page: page, Index: index))
             .Where(entry => !string.IsNullOrWhiteSpace(entry.Page.Sha256Hash))
@@ -96,6 +105,7 @@
 
         _model = new HydrusMetadataEditDialogModel
         {
+            Kind = Model.Kind,
             ComicId = Model.ComicId,
             HydrusTitle = Model.HydrusTitle,
             CoverFileHash = Model.CoverFileHash,

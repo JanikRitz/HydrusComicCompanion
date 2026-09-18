@@ -161,6 +161,21 @@ app.MapPost("/api/sync/comic/{comicName}", async (string comicName, IHydrusSyncS
 .Produces(400)
 .Produces(404);
 
+app.MapPost("/api/sync/collection/{kind}/{title}", async (CollectionKind kind, string title, IHydrusSyncService syncService, CancellationToken cancellationToken) =>
+{
+    if (!Enum.IsDefined(kind))
+        return Results.BadRequest(new { success = false, error = "Unknown collection type" });
+
+    var collectionId = await syncService.SyncCollectionAsync(title, kind, cancellationToken);
+    return collectionId.HasValue
+        ? Results.Ok(new { success = true, collectionId = collectionId.Value })
+        : Results.NotFound(new { success = false, error = "Collection not found" });
+})
+.WithName("SyncCollection")
+.Produces(200)
+.Produces(400)
+.Produces(404);
+
 app.MapGet("/api/sync/unsynced-count", async (IHydrusSyncService syncService) =>
 {
     var count = await syncService.GetUnsyncedComicsCountAsync();

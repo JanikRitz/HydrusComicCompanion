@@ -1,0 +1,41 @@
+@using HydrusComicCompanion.Models
+@using HydrusComicCompanion.Services
+@inject IHydrusMediaService MediaService
+
+<MudStack Spacing="2">
+    <MudText Typo="Typo.body2">Set each image's index and variant labels. Images sharing an index remain visible. Blank indices sort last; ties sort by file hash.</MudText>
+    @foreach (var page in Pages.Skip((_page - 1) * PageSize).Take(PageSize))
+    {
+        <MudPaper Outlined="true" Class="pa-2" @key="page.Index">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <HydrusImage Src="@GetThumbnail(page)" Alt="@(page.ArchiveFileName)" ShowHoverPreview="false" Style="width: 100px; height: 100px; object-fit: contain;" />
+                <MudStack Spacing="1" Style="flex: 1;">
+                    <MudText Typo="Typo.caption">@(page.ArchiveFileName)</MudText>
+                    <MudNumericField T="int?" @bind-Value="page.PageNumber" Label="Index" Clearable="true" />
+                    <MudTextField T="string" @bind-Value="page.VariantLabel" Label="Variant labels (one per line)" Lines="2" Immediate="true" />
+                    @if (AllowExclusion)
+                    {
+                        <MudCheckBox T="bool" @bind-Value="page.IsExcluded" Label="Exclude from import" />
+                    }
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    }
+    @if (Pages.Count > PageSize)
+    {
+        <MudPagination Count="@((int)Math.Ceiling(Pages.Count / (double)PageSize))" @bind-Selected="_page" />
+    }
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired] public List<ImportPage> Pages { get; set; } = [];
+    [Parameter] public Dictionary<int, string> PageThumbnails { get; set; } = [];
+    [Parameter] public bool AllowExclusion { get; set; }
+
+    private const int PageSize = 24;
+    private int _page = 1;
+
+    private string GetThumbnail(ImportPage page) => PageThumbnails.TryGetValue(page.Index, out var thumbnail)
+        ? thumbnail
+        : MediaService.BuildThumbnailUrl(page.Sha256Hash);
+}

@@ -8,7 +8,7 @@
 @inject IOcrReader OcrReader
 @inject ISnackbar Snackbar
 
-<PageTitle>Library</PageTitle>
+<PageTitle>Collections</PageTitle>
 
 <MudStack Spacing="3">
     @if (!string.IsNullOrEmpty(_syncError))
@@ -37,6 +37,13 @@
             <MudExpansionPanel Text="Search and filters">
                 <MudStack Spacing="2">
                     <MudGrid Spacing="2">
+                        <MudItem xs="12" md="6">
+                            <MudSelect T="string" Label="Collection type" @bind-Value="_kindFilter">
+                                <MudSelectItem Value="@("all")">All collections</MudSelectItem>
+                                <MudSelectItem Value="@("comic")">Comics</MudSelectItem>
+                                <MudSelectItem Value="@("imageset")">Imagesets</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
                         <MudItem xs="12" md="6">
                             <MudTextField T="string"
                                           Label="Title contains"
@@ -75,10 +82,10 @@
                             <MudNumericField T="int?" Label="Max chapters" @bind-Value="_maxChapters" Min="0" Clearable="true"/>
                         </MudItem>
                         <MudItem xs="6" md="2">
-                            <MudNumericField T="int?" Label="Min pages" @bind-Value="_minTotalPages" Min="0" Clearable="true"/>
+                            <MudNumericField T="int?" Label="Min pages / images" @bind-Value="_minTotalPages" Min="0" Clearable="true"/>
                         </MudItem>
                         <MudItem xs="6" md="2">
-                            <MudNumericField T="int?" Label="Max pages" @bind-Value="_maxTotalPages" Min="0" Clearable="true"/>
+                            <MudNumericField T="int?" Label="Max pages / images" @bind-Value="_maxTotalPages" Min="0" Clearable="true"/>
                         </MudItem>
                     </MudGrid>
 
@@ -101,7 +108,7 @@
                            EndIcon="@Icons.Material.Filled.Refresh">
                 </MudButton>
             </ChildContent>
-            <TooltipContent>Sync OCR for known comics</TooltipContent>
+            <TooltipContent>Sync OCR for known collections</TooltipContent>
         </MudTooltip>
         <MudTooltip>
             <ChildContent>
@@ -115,7 +122,7 @@
                     EndIcon="@Icons.Material.Filled.Refresh">
                 </MudButton>
             </ChildContent>
-            <TooltipContent>Sync Hydrus data for known comics</TooltipContent>
+            <TooltipContent>Sync Hydrus data for known collections</TooltipContent>
         </MudTooltip>
     </MudStack>
 
@@ -159,6 +166,7 @@
                             ChapterCount="@comic.ChapterCount"
                             MetadataCount="@comic.MetadataCount"
                             TotalPageCount="@comic.TotalPageCount"
+                            Kind="@comic.Kind"
                             OnClick="() => OpenComic(comic.Id)"
                             OnDelete="() => DeleteComicAsync(comic.Id, GetComicCardTitle(comic))"/>
                     </MudItem>
@@ -188,6 +196,7 @@
     private sealed class ComicsCardItem
     {
         public int Id { get; init; }
+        public CollectionKind Kind { get; init; }
         public string Title { get; init; } = string.Empty;
         public string? DisplayTitle { get; init; }
         public string? CoverFileHash { get; init; }
@@ -200,7 +209,7 @@
     private record FilterSnapshot(
         string Title, string Tag, string Comment, string Ocr,
         int? MinVol, int? MaxVol, int? MinCh, int? MaxCh, int? MinPg, int? MaxPg,
-        int Page);
+        int Page, string Kind);
 
     private const int PageSize = 12;
     private readonly DialogOptions _topCenter = new() { Position = DialogPosition.TopCenter };
@@ -226,6 +235,9 @@
     [Parameter][SupplyParameterFromQuery(Name = "minPg")] public int? MinPagesQuery { get; set; }
     [Parameter][SupplyParameterFromQuery(Name = "maxPg")] public int? MaxPagesQuery { get; set; }
     [Parameter][SupplyParameterFromQuery(Name = "page")] public int? PageQuery { get; set; }
+    [Parameter][SupplyParameterFromQuery(Name = "kind")] public string? KindQuery { get; set; }
+
+    private string _kindFilter = "all";
 
     private FilterSnapshot? _lastLoadedFilter;
     private List<ComicsCardItem> _comics = [];
@@ -258,6 +270,7 @@
     private int EndItemIndex => Math.Min(_currentPage * PageSize, _totalComicsCount);
 
     private bool HasActiveFilters =>
+        _kindFilter != "all" ||
         !string.IsNullOrWhiteSpace(_titleFilter) ||
         !string.IsNullOrWhiteSpace(_tagFilter) ||
         !string.IsNullOrWhiteSpace(_commentFilter) ||
@@ -270,7 +283,7 @@
         _maxTotalPages.HasValue;
 
     private string EmptyStateMessage => _totalLibraryComicsCount == 0
-        ? "No titles are cached yet. Use the settings page to connect Hydrus, then add the discovery and sync flow."
+        ? "No collections are cached yet. Connect Hydrus in Settings, then run a full sync to discover comics and imagesets."
         : "No titles matched your current search and filters.";
 
     protected override async Task OnParametersSetAsync()
@@ -286,7 +299,7 @@
             MaxChaptersQuery,
             MinPagesQuery,
             MaxPagesQuery,
-            PageQuery ?? 1);
+            PageQuery ?? 1, KindQuery?.ToLowerInvariant() is "comic" or "imageset" ? KindQuery.ToLowerInvariant() : "all");
 
         if (_lastLoadedFilter == current)
             return;
@@ -303,6 +316,7 @@
         _minTotalPages = current.MinPg;
         _maxTotalPages = current.MaxPg;
         _currentPage = current.Page;
+        _kindFilter = current.Kind;
 
         await LoadComicsAsync();
     }
@@ -316,6 +330,12 @@
 
             var query = context.Comic.AsNoTracking();
             _totalLibraryComicsCount = await query.CountAsync();
+
+            if (_kindFilter != "all")
+            {
+                var kind = _kindFilter == "imageset" ? CollectionKind.Imageset : CollectionKind.Comic;
+                query = query.Where(x => x.Kind == kind);
+            }
 
             if (!string.IsNullOrWhiteSpace(_titleFilter))
             {
@@ -387,25 +407,29 @@
             if (_minChapters.HasValue)
             {
                 var minChapters = _minChapters.Value;
-                query = query.Where(x => x.Chapters.Count() >= minChapters);
+                query = query.Where(x => (x.Kind == CollectionKind.Comic ? x.Chapters.Count() : 0) >= minChapters);
             }
 
             if (_maxChapters.HasValue)
             {
                 var maxChapters = _maxChapters.Value;
-                query = query.Where(x => x.Chapters.Count() <= maxChapters);
+                query = query.Where(x => (x.Kind == CollectionKind.Comic ? x.Chapters.Count() : 0) <= maxChapters);
             }
 
             if (_minTotalPages.HasValue)
             {
                 var minPages = _minTotalPages.Value;
-                query = query.Where(x => x.Chapters.SelectMany(c => c.Pages).Count() >= minPages);
+                query = query.Where(x => (x.Kind == CollectionKind.Imageset
+                    ? x.Chapters.SelectMany(c => c.Pages).SelectMany(p => p.Variants).Count()
+                    : x.Chapters.SelectMany(c => c.Pages).Count()) >= minPages);
             }
 
             if (_maxTotalPages.HasValue)
             {
                 var maxPages = _maxTotalPages.Value;
-                query = query.Where(x => x.Chapters.SelectMany(c => c.Pages).Count() <= maxPages);
+                query = query.Where(x => (x.Kind == CollectionKind.Imageset
+                    ? x.Chapters.SelectMany(c => c.Pages).SelectMany(p => p.Variants).Count()
+                    : x.Chapters.SelectMany(c => c.Pages).Count()) <= maxPages);
             }
 
             _totalComicsCount = await query.CountAsync();
@@ -428,18 +452,23 @@
 
             _comics = await query
                 .OrderBy(x => x.Title)
+                .ThenBy(x => x.Kind)
+                .ThenBy(x => x.Id)
                 .Skip(skip)
                 .Take(PageSize)
                 .Select(x => new ComicsCardItem
                 {
                     Id = x.Id,
+                    Kind = x.Kind,
                     Title = x.Title,
                     DisplayTitle = x.DisplayTitle,
                     CoverFileHash = x.CoverFileHash,
                     LastSyncedAt = x.LastSyncedAt,
-                    ChapterCount = x.Chapters.Count(),
+                    ChapterCount = x.Kind == CollectionKind.Comic ? x.Chapters.Count() : 0,
                     MetadataCount = x.Metadata.Count(),
-                    TotalPageCount = x.Chapters.SelectMany(c => c.Pages).Count()
+                    TotalPageCount = x.Kind == CollectionKind.Imageset
+                        ? x.Chapters.SelectMany(c => c.Pages).SelectMany(p => p.Variants).Count()
+                        : x.Chapters.SelectMany(c => c.Pages).Count()
                 })
                 .ToListAsync();
 
@@ -563,6 +592,7 @@
     private string BuildQueryUrl(int page = 1)
     {
         var queryParams = new Dictionary<string, object?>();
+        if (_kindFilter != "all") queryParams["kind"] = _kindFilter;
         if (!string.IsNullOrWhiteSpace(_titleFilter)) queryParams["title"] = _titleFilter.Trim();
         if (!string.IsNullOrWhiteSpace(_tagFilter)) queryParams["tag"] = _tagFilter.Trim();
         if (!string.IsNullOrWhiteSpace(_commentFilter)) queryParams["comment"] = _commentFilter.Trim();
@@ -591,7 +621,7 @@
             [nameof(DeleteComicDialog.Comic)] = title
         };
 
-        var dialog = await DialogService.ShowAsync<DeleteComicDialog>("Delete comic", parameters, _topCenter);
+        var dialog = await DialogService.ShowAsync<DeleteComicDialog>("Delete collection", parameters, _topCenter);
         var result = await dialog.Result;
 
         if (result.Canceled || result.Data is not bool confirmed || !confirmed)
@@ -613,7 +643,7 @@
 
     private void OpenComic(int comicId)
     {
-        NavigationManager.NavigateTo($"/comic/{comicId}");
+        NavigationManager.NavigateTo($"/collection/{comicId}");
     }
 
 }

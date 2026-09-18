@@ -40,5 +40,6 @@ public interface IComicImportService
     /// <returns>Ordered overlap suggestions with counts.</returns>
     Task<IReadOnlyList<TitleOverlapSuggestion>> SuggestTitleOverlapsAsync(
         IReadOnlyList<ImportPage> pages,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        CollectionKind kind = CollectionKind.Comic);
 }

@@ -7,6 +7,8 @@ namespace HydrusComicCompanion.Services;
 /// </summary>
 public interface IHydrusApiService
 {
+    Task<List<CollectionIdentity>> DiscoverCollectionsAsync(CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Discovers all title tags in Hydrus
     /// </summary>

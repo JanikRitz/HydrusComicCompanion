@@ -1,4 +1,5 @@
 @page "/comic/{ComicId:int}"
+@page "/collection/{ComicId:int}"
 @using HydrusComicCompanion.Models
 @using HydrusComicCompanion.Services
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
@@ -10,7 +11,7 @@
 @inject IHydrusMediaService MediaService
 @inject IHydrusSettingsService SettingsService
 
-<PageTitle>Title</PageTitle>
+<PageTitle>Collection</PageTitle>
 
 @if (_isLoading)
 {
@@ -19,7 +20,7 @@
 else if (_comic is null)
 {
     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-        This comic is not in the local cache yet.
+        This collection is not in the local cache yet.
     </MudAlert>
     <MudButton Variant="Variant.Text" OnClick="GoHome">Back to Library</MudButton>
 }
@@ -34,7 +35,7 @@ else
                     </MudOverlay>
                     <MudStack Spacing="2">
                         <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                            <MudText Typo="Typo.h6">Comic Details</MudText>
+                            <MudText Typo="Typo.h6">@(_comic.Kind == CollectionKind.Imageset ? "Imageset Details" : "Comic Details")</MudText>
                             @if (!_isEditingDetails)
                             {
                                 <MudSpacer></MudSpacer>
@@ -108,7 +109,7 @@ else
         <MudPaper Class="pa-4" Outlined="true">
             <MudStack Spacing="2">
                 <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.h6">@(HasInlineSinglePageComic ? "Comic" : "Chapters")</MudText>
+                    <MudText Typo="Typo.h6">@(_comic.Kind == CollectionKind.Imageset ? "Images" : HasInlineSinglePageComic ? "Comic" : "Chapters")</MudText>
                     <MudButton Variant="Variant.Outlined"
                                StartIcon="@Icons.Material.Filled.EditNote"
                                Disabled="@_isOpeningMetadataEditor"
@@ -116,7 +117,11 @@ else
                         @(_isOpeningMetadataEditor ? "Opening..." : "Edit Hydrus Metadata")
                     </MudButton>
                 </MudStack>
-                @if (_orderedChapters.Count == 0)
+                @if (_comic.Kind == CollectionKind.Imageset)
+                {
+                    <ImagesetGallery Collection="_comic" />
+                }
+                else if (_orderedChapters.Count == 0)
                 {
                     <MudText Color="Color.Secondary">No chapters cached yet.</MudText>
                 }
@@ -188,7 +193,7 @@ else
     private string _commentInput = string.Empty;
     private readonly DialogOptions _center = new() { Position = DialogPosition.Center, FullWidth = true, MaxWidth = MaxWidth.Large};
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
         await ReloadComicAsync();
         _isLoading = false;
@@ -267,13 +272,23 @@ else
         _isEditingDetails = true;
     }
 
-    private async void SyncComic()
+    private async Task SyncComic()
     {
         if (string.IsNullOrEmpty(_comic?.Title)) return;
         _isSyncingMetadata = true;
-        await SyncService.SyncComicAsync(_comic.Title);
-        _isSyncingMetadata = false;
-        StateHasChanged(); // without the MudOverlay stays open
+        try
+        {
+            await SyncService.SyncCollectionAsync(_comic.Title, _comic.Kind);
+            await ReloadComicAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Collection sync failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isSyncingMetadata = false;
+        }
     }
 
     private void CancelEditDetails()
@@ -409,6 +424,7 @@ else
     {
         var model = new HydrusMetadataEditDialogModel
         {
+            Kind = _comic?.Kind ?? CollectionKind.Comic,
             ComicId = ComicId,
             HydrusTitle = _comic?.Title ?? string.Empty,
             CoverFileHash = _comic?.CoverFileHash
@@ -455,7 +471,7 @@ else
                         ArchiveFileName = variant.FileHash,
                         Sha256Hash = variant.FileHash,
                         MimeType = string.IsNullOrWhiteSpace(variant.MimeType) ? "image/jpeg" : variant.MimeType!,
-                        PageNumber = page.PageNumber,
+                        PageNumber = _comic?.Kind == CollectionKind.Imageset ? variant.ImageIndex : page.PageNumber,
                         LogicalPageGroupId = logicalGroupId,
                         IsDefaultVariant = variant.IsDefault,
                         VariantLabel = variant.Label

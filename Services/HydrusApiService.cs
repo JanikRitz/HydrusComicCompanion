@@ -22,6 +22,20 @@ public class HydrusApiService : IHydrusApiService
     /// <summary>
     /// Discovers all title tags in Hydrus using file search and metadata extraction.
     /// </summary>
+    public async Task<List<CollectionIdentity>> DiscoverCollectionsAsync(CancellationToken cancellationToken = default)
+    {
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        var comics = await DiscoverComicsAsync(settings, cancellationToken);
+        var imagesetSettings = settings.Clone();
+        imagesetSettings.TitleNamespace = settings.SetNamespace;
+        var imagesets = await DiscoverComicsAsync(imagesetSettings, cancellationToken);
+        return comics.Select(title => new CollectionIdentity(title, CollectionKind.Comic))
+            .Concat(imagesets.Select(title => new CollectionIdentity(title, CollectionKind.Imageset)))
+            .OrderBy(collection => collection.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(collection => collection.Kind)
+            .ToList();
+    }
+
     public Task<List<string>> DiscoverSeriesAsync(CancellationToken cancellationToken = default)
         => DiscoverComicsAsync(cancellationToken);
 
@@ -44,8 +58,9 @@ public class HydrusApiService : IHydrusApiService
 
         try
         {
-            var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "title:");
+            var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "comic:");
             var pageNamespace = NormalizeNamespace(settings.PageNamespace, "page:");
+            var indexNamespace = NormalizeNamespace(settings.IndexNamespace, "index:");
 
             var coverPageTag = string.IsNullOrWhiteSpace(settings.CoverPageTag)
                 ? "meta:cover page"
@@ -60,7 +75,8 @@ public class HydrusApiService : IHydrusApiService
                 $"{titleNamespace}*",
                 new List<string>
                 {
-                    $"{pageNamespace}1",
+                    $"{pageNamespace}*",
+                    $"{indexNamespace}*",
                     coverPageTag,
                     singlePageComicTag
                 }
@@ -154,6 +170,8 @@ public class HydrusApiService : IHydrusApiService
                 new List<string>
                 {
                     pageWildcard,
+                    $"{NormalizeNamespace(settings.PageNamespace, "page:")}*",
+                    $"{NormalizeNamespace(settings.IndexNamespace, "index:")}*",
                     singlePageComicTag
                 }
             };

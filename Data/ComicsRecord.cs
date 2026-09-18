@@ -1,8 +1,12 @@
+using HydrusComicCompanion.Models;
+
 namespace HydrusComicCompanion.Data;
 
 public sealed class ComicsRecord
 {
     public int Id { get; set; }
+
+    public CollectionKind Kind { get; set; }
 
     public string Title { get; set; } = string.Empty;
 

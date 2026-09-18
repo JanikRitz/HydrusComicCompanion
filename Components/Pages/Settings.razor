@@ -57,11 +57,13 @@
 
                     <MudDivider />
                     <MudText Typo="Typo.h6">Taxonomy Mappings</MudText>
-                    <MudTextField @bind-Value="_settings.TitleNamespace" Label="Title Namespace" Immediate="true" />
+                    <MudTextField @bind-Value="_settings.TitleNamespace" Label="Comic Title Namespace" Immediate="true" />
+                    <MudTextField @bind-Value="_settings.SetNamespace" Label="Imageset Title Namespace" Immediate="true" />
+                    <MudTextField @bind-Value="_settings.IndexNamespace" Label="Imageset Index Namespace" Immediate="true" />
                     <MudTextField @bind-Value="_settings.VolumeNamespace" Label="Volume Namespace" Immediate="true" />
                     <MudTextField @bind-Value="_settings.ChapterNamespace" Label="Chapter Namespace" Immediate="true" />
                     <MudTextField @bind-Value="_settings.PageNamespace" Label="Page Namespace" Immediate="true" />
-                    <MudTextField @bind-Value="_settings.AlternatePageNamespace" Label="Alternate Page Namespace" Immediate="true" />
+                    <MudTextField @bind-Value="_settings.AlternatePageNamespace" Label="Variant Namespace" Immediate="true" />
                     <MudTextField @bind-Value="_settings.AlternatePageDefaultValue" Label="Alternate Page Default Value" Immediate="true" />
                     <MudTextField @bind-Value="_settings.CoverPageTag" Label="Cover Page Tag" Immediate="true" />
                     <MudTextField @bind-Value="_settings.SinglePageComicTag" Label="Single Page Comic Tag" Immediate="true" />
@@ -75,7 +77,7 @@
 
                     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Spacing="2">
                         <MudText Typo="Typo.body2" Color="Color.Secondary">
-                            Run a full sync that discovers all series and refreshes the local cache.
+                            Discover comics and imagesets and refresh the local collections cache.
                         </MudText>
                         <MudButton Variant="Variant.Outlined" Color="Color.Secondary" Disabled="@_isSyncingLibrary" OnClick="RunFullSyncAsync">
                             @(_isSyncingLibrary ? "Syncing..." : "Run Normal Sync")

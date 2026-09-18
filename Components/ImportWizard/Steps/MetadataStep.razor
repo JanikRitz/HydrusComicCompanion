@@ -16,7 +16,7 @@
                                   Label="Hydrus Title Tag"
                                   Required="true"
                                   Immediate="true"
-                                  HelperText="Added as tag title:&lt;value&gt; (e.g. The Sandman)" />
+                                  HelperText="Uses the configured comic or imageset title namespace." />
 
                     @if (VisibleTitleSuggestions.Count > 0)
                     {
@@ -59,12 +59,15 @@
                                   Immediate="true"
                                   HelperText="Separate tags with commas, e.g. action, drama, sci-fi" />
 
+                    @if (Kind == CollectionKind.Comic)
+                    {
                     <MudSwitch Value="@UseChapterTags" ValueChanged="@UseChapterTagsChanged" Color="Color.Primary" Label="Use chapter tags" />
 
                     <MudNumericField T="int?" Value="@VolumeNumber" ValueChanged="@VolumeNumberChanged"
                                      Label="Volume Number"
                                      Clearable="true"
                                      HelperText="Optional" />
+                    }
                 </MudStack>
             </MudItem>
             
@@ -124,13 +127,16 @@
                        Color="Color.Primary"
                        Disabled="@string.IsNullOrWhiteSpace(TitleName)"
                        OnClick="OnContinueClicked">
-                Next: Place Chapters
+                @(Kind == CollectionKind.Imageset ? "Next: Order Images" : "Next: Place Chapters")
             </MudButton>
         </MudStack>
     </MudStack>
 </MudPaper>
 
 @code {
+    [Parameter]
+    public CollectionKind Kind { get; set; }
+
     [Parameter]
     public string TitleName { get; set; } = string.Empty;
 

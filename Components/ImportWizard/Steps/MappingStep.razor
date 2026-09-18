@@ -7,8 +7,8 @@
         <div>
             <MudText Typo="Typo.h6">Step 2 — Tag Service &amp; Mapping</MudText>
             <MudText Typo="Typo.body2" Color="Color.Secondary">
-                Choose the tag service to read from and how its namespaces map to title, volume, chapter, page and cover.
-                Leave a field blank to fall back to your configured default. Continue to discover the comics tagged in that service.
+                Choose the source tag service and namespace mapping for this collection type.
+                Leave a field blank to use your configured default. Discovery respects both page and index namespaces.
             </MudText>
         </div>
 
@@ -26,13 +26,16 @@
         </MudSelect>
 
         <MudTextField @bind-Value="Mapping.TitleNamespace" Label="Title Namespace" Immediate="true"
-                      Disabled="@IsProcessing" Placeholder="title:" HelperText="e.g. title:" />
+                      Disabled="@IsProcessing" Placeholder="@(Mapping.Kind == CollectionKind.Imageset ? "set:" : "comic:")" />
+        @if (Mapping.Kind == CollectionKind.Comic)
+        {
         <MudTextField @bind-Value="Mapping.VolumeNamespace" Label="Volume Namespace" Immediate="true"
                       Disabled="@IsProcessing" Placeholder="volume:" HelperText="e.g. volume:" />
         <MudTextField @bind-Value="Mapping.ChapterNamespace" Label="Chapter Namespace" Immediate="true"
                       Disabled="@IsProcessing" Placeholder="chapter:" HelperText="e.g. chapter:" />
-        <MudTextField @bind-Value="Mapping.PageNamespace" Label="Page Namespace" Immediate="true"
-                      Disabled="@IsProcessing" Placeholder="page:" HelperText="e.g. page:" />
+        }
+        <MudTextField @bind-Value="Mapping.PageNamespace" Label="@(Mapping.Kind == CollectionKind.Imageset ? "Index Namespace" : "Page Namespace")" Immediate="true"
+                      Disabled="@IsProcessing" Placeholder="@(Mapping.Kind == CollectionKind.Imageset ? "index:" : "page:")" />
         <MudTextField @bind-Value="Mapping.CoverPageTag" Label="Cover Page Tag" Immediate="true"
                       Disabled="@IsProcessing" Placeholder="meta:cover page" HelperText="Full tag that marks the cover page (optional)" />
         <MudNumericField @bind-Value="Mapping.MinimumPages" Label="Minimum Pages (Optional)" Immediate="true"

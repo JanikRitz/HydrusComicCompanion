@@ -17,17 +17,20 @@ public sealed class ComicImportService : IComicImportService
     private readonly IHydrusSettingsService _settingsService;
     private readonly IDbContextFactory<SettingsDbContext> _dbContextFactory;
     private readonly ILogger<ComicImportService> _logger;
+    private readonly IHydrusSyncService _syncService;
 
     public ComicImportService(
         IHydrusApiService apiService,
         IDbContextFactory<SettingsDbContext> dbContextFactory,
         IHydrusSettingsService settingsService,
-        ILogger<ComicImportService> logger)
+        ILogger<ComicImportService> logger,
+        IHydrusSyncService syncService)
     {
         _apiService = apiService;
         _dbContextFactory = dbContextFactory;
         _settingsService = settingsService;
         _logger = logger;
+        _syncService = syncService;
     }
 
     /// <inheritdoc/>
@@ -49,7 +52,8 @@ public sealed class ComicImportService : IComicImportService
     /// <inheritdoc/>
     public async Task<IReadOnlyList<TitleOverlapSuggestion>> SuggestTitleOverlapsAsync(
         IReadOnlyList<ImportPage> pages,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        CollectionKind kind = CollectionKind.Comic)
     {
         if (pages.Count == 0)
         {
@@ -69,8 +73,12 @@ public sealed class ComicImportService : IComicImportService
 
         var incomingHashSet = incomingHashes.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
-        var titleNamespace = NormalizeNamespace(settings.TitleNamespace, "title:");
-        var pageNamespace = NormalizeNamespace(settings.PageNamespace, "page:");
+        var titleNamespace = kind == CollectionKind.Imageset
+            ? NormalizeNamespace(settings.SetNamespace, "set:")
+            : NormalizeNamespace(settings.TitleNamespace, "comic:");
+        var pageNamespace = kind == CollectionKind.Imageset
+            ? NormalizeNamespace(settings.IndexNamespace, "index:")
+            : NormalizeNamespace(settings.PageNamespace, "page:");
 
         var matchingMetadata = await _apiService.GetFileMetadataByHashesAsync(incomingHashes, cancellationToken: cancellationToken);
         if (matchingMetadata.Count == 0)
@@ -182,7 +190,7 @@ public sealed class ComicImportService : IComicImportService
 
         var total = request.Pages.Count;
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
-        var titleTag = BuildTag(settings.TitleNamespace, request.SeriesName);
+        var titleTag = BuildTag(request.Kind == CollectionKind.Imageset ? settings.SetNamespace : settings.TitleNamespace, request.SeriesName);
 
         // Step 1: Upload all pages to Hydrus (or confirm they already exist)
         var pageHashes = new string[total];
@@ -254,6 +262,16 @@ public sealed class ComicImportService : IComicImportService
                 titleTag
             };
 
+            if (request.Kind == CollectionKind.Imageset)
+            {
+                if (request.Pages[i].PageNumber.HasValue)
+                    tags.Add(BuildTag(settings.IndexNamespace, request.Pages[i].PageNumber!.Value.ToString()));
+                tags.AddRange((request.Pages[i].VariantLabel ?? string.Empty)
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(label => BuildTag(settings.AlternatePageNamespace, label)));
+            }
+            else
+            {
             var effectiveVolumeNumber = GetVolumeForPage(i, request);
             if (effectiveVolumeNumber.HasValue)
             {
@@ -274,13 +292,15 @@ public sealed class ComicImportService : IComicImportService
                 tags.Add(BuildTag(settings.PageNamespace, pageNumber.ToString()));
             }
 
+            }
+
             if (!string.IsNullOrWhiteSpace(request.Creator))
             {
                 tags.Add($"creator:{request.Creator.Trim()}");
             }
 
             var page = request.Pages[i];
-            if (logicalGroupSizes.TryGetValue(page.LogicalPageGroupId, out var variantCount) && variantCount > 1)
+            if (request.Kind == CollectionKind.Comic && logicalGroupSizes.TryGetValue(page.LogicalPageGroupId, out var variantCount) && variantCount > 1)
             {
                 var nextVariantOrdinal = logicalGroupVariantCounters.TryGetValue(page.LogicalPageGroupId, out var existingOrdinal)
                     ? existingOrdinal + 1
@@ -294,7 +314,19 @@ public sealed class ComicImportService : IComicImportService
 
             tags.AddRange(request.CustomTags.Where(tag => !string.IsNullOrWhiteSpace(tag)).Select(tag => tag.Trim()).Distinct(StringComparer.OrdinalIgnoreCase));
 
-            await _apiService.AddTagsAsync(pageHashes[i], settings.TagServiceKey, tags, cancellationToken);
+            if (request.Kind == CollectionKind.Imageset)
+            {
+                var metadata = await _apiService.GetFileMetadataByHashesAsync([pageHashes[i]], cancellationToken: cancellationToken);
+                var oldTags = metadata.SelectMany(file => file.GetStorageTagsForService(settings.TagServiceKey))
+                    .Where(tag => tag.StartsWith(NormalizeNamespace(settings.IndexNamespace, "index:"), StringComparison.OrdinalIgnoreCase)
+                        || tag.StartsWith(NormalizeNamespace(settings.AlternatePageNamespace, "variant:"), StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                await _apiService.UpdateTagsAsync(pageHashes[i], settings.TagServiceKey, oldTags, tags, cancellationToken);
+            }
+            else
+            {
+                await _apiService.AddTagsAsync(pageHashes[i], settings.TagServiceKey, tags, cancellationToken);
+            }
         }
 
         // Step 3: Remove stale title/page tags from user-excluded Hydrus rows.
@@ -325,7 +357,10 @@ public sealed class ComicImportService : IComicImportService
             Message = "Saving to local cache…"
         });
 
-        var seriesId = await PersistToCacheAsync(request, chapterStarts, pageHashes, pageMimeTypes, cancellationToken);
+        var seriesId = request.Kind == CollectionKind.Imageset
+            ? await _syncService.SyncCollectionAsync(request.SeriesName, request.Kind, cancellationToken)
+                ?? throw new InvalidOperationException("Imageset was tagged but could not be synchronized from Hydrus.")
+            : await PersistToCacheAsync(request, chapterStarts, pageHashes, pageMimeTypes, cancellationToken);
 
         progress?.Report(new ImportProgressUpdate
         {
@@ -354,7 +389,7 @@ public sealed class ComicImportService : IComicImportService
             return;
         }
 
-        var pageNamespacePrefix = settings.PageNamespace.Trim().TrimEnd(':');
+        var pageNamespacePrefix = (request.Kind == CollectionKind.Imageset ? settings.IndexNamespace : settings.PageNamespace).Trim().TrimEnd(':');
         pageNamespacePrefix = string.IsNullOrWhiteSpace(pageNamespacePrefix)
             ? string.Empty
             : $"{pageNamespacePrefix}:";
@@ -609,11 +644,11 @@ public sealed class ComicImportService : IComicImportService
                 .ThenInclude(c => c.Pages)
                     .ThenInclude(p => p.Variants)
             .Include(s => s.Metadata)
-            .FirstOrDefaultAsync(s => s.Title == request.SeriesName, cancellationToken);
+            .FirstOrDefaultAsync(s => s.Title == request.SeriesName && s.Kind == request.Kind, cancellationToken);
 
         if (series == null)
         {
-            series = new ComicsRecord { Title = request.SeriesName };
+            series = new ComicsRecord { Title = request.SeriesName, Kind = request.Kind };
             db.Comic.Add(series);
         }
 

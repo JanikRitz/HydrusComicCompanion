@@ -1,0 +1,53 @@
+@using HydrusComicCompanion.Models
+@using HydrusComicCompanion.Services
+@inject IHydrusMediaService MediaService
+
+@if (_images.Count == 0)
+{
+    <MudText Color="Color.Secondary">No images cached yet.</MudText>
+}
+else
+{
+    <MudText Typo="Typo.body2">@_images.Count images</MudText>
+    <MudGrid Spacing="3">
+        @foreach (var image in _images.Skip((_page - 1) * PageSize).Take(PageSize))
+        {
+            <MudItem xs="12" sm="6" md="4" lg="3" @key="image.File.FileHash">
+                <MudPaper Outlined="true" Class="pa-2">
+                    <a href="@($"/collection/{Collection.Id}/image/{image.File.FileHash}")" aria-label="@($"Open {image.IndexLabel}")">
+                        <HydrusImage Src="@MediaService.BuildRenderUrl(image.File.FileHash, width: 480, height: 480)"
+                                     Alt="@($"{Collection.Title} · {image.IndexLabel}")"
+                                     ShowHoverPreview="false" Loading="lazy"
+                                     Style="width: 100%; height: 280px; object-fit: contain;" />
+                    </a>
+                    <MudText Typo="Typo.subtitle2">@image.IndexLabel</MudText>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                        @foreach (var label in image.Labels)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@label</MudChip>
+                        }
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+    @if (_images.Count > PageSize)
+    {
+        <MudPagination Count="@((int)Math.Ceiling(_images.Count / (double)PageSize))" @bind-Selected="_page" />
+    }
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public ComicsRecord Collection { get; set; } = null!;
+
+    private const int PageSize = 24;
+    private int _page = 1;
+    private List<ImagesetImage> _images = [];
+
+    protected override void OnParametersSet()
+    {
+        _images = ImagesetImage.FromCollection(Collection);
+        _page = Math.Clamp(_page, 1, Math.Max(1, (int)Math.Ceiling(_images.Count / (double)PageSize)));
+    }
+}

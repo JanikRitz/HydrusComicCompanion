@@ -2,5 +2,8 @@
   <Folder Name="/Solution Items/">
     <File Path="plan.md" />
   </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/CollectionChecks.csproj" />
+  </Folder>
   <Project Path="HydrusComicCompanion.csproj" />
 </Solution>

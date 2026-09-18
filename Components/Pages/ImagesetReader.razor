@@ -1,0 +1,95 @@
+@page "/collection/{CollectionId:int}/image/{Hash}"
+@using HydrusComicCompanion.Models
+@using HydrusComicCompanion.Services
+@inject IDbContextFactory<SettingsDbContext> DbContextFactory
+@inject IHydrusMediaService MediaService
+@inject NavigationManager NavigationManager
+
+<PageTitle>@(_collection?.DisplayTitle ?? _collection?.Title ?? "Imageset")</PageTitle>
+
+@if (_isLoading)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_current is null)
+{
+    <MudAlert Severity="Severity.Warning">@(_error ?? "This image is not in the cached imageset.")</MudAlert>
+    <MudButton Href="@($"/collection/{CollectionId}")">Back to collection</MudButton>
+}
+else
+{
+    <MudStack Spacing="2" tabindex="0" @onkeydown="HandleKeyDown">
+        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+            <MudButton Href="@($"/collection/{CollectionId}")" StartIcon="@Icons.Material.Filled.Collections">Gallery</MudButton>
+            <MudText Typo="Typo.h6">@(_collection!.DisplayTitle ?? _collection.Title)</MudText>
+            <MudSpacer />
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Disabled="@(_position <= 0)" OnClick="() => Navigate(-1)" aria-label="Previous image" />
+            <MudText>@(_position + 1) / @_images.Count · @_current.IndexLabel</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowForward" Disabled="@(_position >= _images.Count - 1)" OnClick="() => Navigate(1)" aria-label="Next image" />
+        </MudStack>
+        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+            @foreach (var label in _current.Labels)
+            {
+                <MudChip T="string" Variant="Variant.Outlined">@label</MudChip>
+            }
+        </MudStack>
+        <HydrusImage @key="_current.File.FileHash" Src="@MediaService.BuildRenderUrl(_current.File.FileHash)"
+                     Alt="@($"{_collection!.Title} · {_current.IndexLabel}")"
+                     ShowHoverPreview="false" Loading="eager"
+                     Style="width: 100%; height: calc(100vh - 230px); object-fit: contain;" />
+    </MudStack>
+}
+
+@code {
+    [Parameter] public int CollectionId { get; set; }
+    [Parameter] public string Hash { get; set; } = string.Empty;
+
+    private ComicsRecord? _collection;
+    private List<ImagesetImage> _images = [];
+    private ImagesetImage? _current;
+    private int _position;
+    private bool _isLoading;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _isLoading = true;
+        _current = null;
+        _error = null;
+        try
+        {
+            await using var context = await DbContextFactory.CreateDbContextAsync();
+            _collection = await context.Comic.AsNoTracking()
+                .Include(collection => collection.Chapters)
+                .ThenInclude(chapter => chapter.Pages)
+                .ThenInclude(page => page.Variants)
+                .SingleOrDefaultAsync(collection => collection.Id == CollectionId && collection.Kind == CollectionKind.Imageset);
+            _images = _collection is null ? [] : ImagesetImage.FromCollection(_collection);
+            _position = _images.FindIndex(image => string.Equals(image.File.FileHash, Hash, StringComparison.OrdinalIgnoreCase));
+            _current = _position < 0 ? null : _images[_position];
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load imageset: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private void Navigate(int offset)
+    {
+        var next = _position + offset;
+        if (next >= 0 && next < _images.Count)
+        {
+            NavigationManager.NavigateTo($"/collection/{CollectionId}/image/{_images[next].File.FileHash}");
+        }
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "ArrowLeft") Navigate(-1);
+        if (args.Key == "ArrowRight") Navigate(1);
+    }
+}

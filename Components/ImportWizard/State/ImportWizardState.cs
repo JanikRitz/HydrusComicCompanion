@@ -61,6 +61,8 @@ public class ImportWizardState
     // ─── Source Selection ───────────────────────────────────────────────
     public ImportSource SelectedSource { get; set; } = ImportSource.Archive;
 
+    public CollectionKind Kind { get; set; }
+
     // ─── Hydrus Mapped Source Mapping (one-off, Feature 2) ──────────────
     public HydrusSourceMapping SourceMapping { get; set; } = new();
 
@@ -321,6 +323,18 @@ public class ImportWizardState
             ? [.. preparation.ChapterStartPageIndices.Where(i => i >= 0 && i < Pages.Count).Distinct().OrderBy(i => i)]
             : [0];
         UseChapterTags = ChapterStartIndices.Count > 0;
+
+        if (Kind == CollectionKind.Imageset)
+        {
+            UseChapterTags = false;
+            ChapterStartIndices.Clear();
+            VolumeStartIndices.Clear();
+            VolumeNumber = null;
+            PageThumbnailDataUrls = [];
+            ThumbnailPreloadQueued = false;
+            IsPreloadingThumbnails = false;
+            return;
+        }
 
         // Infer gap markers from any existing page numbers (e.g. Hydrus re-import with missing pages),
         // then clear PageNumber — it is always recomputed from position + gaps at request-build time.
@@ -920,7 +934,7 @@ public class ImportWizardState
                     IsDefaultVariant = entry.Page.IsDefaultVariant,
                     VariantLabel = entry.Page.VariantLabel,
                     IsExcluded = false,
-                    PageNumber = ComputeFinalPageNumber(originalIndex)
+                    PageNumber = Kind == CollectionKind.Imageset ? entry.Page.PageNumber : ComputeFinalPageNumber(originalIndex)
                 };
             })
             .ToList();
@@ -930,27 +944,28 @@ public class ImportWizardState
             var defaultVariant = group.FirstOrDefault(p => p.IsDefaultVariant) ?? group.First();
             foreach (var page in group)
             {
-                page.IsDefaultVariant = ReferenceEquals(page, defaultVariant);
+                page.IsDefaultVariant = Kind == CollectionKind.Imageset || ReferenceEquals(page, defaultVariant);
             }
         }
 
         return new ComicImportRequest
         {
+            Kind = Kind,
             SeriesName = TitleName.Trim(),
             DisplayTitle = string.IsNullOrWhiteSpace(DisplayTitle) ? null : DisplayTitle.Trim(),
             Comment = string.IsNullOrWhiteSpace(Comments) ? null : Comments.Trim(),
             Creator = string.IsNullOrWhiteSpace(Creator) ? null : Creator.Trim(),
-            VolumeNumber = VolumeNumber,
+            VolumeNumber = Kind == CollectionKind.Imageset ? null : VolumeNumber,
             Pages = pagesWithNumbers,
             CustomTags = string.IsNullOrWhiteSpace(CustomTags)
                 ? []
                 : [.. CustomTags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                     .Where(tag => !string.IsNullOrWhiteSpace(tag))
                     .Distinct(StringComparer.OrdinalIgnoreCase)],
-            ChapterStartPageIndices = UseChapterTags
+            ChapterStartPageIndices = Kind == CollectionKind.Comic && UseChapterTags
                 ? [.. remappedChapterStarts.Values.OrderBy(i => i)]
                 : [],
-            VolumeStarts = remappedVolumeStarts.Count > 0
+            VolumeStarts = Kind == CollectionKind.Comic && remappedVolumeStarts.Count > 0
                 ? [.. remappedVolumeStarts.Values
                     .OrderBy(v => v.NewIndex)
                     .Select(v => new VolumeStartEntry { PageIndex = v.NewIndex, VolumeNumber = v.VolumeNumber })]

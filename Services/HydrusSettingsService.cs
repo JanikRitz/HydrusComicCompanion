@@ -36,6 +36,8 @@ public sealed class HydrusSettingsService(
         settings.TagServiceKey = stored.TagServiceKey;
         settings.TargetFileDomain = stored.TargetFileDomain;
         settings.TitleNamespace = stored.TitleNamespace;
+        settings.SetNamespace = stored.SetNamespace;
+        settings.IndexNamespace = stored.IndexNamespace;
         settings.VolumeNamespace = stored.VolumeNamespace;
         settings.ChapterNamespace = stored.ChapterNamespace;
         settings.PageNamespace = stored.PageNamespace;
@@ -81,6 +83,8 @@ public sealed class HydrusSettingsService(
         stored.TagServiceKey = normalized.TagServiceKey;
         stored.TargetFileDomain = normalized.TargetFileDomain;
         stored.TitleNamespace = normalized.TitleNamespace;
+        stored.SetNamespace = normalized.SetNamespace;
+        stored.IndexNamespace = normalized.IndexNamespace;
         stored.VolumeNamespace = normalized.VolumeNamespace;
         stored.ChapterNamespace = normalized.ChapterNamespace;
         stored.PageNamespace = normalized.PageNamespace;
@@ -149,6 +153,8 @@ public sealed class HydrusSettingsService(
         normalized.TagServiceKey = normalized.TagServiceKey.Trim();
         normalized.TargetFileDomain = normalized.TargetFileDomain.Trim();
         normalized.TitleNamespace = NormalizeTitleNamespace(normalized);
+        normalized.SetNamespace = NormalizeNamespace(normalized.SetNamespace, "set:");
+        normalized.IndexNamespace = NormalizeNamespace(normalized.IndexNamespace, "index:");
         normalized.VolumeNamespace = NormalizeNamespace(normalized.VolumeNamespace, "volume:");
         normalized.ChapterNamespace = NormalizeNamespace(normalized.ChapterNamespace, "chapter:");
         normalized.PageNamespace = NormalizeNamespace(normalized.PageNamespace, "page:");
@@ -190,14 +196,7 @@ public sealed class HydrusSettingsService(
 
     private static string NormalizeTitleNamespace(HydrusSettings settings)
     {
-        var normalizedTitle = NormalizeNamespace(settings.TitleNamespace, "title:");
-        if (!string.Equals(normalizedTitle, "title:", StringComparison.OrdinalIgnoreCase))
-        {
-            return normalizedTitle;
-        }
-
-        var legacyTitle = NormalizeNamespace(settings.SeriesNamespace, "");
-        return string.IsNullOrWhiteSpace(legacyTitle) ? normalizedTitle : legacyTitle;
+        return NormalizeNamespace(settings.TitleNamespace, "comic:");
     }
 
     private static string NormalizeUrl(string value)

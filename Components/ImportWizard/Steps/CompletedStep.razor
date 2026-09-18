@@ -13,11 +13,11 @@
     <MudAlert Severity="@severity" Variant="Variant.Outlined">
         @if (failedCount == 0)
         {
-            <text>Import complete! @importedCount comic(s) imported successfully.</text>
+            <text>Import complete! @importedCount collection(s) imported successfully.</text>
         }
         else if (importedCount == 0)
         {
-            <text>Import finished. All @failedCount comic(s) failed.</text>
+            <text>Import finished. All @failedCount collection(s) failed.</text>
         }
         else
         {
@@ -55,7 +55,7 @@
                         </MudStack>
                     </CellTemplate>
                 </TemplateColumn>
-                <PropertyColumn Property="x => x.DisplayName" Title="Comic" />
+                <PropertyColumn Property="x => x.DisplayName" Title="Collection" />
                 <PropertyColumn Property="x => x.Error" Title="Error" />
                 <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
                     <CellTemplate>
@@ -119,7 +119,7 @@
 
     private void ViewTitle(int seriesId)
     {
-        NavigationManager.NavigateTo($"/comic/{seriesId}");
+        NavigationManager.NavigateTo($"/collection/{seriesId}");
     }
 
     private async Task OnImportAnotherClicked()

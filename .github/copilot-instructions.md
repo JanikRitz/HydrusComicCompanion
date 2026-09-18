@@ -12,3 +12,4 @@
 - Duplicate variant labels should be logged rather than blocked.
 - Use a configurable variant namespace in settings; when multiple images share a page, tag the normal image with `variant:default` and require the user to assign a variant label such as `variant:no text` to alternate images during chapter placement.
 - Deterministic fallback ordering should use file hash.
+- HydrusComicCompanion models collections as comics and imagesets. Comics default to comic titles and volume/chapter/page ordering, displaying `variant:default` with manual variant switching. Imagesets default to set titles and index ordering, showing every image with all variant labels. Discovery must respect both page and index namespaces. Namespaces remain configurable; do not implement legacy Hydrus tag migration.

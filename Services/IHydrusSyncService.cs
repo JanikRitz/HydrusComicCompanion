@@ -8,6 +8,10 @@ namespace HydrusComicCompanion.Services;
 /// </summary>
 public interface IHydrusSyncService
 {
+    Task<int?> SyncCollectionAsync(string title, CollectionKind kind, CancellationToken cancellationToken = default);
+
+    Task<ComicImportPreparation> ExtractCollectionAsync(string title, CollectionKind kind, HydrusSourceMapping? mapping = null, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Performs a full library sync: discovers titles and syncs their chapter/page structure
     /// </summary>

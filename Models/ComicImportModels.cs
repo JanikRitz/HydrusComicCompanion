@@ -83,6 +83,8 @@ public sealed class ComicMetadata
 /// </summary>
 public sealed class HydrusSourceMapping
 {
+    public CollectionKind Kind { get; set; }
+
     /// <summary>Display name of the tag service to read from (e.g. "my tags").</summary>
     public string TagServiceName { get; set; } = string.Empty;
 
@@ -162,6 +164,8 @@ public sealed class VolumeStartEntry
 /// </summary>
 public sealed class ComicImportRequest
 {
+    public CollectionKind Kind { get; set; }
+
     public string SeriesName { get; set; } = string.Empty;
     public string? DisplayTitle { get; set; }
     public string? Comment { get; set; }

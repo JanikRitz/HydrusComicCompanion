@@ -4,6 +4,8 @@ namespace HydrusComicCompanion.Models;
 
 public sealed class HydrusMetadataEditDialogModel
 {
+    public CollectionKind Kind { get; set; }
+
     public int ComicId { get; set; }
 
     public string HydrusTitle { get; set; } = string.Empty;
@@ -21,6 +23,8 @@ public sealed class HydrusMetadataEditDialogModel
 
 public sealed class HydrusMetadataEditRequest
 {
+    public CollectionKind Kind { get; set; }
+
     public int ComicId { get; set; }
 
     public string HydrusTitle { get; set; } = string.Empty;
@@ -40,6 +44,7 @@ public static class HydrusMetadataEditMapper
     {
         return new HydrusMetadataEditRequest
         {
+            Kind = model.Kind,
             ComicId = model.ComicId,
             HydrusTitle = model.HydrusTitle.Trim(),
             CoverFileHash = string.IsNullOrWhiteSpace(model.CoverFileHash) ? null : model.CoverFileHash.Trim(),
@@ -55,7 +60,7 @@ public static class HydrusMetadataEditMapper
                     LogicalPageGroupId = page.LogicalPageGroupId,
                     IsDefaultVariant = page.IsDefaultVariant,
                     VariantLabel = page.VariantLabel,
-                    PageNumber = ComputeFinalPageNumber(model, index)
+                    PageNumber = model.Kind == CollectionKind.Imageset ? page.PageNumber : ComputeFinalPageNumber(model, index)
                 })
                 .ToList(),
             ChapterStartPageIndices = model.ChapterStartIndices

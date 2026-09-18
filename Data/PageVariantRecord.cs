@@ -16,5 +16,7 @@ public sealed class PageVariantRecord
 
     public string? Label { get; set; }
 
+    public int? ImageIndex { get; set; }
+
     public PageRecord Page { get; set; } = null!;
 }
