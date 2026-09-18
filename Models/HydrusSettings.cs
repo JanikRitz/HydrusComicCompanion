@@ -18,6 +18,10 @@ public sealed class HydrusSettings
 
     public string IndexNamespace { get; set; } = "index:";
 
+    public string ComicMediumTag { get; set; } = "medium:comic";
+
+    public string ImagesetMediumTag { get; set; } = "medium:imageset";
+
     public string SeriesNamespace { get; set; } = string.Empty;
 
     public string VolumeNamespace { get; set; } = "volume:";
@@ -56,6 +60,8 @@ public sealed class HydrusSettings
             TitleNamespace = TitleNamespace,
             SetNamespace = SetNamespace,
             IndexNamespace = IndexNamespace,
+            ComicMediumTag = ComicMediumTag,
+            ImagesetMediumTag = ImagesetMediumTag,
             SeriesNamespace = SeriesNamespace,
             VolumeNamespace = VolumeNamespace,
             ChapterNamespace = ChapterNamespace,

@@ -103,6 +103,7 @@ internal static class Program
         var editedTags = handler.Files.Single(file => file.Hash == "a").GetAllStorageTags();
         Check(editedTags.Contains("set:shared") && editedTags.Contains("index:7") && !editedTags.Contains("index:2"), "save replaces imageset index tags");
         Check(editedTags.Contains("comic:shared") && editedTags.Contains("page:1") && editedTags.Contains("volume:2"), "imageset save preserves comic membership and structure");
+        Check(editedTags.Contains("medium:imageset"), "imageset save applies the default imageset medium tag");
         Check(editedTags.Contains("variant:alternate color") && !editedTags.Contains("variant:monochrome"), "save replaces variant attributes");
         imageset = await ReadCollection(factory, "shared", CollectionKind.Imageset);
         Check(ImagesetImage.FromCollection(imageset).Single(image => image.File.FileHash == "a").Index == 7, "metadata save updates cached index");
@@ -121,6 +122,43 @@ internal static class Program
         Check(importedTags.Contains("set:new set") && !importedTags.Contains("comic:new set") && !importedTags.Contains("index:1"), "imageset import uses set/index and removes stale indices");
         Check(importedTags.Contains("variant:detail") && importedTags.Contains("variant:color"), "imageset import emits each variant attribute");
 
+        handler.Files.Add(File(23, "migrate-a", "comic:migrate", "volume:1", "chapter:1", "page:1", "medium:comic"));
+        handler.Files.Add(File(24, "migrate-b", "comic:migrate", "volume:1", "chapter:2", "page:1", "medium:comic"));
+        await sync.SyncCollectionAsync("migrate", CollectionKind.Comic);
+        var migratingComic = await ReadCollection(factory, "migrate", CollectionKind.Comic);
+        var migrationPreparation = await sync.ExtractComicAsync("migrate");
+        var migrationEdit = new HydrusMetadataEditRequest
+        {
+            ComicId = migratingComic.Id,
+            Kind = CollectionKind.Imageset,
+            HydrusTitle = "migrate",
+            CoverFileHash = "migrate-a",
+            Pages = migrationPreparation.Pages
+                .Select((page, index) => new ImportPage
+                {
+                    Index = page.Index,
+                    ArchiveFileName = page.ArchiveFileName,
+                    Data = page.Data,
+                    Sha256Hash = page.Sha256Hash,
+                    MimeType = page.MimeType,
+                    PageNumber = index + 1,
+                    GapBefore = page.GapBefore,
+                    LogicalPageGroupId = page.LogicalPageGroupId,
+                    IsDefaultVariant = page.IsDefaultVariant,
+                    VariantLabel = page.VariantLabel
+                })
+                .ToList(),
+            ChapterStartPageIndices = migrationPreparation.ChapterStartPageIndices
+        };
+        await sync.ApplyMetadataEditAsync(migrationEdit);
+        var migratedTagsA = handler.Files.Single(file => file.Hash == "migrate-a").GetAllStorageTags();
+        var migratedTagsB = handler.Files.Single(file => file.Hash == "migrate-b").GetAllStorageTags();
+        Check(migratedTagsA.Contains("set:migrate") && migratedTagsA.Contains("index:1") && !migratedTagsA.Contains("comic:migrate") && !migratedTagsA.Contains("chapter:1"), "comic-to-imageset migration swaps title and structural namespaces");
+        Check(migratedTagsB.Contains("index:2") && !migratedTagsB.Contains("page:1") && !migratedTagsB.Contains("chapter:2"), "comic-to-imageset migration flattens chaptered page structure into imageset indices");
+        Check(migratedTagsA.Contains("medium:imageset") && !migratedTagsA.Contains("medium:comic"), "comic-to-imageset migration swaps medium tags");
+        var migratedImageset = await ReadCollection(factory, "migrate", CollectionKind.Imageset);
+        Check(ImagesetImage.FromCollection(migratedImageset).Select(image => image.Index).SequenceEqual(new int?[] { 1, 2 }), "comic-to-imageset migration updates the cached collection kind and indices");
+
         var unnumbered = File(20, "unnumbered", "set:unnumbered");
         unnumbered.Tags["other"] = new ServiceTagBucket { StorageTags = new() { ["0"] = ["index:42"] } };
         handler.Files.Add(unnumbered);
@@ -138,6 +176,8 @@ internal static class Program
         changed.SetNamespace = "album:";
         changed.PageNamespace = "leaf:";
         changed.IndexNamespace = "position:";
+        changed.ComicMediumTag = "medium:graphic novel";
+        changed.ImagesetMediumTag = "medium:album";
         changed.AlternatePageNamespace = "attribute:";
         settings.Value = changed;
         handler.Files.Clear();
@@ -151,7 +191,7 @@ internal static class Program
         var persistedSettings = new HydrusSettingsService(Options.Create(new HydrusSettings()), new TestHttpFactory(handler), new EphemeralDataProtectionProvider(), factory);
         await persistedSettings.SaveSettingsAsync(changed);
         var loadedSettings = await persistedSettings.GetSettingsAsync();
-        Check(loadedSettings.SetNamespace == "album:" && loadedSettings.IndexNamespace == "position:" && loadedSettings.TitleNamespace == "book:", "new namespace settings survive persistence");
+        Check(loadedSettings.SetNamespace == "album:" && loadedSettings.IndexNamespace == "position:" && loadedSettings.TitleNamespace == "book:" && loadedSettings.ComicMediumTag == "medium:graphic novel" && loadedSettings.ImagesetMediumTag == "medium:album", "new namespace and medium tag settings survive persistence");
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         try

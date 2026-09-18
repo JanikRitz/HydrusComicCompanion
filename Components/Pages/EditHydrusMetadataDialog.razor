@@ -13,6 +13,14 @@
         else
         {
             <MudStack Spacing="2">
+                <MudSelect T="CollectionKind"
+                           Label="Collection type"
+                           Value="_model.Kind"
+                           ValueChanged="OnKindChanged">
+                    <MudSelectItem Value="CollectionKind.Comic">Comic</MudSelectItem>
+                    <MudSelectItem Value="CollectionKind.Imageset">Imageset</MudSelectItem>
+                </MudSelect>
+
                 <MudTextField @bind-Value="_model.HydrusTitle"
                               Label="Hydrus title tag value"
                               Immediate="true"
@@ -35,23 +43,23 @@
                 }
                 else
                 {
-                <ChapterPlacementStep Pages="_model.Pages"
-                                      PageThumbnails="_model.PageThumbnails"
-                                      ChapterStartIndices="_model.ChapterStartIndices"
-                                      UseChapterTags="true"
-                                      VolumeStartIndices="_model.VolumeStartIndices"
-                                      OnChapterStartAdded="OnChapterStartAdded"
-                                      OnChapterStartRemoved="OnChapterStartRemoved"
-                                      OnPageMoved="OnPageMoved"
-                                      OnPageGapAdded="OnPageGapAdded"
-                                      OnPageGapRemoved="OnPageGapRemoved"
-                                      OnVolumeStartAdded="OnVolumeStartAdded"
-                                      OnVolumeStartRemoved="OnVolumeStartRemoved"
-                                      OnVolumeNumberChanged="OnVolumeNumberChanged"
-                                      OnGroupWithPrevious="OnGroupWithPrevious"
-                                      OnUngroupPage="OnUngroupPage"
-                                      OnDefaultVariantSelected="OnDefaultVariantSelected"
-                                      ShowNavigationButtons="false" />
+                    <ChapterPlacementStep Pages="_model.Pages"
+                                          PageThumbnails="_model.PageThumbnails"
+                                          ChapterStartIndices="_model.ChapterStartIndices"
+                                          UseChapterTags="true"
+                                          VolumeStartIndices="_model.VolumeStartIndices"
+                                          OnChapterStartAdded="OnChapterStartAdded"
+                                          OnChapterStartRemoved="OnChapterStartRemoved"
+                                          OnPageMoved="OnPageMoved"
+                                          OnPageGapAdded="OnPageGapAdded"
+                                          OnPageGapRemoved="OnPageGapRemoved"
+                                          OnVolumeStartAdded="OnVolumeStartAdded"
+                                          OnVolumeStartRemoved="OnVolumeStartRemoved"
+                                          OnVolumeNumberChanged="OnVolumeNumberChanged"
+                                          OnGroupWithPrevious="OnGroupWithPrevious"
+                                          OnUngroupPage="OnUngroupPage"
+                                          OnDefaultVariantSelected="OnDefaultVariantSelected"
+                                          ShowNavigationButtons="false" />
                 }
             </MudStack>
         }
@@ -141,6 +149,27 @@
             _model.CoverFileHash = _model.Pages.FirstOrDefault(page => page.IsDefaultVariant)?.Sha256Hash
                 ?? _model.Pages.FirstOrDefault()?.Sha256Hash;
         }
+    }
+
+    private Task OnKindChanged(CollectionKind kind)
+    {
+        if (_model is null || _model.Kind == kind)
+        {
+            return Task.CompletedTask;
+        }
+
+        _model.Kind = kind;
+
+        if (_model.Kind == CollectionKind.Imageset)
+        {
+            ApplyDefaultImagesetIndices();
+        }
+        else if (_model.Pages.Count > 0)
+        {
+            _model.ChapterStartIndices.Add(0);
+        }
+
+        return Task.CompletedTask;
     }
 
     private Task OnCoverFileHashChanged(string value)
@@ -427,6 +456,33 @@
         for (var i = 0; i < _model.Pages.Count; i++)
         {
             _model.Pages[i].Index = i;
+        }
+    }
+
+    private void ApplyDefaultImagesetIndices()
+    {
+        if (_model is null)
+        {
+            return;
+        }
+
+        var groupIndices = _model.Pages
+            .GroupBy(page => page.LogicalPageGroupId)
+            .Select(group => new
+            {
+                GroupId = group.Key,
+                PrimaryIndex = group.Min(page => page.Index)
+            })
+            .OrderBy(group => group.PrimaryIndex)
+            .Select((group, index) => new { group.GroupId, ImagesetIndex = index + 1 })
+            .ToDictionary(group => group.GroupId, group => group.ImagesetIndex);
+
+        foreach (var page in _model.Pages)
+        {
+            if (groupIndices.TryGetValue(page.LogicalPageGroupId, out var imagesetIndex))
+            {
+                page.PageNumber = imagesetIndex;
+            }
         }
     }
 

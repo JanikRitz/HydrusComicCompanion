@@ -19,6 +19,8 @@ public sealed class HydrusSettingsRecord
     public string TitleNamespace { get; set; } = string.Empty;
     public string SetNamespace { get; set; } = "set:";
     public string IndexNamespace { get; set; } = "index:";
+    public string ComicMediumTag { get; set; } = "medium:comic";
+    public string ImagesetMediumTag { get; set; } = "medium:imageset";
     public string VolumeNamespace { get; set; } = string.Empty;
 
     public string ChapterNamespace { get; set; } = string.Empty;

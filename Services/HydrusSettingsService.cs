@@ -38,6 +38,12 @@ public sealed class HydrusSettingsService(
         settings.TitleNamespace = stored.TitleNamespace;
         settings.SetNamespace = stored.SetNamespace;
         settings.IndexNamespace = stored.IndexNamespace;
+        settings.ComicMediumTag = string.IsNullOrWhiteSpace(stored.ComicMediumTag)
+            ? settings.ComicMediumTag
+            : stored.ComicMediumTag;
+        settings.ImagesetMediumTag = string.IsNullOrWhiteSpace(stored.ImagesetMediumTag)
+            ? settings.ImagesetMediumTag
+            : stored.ImagesetMediumTag;
         settings.VolumeNamespace = stored.VolumeNamespace;
         settings.ChapterNamespace = stored.ChapterNamespace;
         settings.PageNamespace = stored.PageNamespace;
@@ -85,6 +91,8 @@ public sealed class HydrusSettingsService(
         stored.TitleNamespace = normalized.TitleNamespace;
         stored.SetNamespace = normalized.SetNamespace;
         stored.IndexNamespace = normalized.IndexNamespace;
+        stored.ComicMediumTag = normalized.ComicMediumTag;
+        stored.ImagesetMediumTag = normalized.ImagesetMediumTag;
         stored.VolumeNamespace = normalized.VolumeNamespace;
         stored.ChapterNamespace = normalized.ChapterNamespace;
         stored.PageNamespace = normalized.PageNamespace;
@@ -155,6 +163,8 @@ public sealed class HydrusSettingsService(
         normalized.TitleNamespace = NormalizeTitleNamespace(normalized);
         normalized.SetNamespace = NormalizeNamespace(normalized.SetNamespace, "set:");
         normalized.IndexNamespace = NormalizeNamespace(normalized.IndexNamespace, "index:");
+        normalized.ComicMediumTag = NormalizeTag(normalized.ComicMediumTag, "medium:comic");
+        normalized.ImagesetMediumTag = NormalizeTag(normalized.ImagesetMediumTag, "medium:imageset");
         normalized.VolumeNamespace = NormalizeNamespace(normalized.VolumeNamespace, "volume:");
         normalized.ChapterNamespace = NormalizeNamespace(normalized.ChapterNamespace, "chapter:");
         normalized.PageNamespace = NormalizeNamespace(normalized.PageNamespace, "page:");

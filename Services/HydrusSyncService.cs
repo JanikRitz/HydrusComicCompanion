@@ -613,6 +613,11 @@ public class HydrusSyncService : IHydrusSyncService
             throw new ArgumentException("At least one page is required.", nameof(request));
         }
 
+        if (!Enum.IsDefined(request.Kind))
+        {
+            throw new ArgumentException("A valid collection kind is required.", nameof(request));
+        }
+
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
         var tagServiceKey = settings.TagServiceKey.Trim();
         if (string.IsNullOrWhiteSpace(tagServiceKey))
@@ -632,7 +637,8 @@ public class HydrusSyncService : IHydrusSyncService
             throw new InvalidOperationException($"Comic with ID {request.ComicId} was not found.");
         }
 
-        request.Kind = comic.Kind;
+        var originalKind = comic.Kind;
+        var originalTitle = comic.Title;
 
         var hashes = request.Pages
             .Select(page => page.Sha256Hash?.Trim())
@@ -662,7 +668,15 @@ public class HydrusSyncService : IHydrusSyncService
                 continue;
             }
 
-            var oldManagedTags = ExtractManagedTags(metadata, settings, tagServiceKey, comic.Kind, comic.Title);
+            var oldManagedTags = ExtractManagedTags(metadata, settings, tagServiceKey, originalKind, originalTitle);
+            if (request.Kind != originalKind)
+            {
+                oldManagedTags = oldManagedTags
+                    .Concat(ExtractManagedTags(metadata, settings, tagServiceKey, request.Kind, originalTitle))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
             var newManagedTags = newManagedTagsByHash.TryGetValue(hash, out var tags)
                 ? tags
                 : [];
@@ -670,6 +684,7 @@ public class HydrusSyncService : IHydrusSyncService
             await _apiService.UpdateTagsAsync(hash, tagServiceKey, oldManagedTags, newManagedTags, cancellationToken);
         }
 
+        comic.Kind = request.Kind;
         comic.Title = normalizedTitle;
         comic.CoverFileHash = ResolveEditedCoverHash(request, settings, newManagedTagsByHash);
         comic.LastSyncedAt = DateTimeOffset.UtcNow;
@@ -688,6 +703,7 @@ public class HydrusSyncService : IHydrusSyncService
                 StringComparer.OrdinalIgnoreCase);
         }
         var titleTag = BuildTag(settings.TitleNamespace, request.HydrusTitle.Trim());
+        var mediumTag = GetMediumTag(settings, request.Kind);
         var coverTag = settings.CoverPageTag.Trim();
 
         var chapterStarts = request.ChapterStartPageIndices
@@ -726,6 +742,10 @@ public class HydrusSyncService : IHydrusSyncService
             }
 
             var tags = new List<string> { titleTag };
+            if (!string.IsNullOrWhiteSpace(mediumTag))
+            {
+                tags.Add(mediumTag);
+            }
 
             var volumeNumber = GetVolumeForPage(i, volumeStarts);
             if (volumeNumber.HasValue)
@@ -780,6 +800,12 @@ public class HydrusSyncService : IHydrusSyncService
     private static List<string> BuildImagesetTags(ImportPage page, string title, string? coverHash, HydrusSettings settings)
     {
         var tags = new List<string> { BuildTag(settings.SetNamespace, title) };
+        var mediumTag = GetMediumTag(settings, CollectionKind.Imageset);
+        if (!string.IsNullOrWhiteSpace(mediumTag))
+        {
+            tags.Add(mediumTag);
+        }
+
         if (page.PageNumber.HasValue)
             tags.Add(BuildTag(settings.IndexNamespace, page.PageNumber.Value.ToString()));
         tags.AddRange((page.VariantLabel ?? string.Empty)
@@ -810,9 +836,17 @@ public class HydrusSyncService : IHydrusSyncService
             return false;
         }
 
+        var trimmedTag = tag.Trim();
         var coverTag = settings.CoverPageTag.Trim();
         if (!string.IsNullOrWhiteSpace(coverTag)
-            && string.Equals(tag.Trim(), coverTag, StringComparison.OrdinalIgnoreCase))
+            && string.Equals(trimmedTag, coverTag, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var mediumTag = GetMediumTag(settings, kind);
+        if (!string.IsNullOrWhiteSpace(mediumTag)
+            && string.Equals(trimmedTag, mediumTag, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -935,6 +969,13 @@ public class HydrusSyncService : IHydrusSyncService
             : $"{prefix}:{trimmedValue}";
     }
 
+    private static string GetMediumTag(HydrusSettings settings, CollectionKind kind)
+    {
+        return kind == CollectionKind.Imageset
+            ? settings.ImagesetMediumTag.Trim()
+            : settings.ComicMediumTag.Trim();
+    }
+
     private static void RebuildComicStructureFromEdit(ComicsRecord comic, HydrusMetadataEditRequest request)
     {
         var existingOcrByHash = comic.Chapters
@@ -949,7 +990,7 @@ public class HydrusSyncService : IHydrusSyncService
 
         comic.Chapters.Clear();
 
-        if (comic.Kind == CollectionKind.Imageset)
+        if (request.Kind == CollectionKind.Imageset)
         {
             var chapter = new ChapterRecord();
             foreach (var image in request.Pages.OrderBy(page => page.PageNumber.HasValue ? 0 : 1)

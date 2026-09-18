@@ -31,6 +31,10 @@ public sealed class SettingsDbContext(DbContextOptions<SettingsDbContext> option
             entity.Property(x => x.TagServiceKey).IsRequired();
             entity.Property(x => x.TargetFileDomain).IsRequired();
             entity.Property(x => x.TitleNamespace).IsRequired();
+            entity.Property(x => x.SetNamespace).IsRequired();
+            entity.Property(x => x.IndexNamespace).IsRequired();
+            entity.Property(x => x.ComicMediumTag).IsRequired();
+            entity.Property(x => x.ImagesetMediumTag).IsRequired();
             entity.Property(x => x.VolumeNamespace).IsRequired();
             entity.Property(x => x.ChapterNamespace).IsRequired();
             entity.Property(x => x.PageNamespace).IsRequired();
