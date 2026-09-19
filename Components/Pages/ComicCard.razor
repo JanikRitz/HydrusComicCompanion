@@ -32,6 +32,20 @@
                     </MudTooltip>
                 </div>
 
+                @if (HasRefreshAction)
+                {
+                    <div class="comic-card__refresh-icon">
+                        <MudTooltip Text="@(IsRefreshing ? "Refreshing metadata..." : "Refresh metadata")">
+                            <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                                           Color="Color.Inherit"
+                                           Variant="Variant.Text"
+                                           Size="Size.Small"
+                                           Disabled="@IsRefreshing"
+                                           OnClick="HandleRefresh" />
+                        </MudTooltip>
+                    </div>
+                }
+
                 @if (HasDeleteAction)
                 {
                     <div class="comic-card__delete-icon">
@@ -92,9 +106,17 @@
     [Parameter]
     public EventCallback OnDelete { get; set; }
 
+    [Parameter]
+    public EventCallback OnRefresh { get; set; }
+
+    [Parameter]
+    public bool IsRefreshing { get; set; }
+
     private bool IsClickable => OnClick.HasDelegate;
 
     private bool HasDeleteAction => OnDelete.HasDelegate;
+
+    private bool HasRefreshAction => OnRefresh.HasDelegate;
 
     private string LastSyncedLabel => LastSyncedAt is null
         ? "Not synced yet"
@@ -108,6 +130,16 @@
         }
 
         return OnClick.InvokeAsync();
+    }
+
+    private Task HandleRefresh()
+    {
+        if (!HasRefreshAction || IsRefreshing)
+        {
+            return Task.CompletedTask;
+        }
+
+        return OnRefresh.InvokeAsync();
     }
 
     private Task HandleDelete()

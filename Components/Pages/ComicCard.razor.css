@@ -74,6 +74,7 @@
 }
 
 .comic-card__info-icon,
+.comic-card__refresh-icon,
 .comic-card__delete-icon {
     border-radius: 999px;
     background: rgba(16, 18, 22, 0.7);

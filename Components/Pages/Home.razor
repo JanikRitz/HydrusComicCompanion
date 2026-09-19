@@ -167,7 +167,9 @@
                             MetadataCount="@comic.MetadataCount"
                             TotalPageCount="@comic.TotalPageCount"
                             Kind="@comic.Kind"
+                            IsRefreshing="@(_refreshingComicId == comic.Id)"
                             OnClick="() => OpenComic(comic.Id)"
+                            OnRefresh="() => RefreshComicAsync(comic)"
                             OnDelete="() => DeleteComicAsync(comic.Id, GetComicCardTitle(comic))"/>
                     </MudItem>
                 }
@@ -244,6 +246,7 @@
     private bool _isLoading = true;
     private bool _isSyncing;
     private bool _isSyncingOcr;
+    private int? _refreshingComicId;
     private string? _syncError;
     private int? _syncedComicsCount;
     private DateTime? _lastSyncTime;
@@ -578,6 +581,40 @@
             _isSyncingOcr = false;
             _currentPage = 1;
             await LoadComicsAsync();
+        }
+    }
+
+    private async Task RefreshComicAsync(ComicsCardItem comic)
+    {
+        if (_refreshingComicId.HasValue || _isSyncing || _isSyncingOcr)
+        {
+            return;
+        }
+
+        var title = GetComicCardTitle(comic);
+        _syncError = null;
+        _refreshingComicId = comic.Id;
+
+        try
+        {
+            var refreshedComicId = await SyncService.SyncCollectionAsync(comic.Title, comic.Kind);
+            if (!refreshedComicId.HasValue)
+            {
+                Snackbar.Add($"No Hydrus files were found for '{title}'.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add($"Refreshed metadata for '{title}'.", Severity.Success);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Refresh failed for '{title}': {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            await LoadComicsAsync();
+            _refreshingComicId = null;
         }
     }
 
