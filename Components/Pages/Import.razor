@@ -9,8 +9,14 @@
 @inject ICalibreService CalibreService
 @inject IHydrusMediaService HydrusMediaService
 @inject IHydrusSyncService SyncService
+@inject IDialogService DialogService
 
 <PageTitle>Import Collection</PageTitle>
+
+<div style="position: relative;">
+    <MudOverlay Visible="@IsUiBlocked" DarkBackground="true" Absolute="true">
+        <MudProgressCircular Color="Color.Secondary" Indeterminate="true" />
+    </MudOverlay>
 
 <MudStack Spacing="3" Class="mt-2">
     <div>
@@ -49,7 +55,7 @@
 
         case ImportWizardState.Step.Mapping:
             <MappingStep Mapping="@_state.SourceMapping"
-                         IsProcessing="@_state.IsDiscovering"
+                         IsProcessing="@(_state.IsDiscovering || IsUiBlocked)"
                          OnContinue="@OnMappingContinueAsync"
                          OnBack="@_state.ResetToSourceSelection" />
             break;
@@ -58,7 +64,7 @@
             @if (_state.SelectedSource == ImportSource.Archive)
             {
                 <ArchiveSourceStep QueuedItems="@_state.Queue"
-                                   IsProcessing="@_state.IsExtracting"
+                                   IsProcessing="@(_state.IsExtracting || IsUiBlocked)"
                                    OnFilesSelected="@OnArchivesSelected"
                                    OnRemoveItem="@OnRemoveQueueItem"
                                    OnBegin="@BeginQueueAsync"
@@ -67,7 +73,7 @@
             else if (_state.SelectedSource is ImportSource.Title)
             {
                 <TitleSourceStep QueuedItems="@_state.Queue"
-                                 IsProcessing="@_state.IsSyncing"
+                                 IsProcessing="@(_state.IsSyncing || IsUiBlocked)"
                                  StepLabel="@TitleStepLabel"
                                  OnAddTitle="@OnAddTitle"
                                  OnRemoveItem="@OnRemoveQueueItem"
@@ -82,7 +88,7 @@
                                    SearchQueryChanged="@((v) => _calibreSearchQuery = v)"
                                    DiscoveredBooks="@_calibreDiscoveredBooks"
                                    QueuedItems="@_state.Queue"
-                                   IsProcessing="@_state.IsExtracting"
+                                   IsProcessing="@(_state.IsDiscovering || _state.IsExtracting || IsUiBlocked)"
                                    OnDiscover="DiscoverCalibreBooksAsync"
                                    OnAddBook="AddCalibreBookToQueue"
                                    OnQueueAll="QueueAllCalibreBooks"
@@ -121,7 +127,9 @@
         case ImportWizardState.Step.Chapters:
             @if (_state.Kind == CollectionKind.Imageset)
             {
-                <ImagesetPlacementStep Pages="_state.Pages" PageThumbnails="_state.PageThumbnailDataUrls" AllowExclusion="true" />
+                <ImagesetPlacementStep Pages="_state.Pages"
+                                       PageThumbnails="_state.PageThumbnailDataUrls"
+                                       AllowExclusion="true" />
                 <MudStack Row="true" Justify="Justify.FlexEnd">
                     <MudButton OnClick="_state.GoToMetadata">Back</MudButton>
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="StartImportAsync" Disabled="@(!_state.HasIncludedPages)">Import Imageset</MudButton>
@@ -163,17 +171,30 @@
             break;
     }
 </MudStack>
+</div>
 
 @code {
     private readonly ImportWizardState _state = new();
     private ThumbnailPreloadService? _thumbnailService;
 
     private readonly List<CalibreBookEntry> _calibreDiscoveredBooks = [];
+    private readonly DialogOptions _progressDialogOptions = new()
+    {
+        Position = DialogPosition.Center,
+        MaxWidth = MaxWidth.Large,
+        FullWidth = true,
+        CloseButton = false,
+        BackdropClick = false,
+        CloseOnEscapeKey = false
+    };
     private IReadOnlyList<TitleOverlapSuggestion> _titleOverlapSuggestions = Array.Empty<TitleOverlapSuggestion>();
     private string _calibreLibraryPath = string.Empty;
     private string _calibreSearchQuery = "formats:true";
+    private int _activeOperationCount;
 
     private const long MaxArchiveSizeBytes = 2L * 1024 * 1024 * 1024; // 2 GB
+
+    private bool IsUiBlocked => _activeOperationCount > 0;
 
     protected override void OnInitialized()
     {
@@ -204,7 +225,15 @@
 
         try
         {
-            var titlesWithPageCounts = await SyncService.DiscoverMappedTitlesAsync(_state.SourceMapping);
+            var titlesWithPageCounts = await RunWithProgressDialogAsync(
+                "Discovering mapped titles",
+                "Reading titles from Hydrus...",
+                async (progress, cancellationToken) =>
+                {
+                    ReportProgress(progress, message: "Reading titles from Hydrus...", detail: "Using the selected tag service and namespace mapping.");
+                    return await SyncService.DiscoverMappedTitlesAsync(_state.SourceMapping, cancellationToken);
+                });
+
             if (titlesWithPageCounts.Count == 0)
             {
                 _state.ErrorMessage = "No comics were discovered with the selected tag service and mapping. Adjust the namespaces and try again.";
@@ -214,7 +243,6 @@
             var minimumPages = _state.SourceMapping.MinimumPages;
             var originalCount = titlesWithPageCounts.Count;
 
-            // If minimum pages is set, show info about the filtering
             if (minimumPages.HasValue && minimumPages > 0)
             {
                 var filteredCount = titlesWithPageCounts.Count(t => t.PageCount >= minimumPages);
@@ -235,6 +263,10 @@
 
             _state.ReplaceQueueWithMappedTitles(titlesWithPageCounts);
             await BeginQueueAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            _state.ErrorMessage = "Mapped title discovery was canceled.";
         }
         catch (Exception ex)
         {
@@ -292,7 +324,10 @@
         return null;
     }
 
-    private async Task<(ComicImportPreparation Preparation, CalibreMetadataSnapshot Metadata)> ExtractCalibreBookAsync(ImportWizardState.QueuedComic item, CancellationToken cancellationToken)
+    private async Task<(ComicImportPreparation Preparation, CalibreMetadataSnapshot Metadata)> ExtractCalibreBookAsync(
+        ImportWizardState.QueuedComic item,
+        IProgress<LongRunningProgressUpdate>? progress,
+        CancellationToken cancellationToken)
     {
         var bookId = ParseCalibreBookId(item.Title);
         if (!bookId.HasValue)
@@ -306,7 +341,7 @@
             throw new InvalidOperationException("Calibre library path is not set.");
         }
 
-        return await CalibreService.ExtractBookAsync(bookId.Value, libraryPath, cancellationToken);
+        return await CalibreService.ExtractBookAsync(bookId.Value, libraryPath, progress, cancellationToken);
     }
 
     private static int? ParseCalibreBookId(string rawValue)
@@ -368,12 +403,15 @@
             return;
         }
 
-        _state.IsExtracting = true;
+        _state.IsDiscovering = true;
 
         try
         {
             var searchQuery = string.IsNullOrWhiteSpace(_calibreSearchQuery) ? null : _calibreSearchQuery.Trim();
-            var books = await CalibreService.DiscoverBooksAsync(libraryPath, searchQuery);
+            var books = await RunWithProgressDialogAsync(
+                "Discovering Calibre books",
+                "Querying Calibre library...",
+                (progress, cancellationToken) => CalibreService.DiscoverBooksAsync(libraryPath, searchQuery, progress, cancellationToken));
 
             _calibreDiscoveredBooks.Clear();
             _calibreDiscoveredBooks.AddRange(books);
@@ -382,13 +420,17 @@
                 ? "No Calibre books with CBZ/CBR formats matched your query."
                 : $"Discovered {_calibreDiscoveredBooks.Count} Calibre books ready for queueing.";
         }
+        catch (OperationCanceledException)
+        {
+            _state.ErrorMessage = "Calibre discovery was canceled.";
+        }
         catch (Exception ex)
         {
             _state.ErrorMessage = $"Calibre discovery failed: {ex.Message}";
         }
         finally
         {
-            _state.IsExtracting = false;
+            _state.IsDiscovering = false;
         }
     }
 
@@ -467,6 +509,36 @@
 
         try
         {
+            var shouldContinueQueue = await RunWithProgressDialogAsync(
+                "Preparing import item",
+                $"Preparing {item.DisplayName}...",
+                (progress, cancellationToken) => ProcessCurrentItemCoreAsync(item, progress, cancellationToken));
+
+            if (shouldContinueQueue)
+            {
+                await ProcessCurrentItemAsync();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _state.ResetToSourceSpecific();
+            _titleOverlapSuggestions = Array.Empty<TitleOverlapSuggestion>();
+            _state.ErrorMessage = $"Preparation canceled for {item.DisplayName}.";
+        }
+        finally
+        {
+            _state.IsExtracting = false;
+            _state.IsSyncing = false;
+        }
+    }
+
+    private async Task<bool> ProcessCurrentItemCoreAsync(
+        ImportWizardState.QueuedComic item,
+        IProgress<LongRunningProgressUpdate> progress,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
             ComicImportPreparation preparation;
             CalibreMetadataSnapshot? calibreMetadata = null;
             var shouldSuggestOverlaps = item.Source is ImportSource.Archive or ImportSource.CalibreBook;
@@ -476,24 +548,26 @@
                 if (item.ArchiveFile is null)
                 {
                     _state.MarkCurrentFailed("Archive file reference is no longer available. Please reselect the files.");
-                    await AdvanceOrFinishAsync();
-                    return;
+                    return MoveToNextPendingOrDone();
                 }
 
                 _state.IsExtracting = true;
+                ReportProgress(progress, message: "Extracting archive pages...", detail: item.ArchiveFile.Name);
                 await using var stream = item.ArchiveFile.OpenReadStream(maxAllowedSize: MaxArchiveSizeBytes);
-                preparation = await ComicImportService.ExtractArchiveAsync(stream, item.ArchiveFile.Name);
+                preparation = await ComicImportService.ExtractArchiveAsync(stream, item.ArchiveFile.Name, cancellationToken);
             }
             else if (item.Source == ImportSource.CalibreBook)
             {
                 _state.IsExtracting = true;
-                (preparation, calibreMetadata) = await ExtractCalibreBookAsync(item, CancellationToken.None);
+                ReportProgress(progress, message: "Preparing Calibre book...", detail: item.DisplayName);
+                (preparation, calibreMetadata) = await ExtractCalibreBookAsync(item, progress, cancellationToken);
             }
             else
             {
                 _state.IsSyncing = true;
                 var mapping = item.Source == ImportSource.HydrusMapped ? _state.SourceMapping : null;
-                preparation = await SyncService.ExtractCollectionAsync(item.Title, _state.Kind, mapping);
+                ReportProgress(progress, message: "Reading collection from Hydrus...", detail: item.DisplayName);
+                preparation = await SyncService.ExtractCollectionAsync(item.Title, _state.Kind, mapping, cancellationToken);
             }
 
             if (preparation.Pages.Count == 0)
@@ -504,15 +578,17 @@
                     ImportSource.CalibreBook => "No image pages were extracted from the selected Calibre archive format.",
                     _ => "No matching files found for that title."
                 });
-                await AdvanceOrFinishAsync();
-                return;
+                return MoveToNextPendingOrDone();
             }
 
             if (_state.Kind == CollectionKind.Imageset && shouldSuggestOverlaps)
             {
                 for (var index = 0; index < preparation.Pages.Count; index++)
+                {
                     preparation.Pages[index].PageNumber = index + 1;
+                }
             }
+
             _state.ApplyPreparation(preparation);
 
             if (calibreMetadata is not null)
@@ -522,35 +598,44 @@
 
             if (shouldSuggestOverlaps)
             {
-                _titleOverlapSuggestions = await ComicImportService.SuggestTitleOverlapsAsync(preparation.Pages, kind: _state.Kind);
+                ReportProgress(progress, message: "Checking existing title overlaps...", detail: item.DisplayName);
+                _titleOverlapSuggestions = await ComicImportService.SuggestTitleOverlapsAsync(preparation.Pages, cancellationToken, _state.Kind);
             }
 
             _state.GoToMetadata();
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             _state.MarkCurrentFailed(ex.Message);
-            await AdvanceOrFinishAsync();
-        }
-        finally
-        {
-            _state.IsExtracting = false;
-            _state.IsSyncing = false;
+            return MoveToNextPendingOrDone();
         }
     }
 
     private async Task AdvanceOrFinishAsync()
     {
+        if (MoveToNextPendingOrDone())
+        {
+            await ProcessCurrentItemAsync();
+        }
+    }
+
+    private bool MoveToNextPendingOrDone()
+    {
         var next = _state.FindNextPendingIndex(_state.CurrentQueueIndex + 1);
         if (next >= 0)
         {
             _state.CurrentQueueIndex = next;
-            await ProcessCurrentItemAsync();
+            _state.ResetToSourceSpecific();
+            return true;
         }
-        else
-        {
-            _state.GoToDone();
-        }
+
+        _state.GoToDone();
+        return false;
     }
 
     // ─── Metadata Step ──────────────────────────────────────────────────
@@ -586,14 +671,12 @@
     {
         if (_state.CurrentStep != ImportWizardState.Step.Chapters 
             || !_state.ThumbnailPreloadQueued 
-            || _state.IsPreloadingThumbnails 
             || _thumbnailService is null)
         {
             return;
         }
 
         _state.ThumbnailPreloadQueued = false;
-        _state.IsPreloadingThumbnails = true;
 
         try
         {
@@ -606,7 +689,6 @@
         }
         finally
         {
-            _state.IsPreloadingThumbnails = false;
         }
     }
 
@@ -685,17 +767,40 @@
 
         var request = _state.BuildImportRequest();
 
-        var progress = new Progress<ImportProgressUpdate>(update =>
-        {
-            _state.UpdateProgress(update);
-            InvokeAsync(StateHasChanged);
-        });
-
         try
         {
-            var seriesId = await ComicImportService.ImportComicAsync(request, progress);
-            _state.MarkCurrentImported(seriesId);
-            await AdvanceOrFinishAsync();
+            var shouldContinueQueue = await RunWithProgressDialogAsync(
+                "Importing collection",
+                "Preparing import...",
+                async (progress, cancellationToken) =>
+                {
+                    var importProgress = new Progress<ImportProgressUpdate>(update =>
+                    {
+                        _state.UpdateProgress(update);
+                        ReportProgress(
+                            progress,
+                            update.Current,
+                            update.Total,
+                            string.IsNullOrWhiteSpace(update.Message) ? "Importing collection..." : update.Message,
+                            _state.CurrentQueueItem?.DisplayName ?? string.Empty);
+                        InvokeAsync(StateHasChanged);
+                    });
+
+                    var seriesId = await ComicImportService.ImportComicAsync(request, importProgress, cancellationToken);
+                    _state.MarkCurrentImported(seriesId);
+                    return MoveToNextPendingOrDone();
+                });
+
+            if (shouldContinueQueue)
+            {
+                await ProcessCurrentItemAsync();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _state.ErrorMessage = "Import canceled. Any work already completed in Hydrus was kept.";
+            _state.CurrentStep = ImportWizardState.Step.Chapters;
+            _state.ThumbnailPreloadQueued = true;
         }
         catch (Exception ex)
         {
@@ -703,6 +808,76 @@
             _state.CurrentStep = ImportWizardState.Step.Chapters;
             _state.ThumbnailPreloadQueued = true;
         }
+    }
+
+    private async Task<T> RunWithProgressDialogAsync<T>(
+        string title,
+        string initialMessage,
+        Func<IProgress<LongRunningProgressUpdate>, CancellationToken, Task<T>> action,
+        string cancelButtonText = "Cancel")
+    {
+        using var cancellationSource = new CancellationTokenSource();
+        Action<LongRunningProgressUpdate>? progressHandler = null;
+
+        var parameters = new DialogParameters
+        {
+            [nameof(SyncProgressDialog.Title)] = title,
+            [nameof(SyncProgressDialog.Message)] = initialMessage,
+            [nameof(SyncProgressDialog.CancelButtonText)] = cancelButtonText,
+            [nameof(SyncProgressDialog.RegisterProgressHandler)] = (Action<Action<LongRunningProgressUpdate>>)(handler => progressHandler = handler),
+            [nameof(SyncProgressDialog.OnCancelRequested)] = (Func<Task>)(() =>
+            {
+                cancellationSource.Cancel();
+                return Task.CompletedTask;
+            })
+        };
+
+        _activeOperationCount++;
+        var dialog = await DialogService.ShowAsync<SyncProgressDialog>(title, parameters, _progressDialogOptions);
+        var progress = new Progress<LongRunningProgressUpdate>(update => progressHandler?.Invoke(update));
+
+        try
+        {
+            return await action(progress, cancellationSource.Token);
+        }
+        finally
+        {
+            dialog.Close();
+            _activeOperationCount = Math.Max(0, _activeOperationCount - 1);
+        }
+    }
+
+    private Task RunWithProgressDialogAsync(
+        string title,
+        string initialMessage,
+        Func<IProgress<LongRunningProgressUpdate>, CancellationToken, Task> action,
+        string cancelButtonText = "Cancel")
+    {
+        return RunWithProgressDialogAsync(
+            title,
+            initialMessage,
+            async (progress, cancellationToken) =>
+            {
+                await action(progress, cancellationToken);
+                return true;
+            },
+            cancelButtonText);
+    }
+
+    private static void ReportProgress(
+        IProgress<LongRunningProgressUpdate>? progress,
+        int current = 0,
+        int total = 0,
+        string message = "",
+        string detail = "")
+    {
+        progress?.Report(new LongRunningProgressUpdate
+        {
+            Current = current,
+            Total = total,
+            Message = message,
+            Detail = detail
+        });
     }
 }
 

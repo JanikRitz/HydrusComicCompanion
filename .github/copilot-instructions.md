@@ -3,6 +3,7 @@
 ## Project Guidelines
 - Prefer MudBlazor dialogs for confirmation flows instead of browser JS confirm prompts, using DialogOptions with top-center positioning when possible.
 - For metadata editor dialogs, apply Hydrus and cache updates only when the user clicks Save, and always provide a Cancel option.
+- For wizard transitions that trigger background preparation work, render the next page immediately and use only a small non-dismissible overlay over the preview area instead of blocking the whole UI.
 
 ## Comic Page Guidelines
 - For alternate comic pages, prefer multiple variants per logical page number, using the default variant with manual reader switching, manual grouping in Chapter Placement, and Hydrus metadata as authoritative via a special alternate tag.

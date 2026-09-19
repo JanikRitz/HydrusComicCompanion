@@ -192,6 +192,7 @@ else
     private string _displayTitleInput = string.Empty;
     private string _commentInput = string.Empty;
     private readonly DialogOptions _center = new() { Position = DialogPosition.Center, FullWidth = true, MaxWidth = MaxWidth.Large};
+    private readonly DialogOptions _progressDialogOptions = new() { Position = DialogPosition.Center, FullWidth = true, MaxWidth = MaxWidth.Large, CloseButton = false, BackdropClick = false, CloseOnEscapeKey = false };
 
     protected override async Task OnParametersSetAsync()
     {
@@ -275,11 +276,33 @@ else
     private async Task SyncComic()
     {
         if (string.IsNullOrEmpty(_comic?.Title)) return;
+
         _isSyncingMetadata = true;
+        using var cancellationSource = new CancellationTokenSource();
+
+        var parameters = new DialogParameters
+        {
+            [nameof(SyncProgressDialog.Title)] = "Syncing collection",
+            [nameof(SyncProgressDialog.Message)] = "Syncing collection...",
+            [nameof(SyncProgressDialog.Detail)] = _comic.Title,
+            [nameof(SyncProgressDialog.CancelButtonText)] = "Stop",
+            [nameof(SyncProgressDialog.OnCancelRequested)] = (Func<Task>)(() =>
+            {
+                cancellationSource.Cancel();
+                return Task.CompletedTask;
+            })
+        };
+
+        var dialog = await DialogService.ShowAsync<SyncProgressDialog>("Syncing collection", parameters, _progressDialogOptions);
+
         try
         {
-            await SyncService.SyncCollectionAsync(_comic.Title, _comic.Kind);
+            await SyncService.SyncCollectionAsync(_comic.Title, _comic.Kind, cancellationSource.Token);
             await ReloadComicAsync();
+        }
+        catch (OperationCanceledException) when (cancellationSource.IsCancellationRequested)
+        {
+            Snackbar.Add("Collection sync stopped. Already synced data was kept.", Severity.Info);
         }
         catch (Exception ex)
         {
@@ -287,6 +310,7 @@ else
         }
         finally
         {
+            dialog.Close();
             _isSyncingMetadata = false;
         }
     }

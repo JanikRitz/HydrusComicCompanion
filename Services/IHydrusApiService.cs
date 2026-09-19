@@ -163,6 +163,12 @@ public interface IHydrusApiService
     Task<HydrusAddFileResult> AddFileAsync(byte[] content, string mimeType, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Undeletes files in Hydrus by hash so they become available again.
+    /// </summary>
+    /// <param name="hashes">File hashes to undelete.</param>
+    Task UndeleteFilesAsync(List<string> hashes, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Adds or updates notes associated with a file in Hydrus.
     /// </summary>
     /// <param name="hash">File hash</param>

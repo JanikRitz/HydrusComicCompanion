@@ -738,6 +738,48 @@ public class HydrusApiService : IHydrusApiService
         }
     }
 
+    public async Task UndeleteFilesAsync(List<string> hashes, CancellationToken cancellationToken = default)
+    {
+        var normalizedHashes = hashes
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Select(hash => hash.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (normalizedHashes.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/add_files/undelete_files";
+            var requestPayload = new Dictionary<string, List<string>>
+            {
+                ["hashes"] = normalizedHashes
+            };
+
+            var jsonContent = JsonSerializer.Serialize(requestPayload);
+            var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+            var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = httpContent
+            };
+            AddApiKeyHeader(request, settings);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            _logger.LogInformation("Undeleted {Count} file(s) in Hydrus", normalizedHashes.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error undeleting files in Hydrus");
+            throw;
+        }
+    }
+
     /// <summary>
     /// Extracts a value from a namespaced tag
     /// </summary>

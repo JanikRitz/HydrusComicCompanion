@@ -7,24 +7,37 @@
     <DialogContent>
         <MudStack Spacing="2">
             <MudText Typo="Typo.body1">
-                @CurrentSyncLabel
+                @DisplayMessage
             </MudText>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">
-                @Current / @Total
-            </MudText>
-            <MudProgressLinear Color="Color.Primary" Value="@ProgressPercent" Rounded="true" />
+            @if (!string.IsNullOrWhiteSpace(Detail))
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @Detail
+                </MudText>
+            }
+            @if (Total > 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @Current / @Total
+                </MudText>
+                <MudProgressLinear Color="Color.Primary" Value="@ProgressPercent" Rounded="true" />
+            }
+            else
+            {
+                <MudProgressLinear Color="Color.Primary" Indeterminate="true" Rounded="true" />
+            }
         </MudStack>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Disabled="@_isStopping" OnClick="RequestCancelAsync">
-            @(_isStopping ? "Stopping..." : "Stop")
+            @(_isStopping ? "Stopping..." : CancelButtonText)
         </MudButton>
     </DialogActions>
 </MudDialog>
 
 @code {
     [Parameter]
-    public string Title { get; set; } = "Sync in progress";
+    public string Title { get; set; } = "Working";
 
     [Parameter]
     public int Current { get; set; }
@@ -33,19 +46,25 @@
     public int Total { get; set; }
 
     [Parameter]
-    public string CurrentTitle { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
 
     [Parameter]
-    public Action<Action<SyncProgressUpdate>>? RegisterProgressHandler { get; set; }
+    public string Detail { get; set; } = string.Empty;
+
+    [Parameter]
+    public string CancelButtonText { get; set; } = "Stop";
+
+    [Parameter]
+    public Action<Action<LongRunningProgressUpdate>>? RegisterProgressHandler { get; set; }
 
     [Parameter]
     public Func<Task>? OnCancelRequested { get; set; }
 
     private bool _isStopping;
 
-    private string CurrentSyncLabel => string.IsNullOrWhiteSpace(CurrentTitle)
-        ? "Preparing sync..."
-        : $"Syncing: {CurrentTitle}";
+    private string DisplayMessage => string.IsNullOrWhiteSpace(Message)
+        ? "Working..."
+        : Message;
 
     private double ProgressPercent => Total <= 0
         ? 0d
@@ -56,11 +75,12 @@
         RegisterProgressHandler?.Invoke(HandleProgress);
     }
 
-    private void HandleProgress(SyncProgressUpdate update)
+    private void HandleProgress(LongRunningProgressUpdate update)
     {
         Current = update.Current;
         Total = update.Total;
-        CurrentTitle = update.CurrentTitle;
+        Message = update.Message;
+        Detail = update.Detail;
 
         _ = InvokeAsync(StateHasChanged);
     }

@@ -217,16 +217,29 @@ public sealed class ComicImportService : IComicImportService
             {
                 var result = await _apiService.AddFileAsync(page.Data, page.MimeType, cancellationToken);
 
-                if (!result.IsAvailable)
+                if (result.IsAvailable)
+                {
+                    // Use the hash returned by Hydrus (matches our SHA-256 but canonicalized by Hydrus)
+                    pageHashes[i] = result.Hash;
+                }
+                else if (result.Status == 3)
+                {
+                    pageHashes[i] = await ResolveDeletedPageHashAsync(
+                        request,
+                        settings,
+                        titleTag,
+                        chapterStarts,
+                        i,
+                        result,
+                        cancellationToken);
+                }
+                else
                 {
                     _logger.LogWarning("Page {Index} ({File}) could not be imported into Hydrus (status={Status}, note={Note})",
                         i, page.ArchiveFileName, result.Status, result.Note);
                     throw new InvalidOperationException(
                         $"Hydrus rejected page {i + 1} ({page.ArchiveFileName}): status={result.Status}, note={result.Note}");
                 }
-
-                // Use the hash returned by Hydrus (matches our SHA-256 but canonicalized by Hydrus)
-                pageHashes[i] = result.Hash;
             }
             else if (hasHash)
             {
@@ -434,6 +447,142 @@ public sealed class ComicImportService : IComicImportService
     }
 
     // ─── Private helpers ────────────────────────────────────────────────────
+
+    private async Task<string> ResolveDeletedPageHashAsync(
+        ComicImportRequest request,
+        HydrusSettings settings,
+        string titleTag,
+        List<int> chapterStarts,
+        int pageIndex,
+        HydrusAddFileResult addResult,
+        CancellationToken cancellationToken)
+    {
+        var page = request.Pages[pageIndex];
+        var lookupTags = BuildStructuralLookupTags(request, settings, titleTag, pageIndex, chapterStarts);
+
+        if (lookupTags.Count > 0)
+        {
+            var existingHash = await TryFindBestExistingPageHashAsync(lookupTags, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(existingHash))
+            {
+                _logger.LogInformation(
+                    "Recovered deleted upload for page {Index} ({File}) by reusing existing Hydrus file {Hash}",
+                    pageIndex + 1,
+                    page.ArchiveFileName,
+                    existingHash);
+                return existingHash;
+            }
+        }
+
+        var deletedHash = !string.IsNullOrWhiteSpace(addResult.Hash)
+            ? addResult.Hash
+            : page.Sha256Hash;
+
+        if (string.IsNullOrWhiteSpace(deletedHash))
+        {
+            throw new InvalidOperationException(
+                $"Hydrus rejected page {pageIndex + 1} ({page.ArchiveFileName}): status={addResult.Status}, note={addResult.Note}");
+        }
+
+        await _apiService.UndeleteFilesAsync([deletedHash], cancellationToken);
+
+        _logger.LogInformation(
+            "Recovered deleted upload for page {Index} ({File}) by undeleting hash {Hash}",
+            pageIndex + 1,
+            page.ArchiveFileName,
+            deletedHash);
+
+        return deletedHash;
+    }
+
+    private async Task<string?> TryFindBestExistingPageHashAsync(List<string> lookupTags, CancellationToken cancellationToken)
+    {
+        var fileIds = await _apiService.SearchFilesAsync(lookupTags, cancellationToken: cancellationToken);
+        if (fileIds.Count == 0)
+        {
+            return null;
+        }
+
+        var metadata = await _apiService.GetFileMetadataAsync(fileIds, cancellationToken: cancellationToken);
+        if (metadata.Count == 0)
+        {
+            return null;
+        }
+
+        return metadata
+            .Where(file => !string.IsNullOrWhiteSpace(file.Hash))
+            .OrderByDescending(file => (long)file.Width * file.Height)
+            .ThenByDescending(file => file.Size)
+            .ThenBy(file => file.Hash, StringComparer.OrdinalIgnoreCase)
+            .Select(file => file.Hash)
+            .FirstOrDefault();
+    }
+
+    private static List<string> BuildStructuralLookupTags(
+        ComicImportRequest request,
+        HydrusSettings settings,
+        string titleTag,
+        int pageIndex,
+        List<int> chapterStarts)
+    {
+        var page = request.Pages[pageIndex];
+        var tags = new List<string>
+        {
+            titleTag
+        };
+
+        if (request.Kind == CollectionKind.Imageset)
+        {
+            if (page.PageNumber.HasValue)
+            {
+                tags.Add(BuildTag(settings.IndexNamespace, page.PageNumber.Value.ToString()));
+            }
+
+            var variantLabels = (page.VariantLabel ?? string.Empty)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            foreach (var label in variantLabels)
+            {
+                tags.Add(BuildTag(settings.AlternatePageNamespace, label));
+            }
+        }
+        else
+        {
+            var effectiveVolumeNumber = GetVolumeForPage(pageIndex, request);
+            if (effectiveVolumeNumber.HasValue)
+            {
+                tags.Add(BuildTag(settings.VolumeNamespace, effectiveVolumeNumber.Value.ToString()));
+            }
+
+            if (chapterStarts.Count > 0)
+            {
+                var (_, fallbackPageNumber) = GetChapterAndPage(pageIndex, chapterStarts);
+                var chapterNumber = GetChapterWithinVolume(pageIndex, chapterStarts, request.VolumeStarts);
+                var pageNumber = ResolvePageNumber(page.PageNumber, fallbackPageNumber);
+                tags.Add(BuildTag(settings.ChapterNamespace, chapterNumber.ToString()));
+                tags.Add(BuildTag(settings.PageNamespace, pageNumber.ToString()));
+            }
+            else
+            {
+                var pageNumber = ResolvePageNumber(page.PageNumber, pageIndex + 1);
+                tags.Add(BuildTag(settings.PageNamespace, pageNumber.ToString()));
+            }
+
+            if (request.Pages.Count(p => p.LogicalPageGroupId == page.LogicalPageGroupId) > 1)
+            {
+                var variantOrdinal = request.Pages
+                    .Take(pageIndex + 1)
+                    .Count(p => p.LogicalPageGroupId == page.LogicalPageGroupId);
+                var defaultValue = settings.AlternatePageDefaultValue.Trim();
+                var alternateValue = ResolveAlternateTagValue(page, defaultValue, variantOrdinal);
+                tags.Add(BuildTag(settings.AlternatePageNamespace, alternateValue));
+            }
+        }
+
+        return tags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     private async Task<ComicImportPreparation> ExtractCbzAsync(
         Stream stream, CancellationToken cancellationToken)

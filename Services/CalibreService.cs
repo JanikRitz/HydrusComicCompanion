@@ -28,14 +28,26 @@ internal readonly struct CalibreBookListEntry
 /// <summary>
 /// Interacts with a Calibre library via the calibredb command-line tool.
 /// </summary>
-public sealed class CalibreService(IComicImportService comicImportService) : ICalibreService
+public sealed class CalibreService(IComicImportService comicImportService, ILogger<CalibreService> logger) : ICalibreService
 {
+    private static readonly TimeSpan DiscoverTimeout = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan MetadataTimeout = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan ExportTimeout = TimeSpan.FromMinutes(10);
+
     /// <inheritdoc />
     public async Task<IReadOnlyList<CalibreBookEntry>> DiscoverBooksAsync(
         string libraryPath,
         string? searchQuery = null,
+        IProgress<LongRunningProgressUpdate>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        ReportProgress(
+            progress,
+            message: "Querying Calibre library...",
+            detail: string.IsNullOrWhiteSpace(searchQuery)
+                ? libraryPath
+                : $"{libraryPath} · filter: {searchQuery.Trim()}");
+
         var command = new List<string>
         {
             "list",
@@ -52,16 +64,25 @@ public sealed class CalibreService(IComicImportService comicImportService) : ICa
             command.Add(searchQuery.Trim());
         }
 
-        var stdout = await RunCalibreDbAsync(command, cancellationToken);
+        var stdout = await RunCalibreDbAsync(command, "list", DiscoverTimeout, cancellationToken);
 
         var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         var entries = JsonSerializer.Deserialize<CalibreBookListEntry[]>(stdout, options)
             ?? [];
 
+        ReportProgress(
+            progress,
+            message: "Filtering discovered books...",
+            detail: $"{entries.Length} entries returned from Calibre.",
+            total: entries.Length);
+
         var books = new List<CalibreBookEntry>();
 
-        foreach (var entry in entries)
+        for (var index = 0; index < entries.Length; index++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var entry = entries[index];
             var availableFormats = ParseFormats(entry.Formats);
             if (!availableFormats.Select(Path.GetExtension).Any(format => format is ".cbz" or ".cbr"))
             {
@@ -80,9 +101,27 @@ public sealed class CalibreService(IComicImportService comicImportService) : ICa
                 Authors = authorLabel,
                 Formats = availableFormats
             });
+
+            if (index == entries.Length - 1 || (index + 1) % 100 == 0)
+            {
+                ReportProgress(
+                    progress,
+                    message: "Filtering discovered books...",
+                    detail: $"Matched {books.Count} archive-ready book(s).",
+                    current: index + 1,
+                    total: entries.Length);
+            }
         }
 
         books.Sort((a, b) => string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase));
+
+        ReportProgress(
+            progress,
+            message: "Calibre discovery complete.",
+            detail: $"Found {books.Count} archive-ready book(s).",
+            current: books.Count,
+            total: books.Count == 0 ? 0 : books.Count);
+
         return books;
     }
 
@@ -90,8 +129,10 @@ public sealed class CalibreService(IComicImportService comicImportService) : ICa
     public async Task<(ComicImportPreparation Preparation, CalibreMetadataSnapshot Metadata)> ExtractBookAsync(
         int bookId,
         string libraryPath,
+        IProgress<LongRunningProgressUpdate>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        ReportProgress(progress, 1, 4, "Loading Calibre metadata...", $"Book #{bookId}");
         var metadata = await LoadMetadataAsync(bookId, libraryPath, cancellationToken);
 
         var tempRoot = Path.Combine(Path.GetTempPath(), "HydrusComicCompanion", "calibre", Guid.NewGuid().ToString("N"));
@@ -99,6 +140,7 @@ public sealed class CalibreService(IComicImportService comicImportService) : ICa
 
         try
         {
+            ReportProgress(progress, 2, 4, "Exporting Calibre archive...", $"Book #{bookId}");
             await RunCalibreDbAsync(
             [
                 "export",
@@ -113,8 +155,11 @@ public sealed class CalibreService(IComicImportService comicImportService) : ICa
                 "--with-library",
                 libraryPath
             ],
+            "export",
+            ExportTimeout,
             cancellationToken);
 
+            ReportProgress(progress, 3, 4, "Locating exported archive...", $"Book #{bookId}");
             var archivePath = Directory
                 .EnumerateFiles(tempRoot, "*.*", SearchOption.AllDirectories)
                 .FirstOrDefault(path =>
@@ -129,6 +174,7 @@ public sealed class CalibreService(IComicImportService comicImportService) : ICa
                 throw new InvalidOperationException("No CBZ/CBR archive was exported for this Calibre book.");
             }
 
+            ReportProgress(progress, 4, 4, "Extracting comic pages...", Path.GetFileName(archivePath));
             await using var archiveStream = File.OpenRead(archivePath);
             var preparation = await comicImportService.ExtractArchiveAsync(
                 archiveStream,
@@ -168,6 +214,8 @@ public sealed class CalibreService(IComicImportService comicImportService) : ICa
             "--with-library",
             libraryPath
         ],
+        "show_metadata",
+        MetadataTimeout,
         cancellationToken);
 
         return ParseCalibreOpfMetadata(opfXml);
@@ -246,8 +294,10 @@ public sealed class CalibreService(IComicImportService comicImportService) : ICa
         return System.Net.WebUtility.HtmlDecode(withoutTags);
     }
 
-    private static async Task<string> RunCalibreDbAsync(
+    private async Task<string> RunCalibreDbAsync(
         IReadOnlyList<string> arguments,
+        string operationName,
+        TimeSpan timeout,
         CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo("calibredb")
@@ -266,29 +316,79 @@ public sealed class CalibreService(IComicImportService comicImportService) : ICa
         }
 
         using var process = new Process { StartInfo = startInfo };
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
 
-        if (!process.Start())
+        var startedAt = Stopwatch.StartNew();
+        logger.LogInformation("Starting calibredb {Operation} for library command {Arguments}", operationName, string.Join(' ', arguments));
+
+        try
         {
-            throw new InvalidOperationException("Failed to start calibredb process.");
+            if (!process.Start())
+            {
+                throw new InvalidOperationException("Failed to start calibredb process.");
+            }
+
+            using var registration = timeoutCts.Token.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch
+                {
+                    // best effort process cleanup during cancellation/timeout
+                }
+            });
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+
+            await process.WaitForExitAsync(timeoutCts.Token);
+
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
+
+            if (process.ExitCode != 0)
+            {
+                var message = string.IsNullOrWhiteSpace(stderr)
+                    ? $"calibredb exited with code {process.ExitCode}."
+                    : stderr.Trim();
+                throw new InvalidOperationException(message);
+            }
+
+            logger.LogInformation("Completed calibredb {Operation} in {ElapsedMilliseconds} ms", operationName, startedAt.ElapsedMilliseconds);
+            return stdout;
         }
-
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-        await process.WaitForExitAsync(cancellationToken);
-
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-
-        if (process.ExitCode != 0)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            var message = string.IsNullOrWhiteSpace(stderr)
-                ? $"calibredb exited with code {process.ExitCode}."
-                : stderr.Trim();
-            throw new InvalidOperationException(message);
+            logger.LogInformation("Canceled calibredb {Operation} after {ElapsedMilliseconds} ms", operationName, startedAt.ElapsedMilliseconds);
+            throw;
         }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning("Timed out calibredb {Operation} after {ElapsedMilliseconds} ms", operationName, startedAt.ElapsedMilliseconds);
+            throw new TimeoutException($"calibredb {operationName} timed out after {timeout.TotalMinutes:0.#} minute(s).");
+        }
+    }
 
-        return stdout;
+    private static void ReportProgress(
+        IProgress<LongRunningProgressUpdate>? progress,
+        int current = 0,
+        int total = 0,
+        string message = "",
+        string detail = "")
+    {
+        progress?.Report(new LongRunningProgressUpdate
+        {
+            Current = current,
+            Total = total,
+            Message = message,
+            Detail = detail
+        });
     }
 
     private static List<string> ParseFormats(string[]? formats)

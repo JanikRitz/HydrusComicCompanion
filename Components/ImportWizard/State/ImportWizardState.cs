@@ -90,7 +90,6 @@ public class ImportWizardState
     public Dictionary<int, int> VolumeStartIndices { get; set; } = [];
     public Dictionary<int, string> PageThumbnailDataUrls { get; set; } = [];
     public bool ThumbnailPreloadQueued { get; set; }
-    public bool IsPreloadingThumbnails { get; set; }
     public bool UseChapterTags { get; set; } = true;
 
     public bool HasIncludedPages => Pages.Any(p => !p.IsExcluded);
@@ -332,7 +331,6 @@ public class ImportWizardState
             VolumeNumber = null;
             PageThumbnailDataUrls = [];
             ThumbnailPreloadQueued = false;
-            IsPreloadingThumbnails = false;
             return;
         }
 
@@ -347,7 +345,6 @@ public class ImportWizardState
 
         PageThumbnailDataUrls = [];
         ThumbnailPreloadQueued = false;
-        IsPreloadingThumbnails = false;
     }
 
     // ─── Chapter Management ─────────────────────────────────────────────
@@ -822,7 +819,6 @@ public class ImportWizardState
         VolumeStartIndices = [];
         PageThumbnailDataUrls = [];
         ThumbnailPreloadQueued = false;
-        IsPreloadingThumbnails = false;
         TitleName = string.Empty;
         DisplayTitle = string.Empty;
         Comments = string.Empty;
@@ -850,7 +846,6 @@ public class ImportWizardState
         VolumeStartIndices = [];
         PageThumbnailDataUrls = [];
         ThumbnailPreloadQueued = false;
-        IsPreloadingThumbnails = false;
         TitleName = string.Empty;
         DisplayTitle = string.Empty;
         Comments = string.Empty;

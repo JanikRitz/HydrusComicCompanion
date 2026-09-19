@@ -501,12 +501,14 @@
         _syncedComicsCount = null;
 
         using var cancellationSource = new CancellationTokenSource();
-        Action<SyncProgressUpdate>? progressHandler = null;
+        Action<LongRunningProgressUpdate>? progressHandler = null;
 
         var parameters = new DialogParameters
         {
             [nameof(SyncProgressDialog.Title)] = "Syncing existing titles",
-            [nameof(SyncProgressDialog.RegisterProgressHandler)] = (Action<Action<SyncProgressUpdate>>)(handler => progressHandler = handler),
+            [nameof(SyncProgressDialog.Message)] = "Preparing sync...",
+            [nameof(SyncProgressDialog.CancelButtonText)] = "Stop",
+            [nameof(SyncProgressDialog.RegisterProgressHandler)] = (Action<Action<LongRunningProgressUpdate>>)(handler => progressHandler = handler),
             [nameof(SyncProgressDialog.OnCancelRequested)] = (Func<Task>)(() =>
             {
                 cancellationSource.Cancel();
@@ -515,7 +517,13 @@
         };
 
         var dialog = await DialogService.ShowAsync<SyncProgressDialog>("Syncing existing titles", parameters, _progressDialogOptions);
-        var progress = new Progress<SyncProgressUpdate>(update => progressHandler?.Invoke(update));
+        var progress = new Progress<SyncProgressUpdate>(update => progressHandler?.Invoke(new LongRunningProgressUpdate
+        {
+            Current = update.Current,
+            Total = update.Total,
+            Message = string.IsNullOrWhiteSpace(update.CurrentTitle) ? "Preparing sync..." : "Syncing collection",
+            Detail = update.CurrentTitle
+        }));
 
         try
         {
@@ -546,12 +554,14 @@
         _syncedComicsCount = null;
 
         using var cancellationSource = new CancellationTokenSource();
-        Action<SyncProgressUpdate>? progressHandler = null;
+        Action<LongRunningProgressUpdate>? progressHandler = null;
 
         var parameters = new DialogParameters
         {
             [nameof(SyncProgressDialog.Title)] = "Syncing OCR of existing titles",
-            [nameof(SyncProgressDialog.RegisterProgressHandler)] = (Action<Action<SyncProgressUpdate>>)(handler => progressHandler = handler),
+            [nameof(SyncProgressDialog.Message)] = "Preparing OCR sync...",
+            [nameof(SyncProgressDialog.CancelButtonText)] = "Stop",
+            [nameof(SyncProgressDialog.RegisterProgressHandler)] = (Action<Action<LongRunningProgressUpdate>>)(handler => progressHandler = handler),
             [nameof(SyncProgressDialog.OnCancelRequested)] = (Func<Task>)(() =>
             {
                 cancellationSource.Cancel();
@@ -560,7 +570,13 @@
         };
 
         var dialog = await DialogService.ShowAsync<SyncProgressDialog>("Syncing OCR of existing titles", parameters, _progressDialogOptions);
-        var progress = new Progress<SyncProgressUpdate>(update => progressHandler?.Invoke(update));
+        var progress = new Progress<SyncProgressUpdate>(update => progressHandler?.Invoke(new LongRunningProgressUpdate
+        {
+            Current = update.Current,
+            Total = update.Total,
+            Message = string.IsNullOrWhiteSpace(update.CurrentTitle) ? "Preparing OCR sync..." : "Syncing OCR",
+            Detail = update.CurrentTitle
+        }));
 
         try
         {
