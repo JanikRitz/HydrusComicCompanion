@@ -163,6 +163,17 @@ public interface IHydrusApiService
     Task<HydrusAddFileResult> AddFileAsync(byte[] content, string mimeType, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets the duplicate-group king in the combined local file domain. Requires Manage File Relationships permission.
+    /// </summary>
+    Task<FileRelationships> GetFileRelationshipsAsync(string hash, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Clears a file deletion record in Hydrus so a subsequent upload is treated as a fresh import.
+    /// </summary>
+    /// <param name="hash">File hash whose deletion record should be cleared.</param>
+    Task ClearFileDeletionRecordAsync(string hash, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Undeletes files in Hydrus by hash so they become available again.
     /// </summary>
     /// <param name="hashes">File hashes to undelete.</param>

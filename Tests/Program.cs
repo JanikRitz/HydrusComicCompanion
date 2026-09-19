@@ -203,7 +203,133 @@ internal static class Program
         {
             Check(true, "sync honors cancellation");
         }
+        await CheckDuplicateRecoveryAsync(factory);
         Console.WriteLine($"PASS: {_checks} collection regression checks.");
+    }
+
+    private static async Task CheckDuplicateRecoveryAsync(CacheFactory factory)
+    {
+        var settings = new TestSettings();
+        settings.Value.ApiAccessKey = "test-key";
+        settings.Value.FullTitleNoteName = "full title";
+        using var handler = new HydrusHandler();
+        using var http = new HttpClient(handler);
+        var api = new HydrusApiService(http, settings, NullLogger<HydrusApiService>.Instance);
+        var sync = new HydrusSyncService(api, factory, settings, NullLogger<HydrusSyncService>.Instance);
+        var importer = new ComicImportService(api, factory, settings, NullLogger<ComicImportService>.Instance, sync);
+        handler.Files.AddRange([File(100, "incoming"), File(101, "king", "keep:this"), File(102, "alternate")]);
+
+        ComicImportRequest Request(string title) => new()
+        {
+            SeriesName = title,
+            DisplayTitle = "Full title",
+            Pages = [new ImportPage { Data = [1, 2, 3], Sha256Hash = "incoming", MimeType = "image/jpeg", PageNumber = 1 }]
+        };
+        HydrusAddFileResult Deleted() => new() { Status = 3, Hash = "incoming", Note = "Previously deleted" };
+        Dictionary<string, object?> Relationship(string? king, bool local, bool onDomain) => new()
+        {
+            ["is_king"] = king == "incoming",
+            ["king"] = king,
+            ["king_is_local"] = local,
+            ["king_is_on_file_domain"] = onDomain,
+            ["0"] = new[] { "alternate" },
+            ["1"] = new[] { "alternate" },
+            ["3"] = new[] { "alternate" },
+            ["8"] = new[] { "king" }
+        };
+
+        handler.Relationships["INCOMING"] = Relationship("king", true, true);
+        handler.AddResults.Enqueue(Deleted());
+        await importer.ImportComicAsync(Request("duplicate king"));
+        var cached = await ReadCollection(factory, "duplicate king", CollectionKind.Comic);
+        var variant = cached.Chapters.Single().Pages.Single().Variants.Single();
+        Check(variant.FileHash == "king" && variant.MimeType == "image/png" && cached.CoverFileHash == "king", "recovery caches the king hash, MIME and cover rather than the uploaded image");
+        Check(handler.Files.Single(file => file.Hash == "king").GetAllStorageTags().Contains("comic:duplicate king")
+            && handler.Files.Single(file => file.Hash == "king").GetAllStorageTags().Contains("keep:this"), "import tags the king and preserves existing tags");
+        Check(handler.Files.Single(file => file.Hash == "king").Notes["full title"] == "Full title", "cover notes target the king");
+        Check(handler.Files.Single(file => file.Hash == "alternate").GetAllStorageTags().Count == 0
+            && handler.Files.Single(file => file.Hash == "incoming").GetAllStorageTags().Count == 0, "alternates, potentials, false positives and the deleted input are not tagged");
+        Check(handler.ClearedDeletionRecords.Count == 0 && handler.Searches.Count == 0, "king recovery does not clear deletion records or search structural tags");
+        Check(handler.RelationshipRequests.Single().Query == "?hash=incoming" && handler.RelationshipApiKey == "test-key", "relationship lookup uses the hash, API key and default domain");
+
+        foreach (var (name, king, local, domain) in new (string, string?, bool, bool)[]
+        {
+            ("nonlocal king", "king", false, true),
+            ("out of domain king", "king", true, false),
+            ("null king", null, false, false),
+            ("singleton", "incoming", false, false)
+        })
+        {
+            handler.Relationships["INCOMING"] = Relationship(king, local, domain);
+            handler.AddResults.Enqueue(Deleted());
+            handler.AddResults.Enqueue(new HydrusAddFileResult { Status = 1, Hash = "incoming" });
+            var cleared = handler.ClearedDeletionRecords.Count;
+            await importer.ImportComicAsync(Request(name));
+            var restored = await ReadCollection(factory, name, CollectionKind.Comic);
+            Check(handler.ClearedDeletionRecords.Count == cleared + 1 && handler.ClearedDeletionRecords[^1] == "incoming"
+                && restored.CoverFileHash == "incoming", $"{name} falls back to verified original-file recovery");
+        }
+
+        handler.Relationships["INCOMING"] = Relationship("incoming", true, true);
+        handler.AddResults.Enqueue(Deleted());
+        var clearsBefore = handler.ClearedDeletionRecords.Count;
+        await importer.ImportComicAsync(Request("local singleton"));
+        Check(handler.ClearedDeletionRecords.Count == clearsBefore, "available self-king is reused without clearing the deletion record");
+
+        async Task ExpectFailure(string title, string message)
+        {
+            var writes = handler.Writes;
+            var cleared = handler.ClearedDeletionRecords.Count;
+            handler.AddResults.Enqueue(Deleted());
+            try
+            {
+                await importer.ImportComicAsync(Request(title));
+                throw new InvalidOperationException("Import unexpectedly completed.");
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains(message, StringComparison.OrdinalIgnoreCase))
+            {
+                Check(handler.Writes == writes && handler.ClearedDeletionRecords.Count == cleared, $"{title} stops before restoring or tagging");
+            }
+        }
+
+        handler.RelationshipStatus = HttpStatusCode.Forbidden;
+        await ExpectFailure("permission denied", "Manage File Relationships");
+        handler.RelationshipStatus = HttpStatusCode.OK;
+        handler.Relationships.Clear();
+        await ExpectFailure("missing relationship", "no file relationships");
+        handler.Relationships["INCOMING"] = Relationship("missing", true, true);
+        handler.AddResults.Enqueue(Deleted());
+        handler.AddResults.Enqueue(new HydrusAddFileResult { Status = 1, Hash = "incoming" });
+        var clearsBeforeMissingKing = handler.ClearedDeletionRecords.Count;
+        await importer.ImportComicAsync(Request("missing king metadata"));
+        Check(handler.ClearedDeletionRecords.Count == clearsBeforeMissingKing + 1
+            && handler.ClearedDeletionRecords[^1] == "incoming", "missing king metadata falls back to clearing the deletion record");
+
+        handler.Relationships["INCOMING"] = Relationship(null, false, false);
+        handler.AddResults.Enqueue(Deleted());
+        handler.AddResults.Enqueue(Deleted());
+        var writesBefore = handler.Writes;
+        try
+        {
+            await importer.ImportComicAsync(Request("failed restore"));
+            throw new InvalidOperationException("Import unexpectedly completed.");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("could not restore"))
+        {
+            Check(handler.Writes == writesBefore, "failed deletion-record recovery does not tag an unavailable file");
+        }
+
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+        try
+        {
+            await api.GetFileRelationshipsAsync("incoming", canceled.Token);
+            throw new InvalidOperationException("Canceled relationship lookup unexpectedly completed.");
+        }
+        catch (OperationCanceledException)
+        {
+            Check(true, "relationship lookup honors cancellation");
+        }
     }
 
     private static FileMetadata File(long id, string hash, params string[] tags) => new()
@@ -261,6 +387,13 @@ internal sealed class HydrusHandler : HttpMessageHandler
     public List<FileMetadata> Files { get; } = [];
     public List<string> Searches { get; } = [];
     public int Writes { get; private set; }
+    public Dictionary<string, object> Relationships { get; } = [];
+    public HttpStatusCode RelationshipStatus { get; set; } = HttpStatusCode.OK;
+    public List<Uri> RelationshipRequests { get; } = [];
+    public string? RelationshipApiKey { get; private set; }
+    public Queue<HydrusAddFileResult> AddResults { get; } = [];
+    public List<string> Undeleted { get; } = [];
+    public List<string> ClearedDeletionRecords { get; } = [];
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -268,6 +401,31 @@ internal sealed class HydrusHandler : HttpMessageHandler
         var query = QueryHelpers.ParseQuery(request.RequestUri!.Query);
         switch (request.RequestUri.AbsolutePath)
         {
+            case "/manage_file_relationships/get_file_relationships":
+                RelationshipRequests.Add(request.RequestUri);
+                RelationshipApiKey = request.Headers.TryGetValues("Hydrus-Client-API-Access-Key", out var keys) ? keys.Single() : null;
+                return RelationshipStatus == HttpStatusCode.OK
+                    ? Json(new { file_relationships = Relationships })
+                    : new HttpResponseMessage(RelationshipStatus);
+            case "/add_files/add_file":
+                return Json(AddResults.Dequeue());
+            case "/add_files/clear_file_deletion_record":
+                using (var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
+                    ClearedDeletionRecords.Add(payload.RootElement.GetProperty("hash").GetString()!);
+                return Json(new { });
+            case "/add_files/undelete_files":
+                using (var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
+                    Undeleted.AddRange(payload.RootElement.GetProperty("hashes").EnumerateArray().Select(hash => hash.GetString()!));
+                return Json(new { });
+            case "/add_notes/set_notes":
+                using (var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken)))
+                {
+                    var file = Files.Single(file => file.Hash == payload.RootElement.GetProperty("hash").GetString());
+                    foreach (var note in payload.RootElement.GetProperty("notes").EnumerateObject())
+                        file.Notes[note.Name] = note.Value.GetString()!;
+                    Writes++;
+                    return Json(new { notes = file.Notes });
+                }
             case "/get_files/search_files":
                 var raw = query["tags"].ToString();
                 Searches.Add(raw);

@@ -738,6 +738,65 @@ public class HydrusApiService : IHydrusApiService
         }
     }
 
+    public async Task<FileRelationships> GetFileRelationshipsAsync(string hash, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(hash);
+        hash = hash.Trim().ToLowerInvariant();
+        var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+        var url = $"{settings.ApiUrl}/manage_file_relationships/get_file_relationships?hash={Uri.EscapeDataString(hash)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        AddApiKeyHeader(request, settings);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        if ((int)response.StatusCode is 401 or 403 or 419)
+        {
+            throw new InvalidOperationException(
+                "Hydrus denied the duplicate relationship lookup. Check the API key and grant it Manage File Relationships permission before retrying the import.");
+        }
+
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadAsStringAsync(cancellationToken);
+        var result = JsonSerializer.Deserialize<FileRelationshipsResponse>(json);
+        var relationships = result?.FileRelationships?.FirstOrDefault(entry =>
+            string.Equals(entry.Key, hash, StringComparison.OrdinalIgnoreCase)).Value;
+        return relationships ?? throw new InvalidOperationException(
+            $"Hydrus returned no file relationships for {hash}; import stopped to avoid restoring a possible duplicate.");
+    }
+
+    public async Task ClearFileDeletionRecordAsync(string hash, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(hash);
+        var normalizedHash = hash.Trim();
+
+        try
+        {
+            var settings = await _settingsService.GetSettingsAsync(cancellationToken);
+            var url = $"{settings.ApiUrl}/add_files/clear_file_deletion_record";
+            var requestPayload = new Dictionary<string, string>
+            {
+                ["hash"] = normalizedHash
+            };
+
+            var jsonContent = JsonSerializer.Serialize(requestPayload);
+            var httpContent = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+            var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = httpContent
+            };
+            AddApiKeyHeader(request, settings);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            _logger.LogInformation("Cleared Hydrus deletion record for hash {Hash}", normalizedHash);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error clearing Hydrus deletion record for hash {Hash}", normalizedHash);
+            throw;
+        }
+    }
+
     public async Task UndeleteFilesAsync(List<string> hashes, CancellationToken cancellationToken = default)
     {
         var normalizedHashes = hashes

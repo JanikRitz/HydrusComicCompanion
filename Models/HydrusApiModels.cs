@@ -236,6 +236,27 @@ public sealed class SetNotesRequest
     public int ConflictResolution { get; set; } = 3;
 }
 
+public sealed class FileRelationshipsResponse
+{
+    [JsonPropertyName("file_relationships")]
+    public required Dictionary<string, FileRelationships> FileRelationships { get; set; }
+}
+
+public sealed class FileRelationships
+{
+    [JsonPropertyName("is_king")]
+    public required bool IsKing { get; set; }
+
+    [JsonPropertyName("king")]
+    public required string? King { get; set; }
+
+    [JsonPropertyName("king_is_on_file_domain")]
+    public required bool KingIsOnFileDomain { get; set; }
+
+    [JsonPropertyName("king_is_local")]
+    public required bool KingIsLocal { get; set; }
+}
+
 public sealed class SetNotesResponse
 {
     [JsonPropertyName("notes")]
