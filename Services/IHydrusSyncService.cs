@@ -21,6 +21,11 @@ public interface IHydrusSyncService
     Task<int> SyncLibraryAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Discovers comics and imagesets in Hydrus and imports full details only for identities absent from the local cache.
+    /// </summary>
+    Task<int> ImportNewCollectionsAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Extracts a title from Hydrus so the import workflow can edit metadata and chapters before import.
     /// </summary>
     /// <param name="comicTitle">Name of the title to extract (without the namespace prefix)</param>

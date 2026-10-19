@@ -204,7 +204,113 @@ internal static class Program
             Check(true, "sync honors cancellation");
         }
         await CheckDuplicateRecoveryAsync(factory);
+        await CheckNewCollectionImportAsync();
         Console.WriteLine($"PASS: {_checks} collection regression checks.");
+    }
+
+    private static async Task CheckNewCollectionImportAsync()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var factory = new CacheFactory(new DbContextOptionsBuilder<SettingsDbContext>().UseSqlite(connection).Options);
+        await using (var db = factory.CreateDbContext())
+            await db.Database.MigrateAsync();
+
+        var settings = new TestSettings();
+        settings.Value.TitleNamespace = "book:";
+        settings.Value.SetNamespace = "album:";
+        settings.Value.PageNamespace = "leaf:";
+        settings.Value.IndexNamespace = "position:";
+        using var handler = new HydrusHandler();
+        using var http = new HttpClient(handler);
+        var api = new HydrusApiService(http, settings, NullLogger<HydrusApiService>.Instance);
+        var sync = new HydrusSyncService(api, factory, settings, NullLogger<HydrusSyncService>.Instance);
+        Check(await sync.ImportNewCollectionsAsync() == 0, "new collection import handles an empty Hydrus library");
+
+        await using (var db = factory.CreateDbContext())
+        {
+            db.Comic.Add(new ComicsRecord { Title = "shared", Kind = CollectionKind.Comic, DisplayTitle = "Keep local title" });
+            await db.SaveChangesAsync();
+        }
+        var cover = File(201, "new-cover", "book:new", "volume:2", "chapter:3", "leaf:1", "variant:default", "meta:cover page");
+        cover.Notes[settings.Value.FullTitleNoteName] = "Full new title";
+        cover.Notes[settings.Value.ComicCommentNoteName] = "Collection comment";
+        cover.Notes[settings.Value.OcrTextNoteName] = "Cover OCR";
+        cover.Tags["other"] = new ServiceTagBucket { StorageTags = new() { ["0"] = ["creator:someone", "genre:adventure"] } };
+        handler.Files.AddRange([
+            File(200, "existing", "book:shared", "leaf:1"),
+            cover,
+            File(202, "new-page", "book:new", "volume:2", "chapter:3", "leaf:2"),
+            File(203, "new-alternate", "book:new", "volume:2", "chapter:3", "leaf:1", "variant:no text"),
+            File(204, "new-set", "album:shared", "position:4", "variant:detail")
+        ]);
+        handler.Searches.Clear();
+        var updates = new List<SyncProgressUpdate>();
+        Check(await sync.ImportNewCollectionsAsync(new InlineProgress<SyncProgressUpdate>(updates.Add)) == 2,
+            "missing-only import loads new comics and same-title imagesets with configured namespaces");
+        Check(updates.Select(update => update.Current).SequenceEqual([0, 1, 2]) && updates.All(update => update.Total == 2),
+            "import progress counts only missing collections");
+        var existing = await ReadCollection(factory, "shared", CollectionKind.Comic);
+        Check(existing.DisplayTitle == "Keep local title" && existing.LastSyncedAt is null && existing.Chapters.Count == 0,
+            "import leaves existing records untouched even without a sync timestamp");
+        Check(!handler.Searches.Contains("[\"book:shared\"]"), "import never performs a full fetch for known comics");
+        var comic = await ReadCollection(factory, "new", CollectionKind.Comic);
+        Check(comic.DisplayTitle == "Full new title" && comic.Comment == "Collection comment" && comic.CoverFileHash == "new-cover" && comic.LastSyncedAt.HasValue,
+            "new comic imports cover, display title, comment and sync timestamp");
+        var chapter = comic.Chapters.Single();
+        Check(chapter.VolumeNumber == 2 && chapter.ChapterNumber == 3 && chapter.Pages.Count == 2,
+            "new comic imports the full volume/chapter/page hierarchy");
+        var variants = chapter.Pages.Single(page => page.PageNumber == 1).Variants;
+        Check(variants.Single(variant => variant.IsDefault).FileHash == "new-cover"
+            && variants.Single(variant => variant.FileHash == "new-alternate").Label == "no text"
+            && variants.Single(variant => variant.FileHash == "new-cover").OcrText == "Cover OCR",
+            "new comic imports alternate labels, default variant and existing OCR notes");
+        await using (var db = factory.CreateDbContext())
+            Check(await db.Metadata.AnyAsync(metadata => metadata.SeriesId == comic.Id && metadata.Key == "genre" && metadata.Value == "adventure"),
+                "new comic imports non-structural metadata tags");
+        var image = ImagesetImage.FromCollection(await ReadCollection(factory, "shared", CollectionKind.Imageset)).Single();
+        Check(image.Index == 4 && image.Labels.Single() == "detail", "new imageset imports index and variant attributes");
+        handler.Searches.Clear();
+        Check(await sync.ImportNewCollectionsAsync() == 0 && handler.Searches.Count == 2,
+            "repeating import performs discovery only and imports no duplicates");
+        Check(handler.Writes == 0, "discovery and missing-only import never write to Hydrus");
+
+        handler.Files.AddRange([
+            File(205, "resume-a", "book:resume-a", "leaf:1"),
+            File(206, "resume-b", "book:resume-b", "leaf:1")
+        ]);
+        using var cancellation = new CancellationTokenSource();
+        var stop = new InlineProgress<SyncProgressUpdate>(update =>
+        {
+            if (update.Current == 2) cancellation.Cancel();
+        });
+        try
+        {
+            await sync.ImportNewCollectionsAsync(stop, cancellation.Token);
+            throw new InvalidOperationException("Canceled import unexpectedly completed.");
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            await using var db = factory.CreateDbContext();
+            Check(await db.Comic.AnyAsync(collection => collection.Title == "resume-a")
+                && !await db.Comic.AnyAsync(collection => collection.Title == "resume-b"),
+                "stopping import preserves completed collections and skips remaining work");
+        }
+        handler.FailingSearchTag = "book:resume-b";
+        try
+        {
+            await sync.ImportNewCollectionsAsync();
+            throw new InvalidOperationException("Failed Hydrus import unexpectedly completed.");
+        }
+        catch (HttpRequestException)
+        {
+            await using var db = factory.CreateDbContext();
+            Check(!await db.Comic.AnyAsync(collection => collection.Title == "resume-b"), "Hydrus failures propagate without caching an incomplete collection");
+        }
+        handler.FailingSearchTag = null;
+        Check(await sync.ImportNewCollectionsAsync() == 1
+            && (await ReadCollection(factory, "resume-b", CollectionKind.Comic)).Chapters.Single().Pages.Single().Variants.Single().FileHash == "resume-b",
+            "retry imports only the remaining collection after cancellation or failure");
     }
 
     private static async Task CheckDuplicateRecoveryAsync(CacheFactory factory)
@@ -356,6 +462,11 @@ internal static class Program
     }
 }
 
+internal sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+{
+    public void Report(T value) => report(value);
+}
+
 internal sealed class CacheFactory(DbContextOptions<SettingsDbContext> options) : IDbContextFactory<SettingsDbContext>
 {
     public SettingsDbContext CreateDbContext() => new(options);
@@ -386,6 +497,7 @@ internal sealed class HydrusHandler : HttpMessageHandler
 {
     public List<FileMetadata> Files { get; } = [];
     public List<string> Searches { get; } = [];
+    public string? FailingSearchTag { get; set; }
     public int Writes { get; private set; }
     public Dictionary<string, object> Relationships { get; } = [];
     public HttpStatusCode RelationshipStatus { get; set; } = HttpStatusCode.OK;
@@ -429,6 +541,8 @@ internal sealed class HydrusHandler : HttpMessageHandler
             case "/get_files/search_files":
                 var raw = query["tags"].ToString();
                 Searches.Add(raw);
+                if (FailingSearchTag is not null && raw == JsonSerializer.Serialize(new[] { FailingSearchTag }))
+                    return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
                 using (var predicates = JsonDocument.Parse(raw))
                 {
                     var matching = Files.Where(file => predicates.RootElement.EnumerateArray().All(predicate => Matches(predicate, file.GetAllStorageTags())));

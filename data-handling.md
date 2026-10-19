@@ -58,6 +58,8 @@ Discovery respects both configured `page` and `index` namespaces, as well as cov
 
 The collection schema update does not rewrite Hydrus tags or convert existing saved namespace mappings. Existing installations can choose the desired comic title namespace in Settings.
 
+On the home page, **Import new comics** discovers comics and imagesets in Hydrus using the configured namespaces. Only collections whose title-and-kind identity is absent from the local cache are imported. Each new collection receives the same full metadata sync as a regular refresh, including chapters, pages, variants, cover, metadata tags, and configured notes (display title, comment, and OCR). Existing cache entries are left untouched, even if they have not been synced yet; use the existing collection refresh actions to update those. Import progress can be stopped, keeping completed collections. Errors are shown on the home page; running import again retries collections that are still missing.
+
 ## Regression Checks
 
 Run `dotnet run --project Tests/CollectionChecks.csproj` from the repository root. This package-free runner uses a simulated Hydrus API and an in-memory SQLite database; it never connects to a live Hydrus client or changes `App_Data/settings.db`.

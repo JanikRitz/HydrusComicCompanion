@@ -88,6 +88,55 @@ public class HydrusSyncService : IHydrusSyncService
         return syncedCount;
     }
 
+    public async Task<int> ImportNewCollectionsAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var importedCount = 0;
+        try
+        {
+            _logger.LogInformation("Discovering new collections in Hydrus");
+            var discovered = await _apiService.DiscoverCollectionsAsync(cancellationToken);
+
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var existing = await dbContext.Comic.AsNoTracking()
+                .Select(collection => new CollectionIdentity(collection.Title, collection.Kind))
+                .ToListAsync(cancellationToken);
+            var missing = discovered.Except(existing).ToList();
+            progress?.Report(new SyncProgressUpdate { Current = 0, Total = missing.Count });
+
+            for (var index = 0; index < missing.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var collection = missing[index];
+                progress?.Report(new SyncProgressUpdate
+                {
+                    Current = index + 1,
+                    Total = missing.Count,
+                    CurrentTitle = collection.Title
+                });
+
+                var id = await SyncCollectionAsync(collection.Title, collection.Kind, cancellationToken);
+                if (!id.HasValue)
+                {
+                    throw new InvalidOperationException($"No Hydrus files were found for {collection.Kind} '{collection.Title}'. Run import again to retry remaining titles.");
+                }
+                importedCount++;
+            }
+
+            _logger.LogInformation("Imported {Count} new collections", importedCount);
+            return importedCount;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("New collection import stopped after {Count} collections", importedCount);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "New collection import failed after {Count} collections", importedCount);
+            throw;
+        }
+    }
+
     /// <summary>
     /// Syncs only titles that already exist in the local cache database.
     /// </summary>

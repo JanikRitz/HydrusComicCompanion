@@ -22,7 +22,7 @@
     {
         <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
             <MudStack Spacing="1">
-                <div>Sync completed successfully! Synced <strong>@_syncedComicsCount</strong> titles.</div>
+                <div>@(_lastOperationWasImport ? "Import completed successfully! Imported" : "Sync completed successfully! Synced") <strong>@_syncedComicsCount</strong> titles.</div>
                 @if (_lastSyncTime.HasValue)
                 {
                     <div style="font-size: 0.9em; color: var(--mud-palette-text-secondary);">
@@ -96,14 +96,26 @@
                 </MudStack>
             </MudExpansionPanel>
         </MudExpansionPanels>
-
+        
+        <MudTooltip>
+            <ChildContent>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           OnClick="ImportNewComicsAsync"
+                           Size="Size.Large"
+                           Disabled="@IsSyncBusy"
+                           StartIcon="@Icons.Material.Filled.Sync">
+                </MudButton>
+                </ChildContent>
+            <TooltipContent>Fetch new collections from Hydrus</TooltipContent>
+        </MudTooltip>
         <MudTooltip>
             <ChildContent>
                 <MudButton Variant="Variant.Filled"
                            Color="Color.Primary"
                            OnClick="SyncOcrNow"
                            Size="Size.Large"
-                           Disabled="@_isSyncingOcr"
+                           Disabled="@IsSyncBusy"
                            StartIcon="@Icons.Material.Filled.Abc"
                            EndIcon="@Icons.Material.Filled.Refresh">
                 </MudButton>
@@ -117,7 +129,7 @@
                     Color="Color.Primary"
                     OnClick="SyncNow"
                     Size="Size.Large"
-                    Disabled="@_isSyncing"
+                    Disabled="@IsSyncBusy"
                     StartIcon="@Icons.Material.Filled.MenuBook"
                     EndIcon="@Icons.Material.Filled.Refresh">
                 </MudButton>
@@ -246,7 +258,9 @@
     private bool _isLoading = true;
     private bool _isSyncing;
     private bool _isSyncingOcr;
+    private bool _lastOperationWasImport;
     private int? _refreshingComicId;
+    private bool IsSyncBusy => _isSyncing || _isSyncingOcr || _refreshingComicId.HasValue;
     private string? _syncError;
     private int? _syncedComicsCount;
     private DateTime? _lastSyncTime;
@@ -286,7 +300,7 @@
         _maxTotalPages.HasValue;
 
     private string EmptyStateMessage => _totalLibraryComicsCount == 0
-        ? "No collections are cached yet. Connect Hydrus in Settings, then run a full sync to discover comics and imagesets."
+        ? "No collections are cached yet. Connect Hydrus in Settings, then click Import new comics to discover comics and imagesets."
         : "No titles matched your current search and filters.";
 
     protected override async Task OnParametersSetAsync()
@@ -494,19 +508,29 @@
         NavigationManager.NavigateTo(NavigationManager.BaseUri);
     }
 
-    private async Task SyncNow()
+    private Task SyncNow() => SyncTitlesAsync(importNew: false);
+
+    private Task ImportNewComicsAsync() => SyncTitlesAsync(importNew: true);
+
+    private async Task SyncTitlesAsync(bool importNew)
     {
+        if (IsSyncBusy)
+            return;
+
         _isSyncing = true;
+        _lastOperationWasImport = importNew;
         _syncError = null;
         _syncedComicsCount = null;
+        var title = importNew ? "Importing new comics and imagesets" : "Syncing existing titles";
+        var preparing = importNew ? "Checking Hydrus for new collections..." : "Preparing sync...";
 
         using var cancellationSource = new CancellationTokenSource();
         Action<LongRunningProgressUpdate>? progressHandler = null;
 
         var parameters = new DialogParameters
         {
-            [nameof(SyncProgressDialog.Title)] = "Syncing existing titles",
-            [nameof(SyncProgressDialog.Message)] = "Preparing sync...",
+            [nameof(SyncProgressDialog.Title)] = title,
+            [nameof(SyncProgressDialog.Message)] = preparing,
             [nameof(SyncProgressDialog.CancelButtonText)] = "Stop",
             [nameof(SyncProgressDialog.RegisterProgressHandler)] = (Action<Action<LongRunningProgressUpdate>>)(handler => progressHandler = handler),
             [nameof(SyncProgressDialog.OnCancelRequested)] = (Func<Task>)(() =>
@@ -516,27 +540,29 @@
             })
         };
 
-        var dialog = await DialogService.ShowAsync<SyncProgressDialog>("Syncing existing titles", parameters, _progressDialogOptions);
+        var dialog = await DialogService.ShowAsync<SyncProgressDialog>(title, parameters, _progressDialogOptions);
         var progress = new Progress<SyncProgressUpdate>(update => progressHandler?.Invoke(new LongRunningProgressUpdate
         {
             Current = update.Current,
             Total = update.Total,
-            Message = string.IsNullOrWhiteSpace(update.CurrentTitle) ? "Preparing sync..." : "Syncing collection",
+            Message = string.IsNullOrWhiteSpace(update.CurrentTitle) ? preparing : importNew ? "Importing collection" : "Syncing collection",
             Detail = update.CurrentTitle
         }));
 
         try
         {
-            _syncedComicsCount = await SyncService.SyncExistingLibrariesAsync(progress, cancellationSource.Token);
+            _syncedComicsCount = importNew
+                ? await SyncService.ImportNewCollectionsAsync(progress, cancellationSource.Token)
+                : await SyncService.SyncExistingLibrariesAsync(progress, cancellationSource.Token);
             _lastSyncTime = DateTime.Now;
         }
         catch (OperationCanceledException) when (cancellationSource.IsCancellationRequested)
         {
-            Snackbar.Add("Sync stopped. Already synced titles were kept.", Severity.Info);
+            Snackbar.Add(importNew ? "Import stopped. Already imported titles were kept." : "Sync stopped. Already synced titles were kept.", Severity.Info);
         }
         catch (Exception ex)
         {
-            _syncError = $"Sync failed: {ex.Message}";
+            _syncError = $"{(importNew ? "Import" : "Sync")} failed: {ex.Message}";
         }
         finally
         {
@@ -549,7 +575,11 @@
 
     private async Task SyncOcrNow()
     {
+        if (IsSyncBusy)
+            return;
+
         _isSyncingOcr = true;
+        _lastOperationWasImport = false;
         _syncError = null;
         _syncedComicsCount = null;
 
@@ -602,7 +632,7 @@
 
     private async Task RefreshComicAsync(ComicsCardItem comic)
     {
-        if (_refreshingComicId.HasValue || _isSyncing || _isSyncingOcr)
+        if (IsSyncBusy)
         {
             return;
         }
