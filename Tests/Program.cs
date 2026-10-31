@@ -205,7 +205,73 @@ internal static class Program
         }
         await CheckDuplicateRecoveryAsync(factory);
         await CheckNewCollectionImportAsync();
+        CheckReaderVariantPinning();
         Console.WriteLine($"PASS: {_checks} collection regression checks.");
+    }
+
+    private static void CheckReaderVariantPinning()
+    {
+        var selection = new ComicReaderVariantSelection();
+        selection.SetComic(1);
+        var firstDefault = new PageVariantRecord { Id = 1, FileHash = "first-default", IsDefault = true };
+        var firstAlternate = new PageVariantRecord { Id = 2, FileHash = "first-alternate", Label = "no text" };
+        var firstPage = new PageRecord { Id = 1, ChapterId = 1, Variants = [firstAlternate, firstDefault] };
+        var secondDefault = new PageVariantRecord { Id = 3, FileHash = "second-default", IsDefault = true, Label = "default" };
+        var secondAlternate = new PageVariantRecord { Id = 4, FileHash = "second-alternate", Label = "NO TEXT" };
+        var secondPage = new PageRecord { Id = 2, ChapterId = 2, Variants = [secondAlternate, secondDefault] };
+
+        Check(selection.Select(firstPage) == firstDefault, "reader initially prefers the default variant");
+        Check(selection.Select(secondPage) == secondDefault, "unpinned forward navigation shows the default");
+        Check(selection.Select(firstPage) == firstDefault, "unpinned backward navigation shows the default on a revisited page");
+        selection.Pin(firstAlternate);
+        Check(selection.IsPinned && selection.PinnedDisplayName == "no text", "reader pins the alternate label");
+        Check(selection.Select(secondPage) == secondAlternate, "pin matches labels case-insensitively across chapters");
+        selection.SetComic(1);
+        Check(selection.IsPinned && selection.Select(firstPage) == firstAlternate, "navigation within the same comic preserves the pin");
+        Check(selection.Select(secondPage) == secondAlternate, "pinned forward navigation continues showing the alternate");
+
+        var missingPage = new PageRecord { Id = 3, Variants = [new PageVariantRecord { Id = 5, FileHash = "missing", IsDefault = true }] };
+        Check(selection.Select(missingPage) == missingPage.Variants.Single() && selection.IsPinned,
+            "missing pinned variant falls back to the default without clearing the pin");
+        Check(!missingPage.Variants.Any(selection.MatchesPin) && selection.Select(secondPage) == secondAlternate,
+            "missing-label notice can be detected and the pin resumes on subsequent pages");
+        var hashFirst = new PageVariantRecord { Id = 99, FileHash = "a", Label = "other" };
+        var hashLast = new PageVariantRecord { Id = 6, FileHash = "z", Label = "other" };
+        var fallbackPage = new PageRecord { Id = 4, Variants = [hashLast, hashFirst] };
+        Check(selection.Select(fallbackPage) == hashFirst, "pin fallback without a default uses deterministic hash ordering rather than IDs");
+        hashFirst.Label = "no text";
+        hashLast.Label = "no text";
+        Check(selection.Select(fallbackPage) == hashFirst, "duplicate pinned labels resolve deterministically by hash");
+        hashFirst.IsDefault = true;
+        Check(selection.Select(fallbackPage) == hashFirst, "a matching alternate label remains selectable when marked as the page default");
+        Check(selection.Select(new PageRecord { Id = 5 }) is null && selection.IsPinned, "empty pages do not discard a pin");
+
+        selection.Unpin();
+        Check(!selection.IsPinned && selection.Select(secondPage) == secondDefault,
+            "unpinning shows the default on forward navigation to a previously pinned page");
+        Check(selection.Select(firstPage) == firstDefault,
+            "unpinning shows the default on backward navigation to a previously pinned page");
+        selection.Pin(firstDefault);
+        Check(selection.PinnedDisplayName == "Default" && selection.Select(secondPage) == secondDefault,
+            "pinning default follows the default flag regardless of label");
+        Check(selection.Select(fallbackPage) == hashFirst, "default pin follows a default carrying an alternate label");
+
+        var unlabeled = new PageVariantRecord { Id = 7, FileHash = "unlabeled" };
+        Check(!ComicReaderVariantSelection.CanPin(unlabeled) && ComicReaderVariantSelection.CanPin(firstDefault),
+            "only defaults or labeled alternates can be pinned");
+        try
+        {
+            selection.Pin(unlabeled);
+            throw new InvalidOperationException("Unlabeled alternate unexpectedly pinned.");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("needs a label", StringComparison.Ordinal))
+        {
+            Check(selection.IsPinned && selection.PinnedDisplayName == "Default", "invalid pin leaves the existing pin intact");
+        }
+
+        selection.SetComic(2);
+        Check(!selection.IsPinned && selection.Select(firstPage) == firstDefault,
+            "changing comics clears the pin and shows the default");
     }
 
     private static async Task CheckNewCollectionImportAsync()

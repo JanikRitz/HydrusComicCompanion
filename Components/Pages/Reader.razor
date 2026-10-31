@@ -1,5 +1,6 @@
 @page "/read/{ComicId:int}/{ChapterId:int}/{PageNumber:int}"
 @using HydrusComicCompanion.Services
+@using HydrusComicCompanion.Models
 @inject IDbContextFactory<SettingsDbContext> DbContextFactory
 @inject NavigationManager NavigationManager
 @inject IHydrusApiService ApiService
@@ -108,15 +109,34 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
                            Disabled="@(_isLoadingCurrentVariantOcr || !HasCurrentVariantOcr)"
                            Label="@GetOcrOverlayLabel()"
                            Color="Color.Primary" />
-                @if (CurrentVariants.Count > 1)
+                @if (CurrentVariants.Count > 1 || _variantSelection.IsPinned)
                 {
                     <MudSpacer></MudSpacer>
-                    <MudTooltip Text="@GetVariantDisplayName(_currentVariant ?? CurrentVariants[0])" Placement="Placement.Left">
-                        <MudIconButton Icon="@Icons.Material.Outlined.ChangeCircle"
-                                       Color="Color.Inherit"
-                                       Disabled="@_isVariantChanging"
-                                       OnClick="CycleNextVariantAsync" />
+                    @if (CurrentVariants.Count > 1)
+                    {
+                        <MudTooltip Text="@GetVariantDisplayName(_currentVariant ?? CurrentVariants[0])" Placement="Placement.Left">
+                            <MudIconButton Icon="@Icons.Material.Outlined.ChangeCircle"
+                                           Color="Color.Inherit"
+                                           Disabled="@_isVariantChanging"
+                                           OnClick="CycleNextVariantAsync"
+                                           aria-label="Switch variant" />
+                        </MudTooltip>
+                    }
+                    <MudTooltip Text="@(_variantSelection.IsPinned ? "Manual switching overrides only this page. Unpin to show defaults after navigating." : "Keep this variant across pages and chapters. Unlabeled alternates cannot be pinned.")">
+                        <MudButton Variant="@(_variantSelection.IsPinned ? Variant.Filled : Variant.Text)"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.PushPin"
+                                   Disabled="@(_isVariantChanging || _currentVariant is null || (!_variantSelection.IsPinned && !ComicReaderVariantSelection.CanPin(_currentVariant)))"
+                                   OnClick="ToggleVariantPin">
+                            @(_variantSelection.IsPinned ? $"Unpin {_variantSelection.PinnedDisplayName}" : "Pin variant")
+                        </MudButton>
                     </MudTooltip>
+                    @if (_variantSelection.IsPinned && _currentVariant is not null && !CurrentVariants.Any(_variantSelection.MatchesPin))
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Warning">
+                            Pinned variant "@_variantSelection.PinnedDisplayName" unavailable on this page; showing @GetVariantDisplayName(_currentVariant).
+                        </MudText>
+                    }
                 }
             </MudStack>
         </MudPaper>
@@ -197,7 +217,7 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
     private PageVariantRecord? _currentVariant;
     private PageVariantRecord? _frontVariant;
     private PageVariantRecord? _backVariant;
-    private readonly Dictionary<int, int> _selectedVariantByPageId = [];
+    private readonly ComicReaderVariantSelection _variantSelection = new();
     private IReadOnlyList<string> _currentPageTags = Array.Empty<string>();
     private bool _isLoading = true;
     private string? _errorMessage;
@@ -222,14 +242,11 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
     private IReadOnlyList<PageVariantRecord> CurrentVariants => _currentPage is null
         ? []
-        : _currentPage.Variants
-            .OrderByDescending(v => v.IsDefault)
-            .ThenBy(v => v.Label, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(v => v.Id)
-            .ToList();
+        : ComicReaderVariantSelection.OrderVariants(_currentPage);
 
     protected override async Task OnParametersSetAsync()
     {
+        _variantSelection.SetComic(ComicId);
         await LoadReaderAsync();
     }
 
@@ -331,22 +348,9 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
             _currentPage = _pages[targetPageNumber - 1];
             _currentPageNumber = targetPageNumber;
 
-            var variants = CurrentVariants;
-            if (_currentPage is not null && variants.Count > 0)
+            _currentVariant = _variantSelection.Select(_currentPage);
+            if (_currentVariant is not null)
             {
-                if (_selectedVariantByPageId.TryGetValue(_currentPage.Id, out var selectedVariantId))
-                {
-                    _currentVariant = variants.FirstOrDefault(v => v.Id == selectedVariantId)
-                        ?? variants.FirstOrDefault(v => v.IsDefault)
-                        ?? variants[0];
-                }
-                else
-                {
-                    _currentVariant = variants.FirstOrDefault(v => v.IsDefault)
-                        ?? variants[0];
-                }
-
-                _selectedVariantByPageId[_currentPage.Id] = _currentVariant.Id;
                 var tagLoadingTask = LoadCurrentPageTagsAsync(_currentVariant.FileHash);
                 var ocrEditorUrlTask = BuildOcrEditorUrlAsync(_currentVariant.FileHash);
                 var ocrOverlayTask = EnsureOcrOverlayForVariantAsync(_currentVariant);
@@ -530,6 +534,18 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
         return CurrentVariants[nextIndex];
     }
 
+    private void ToggleVariantPin()
+    {
+        if (_variantSelection.IsPinned)
+        {
+            _variantSelection.Unpin();
+        }
+        else if (_currentVariant is not null)
+        {
+            _variantSelection.Pin(_currentVariant);
+        }
+    }
+
     private async Task CycleNextVariantAsync()
     {
         if (_currentPage is null || CurrentVariants.Count < 2 || _isVariantChanging)
@@ -546,7 +562,6 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
             // Update core application state tracking
             _currentVariant = nextVariant;
-            _selectedVariantByPageId[_currentPage.Id] = nextVariant.Id;
 
             // Trigger the CSS flip animation immediately
             _isFlipped = !_isFlipped;
