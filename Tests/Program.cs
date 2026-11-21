@@ -329,9 +329,11 @@ internal static class Program
 
         using var payload = JsonDocument.Parse(await client.GetStringAsync(route + "?q=oRiGiN", timeout.Token));
         var row = payload.RootElement.EnumerateArray().Single(item => item.GetProperty("kind").GetString() == "Comic");
-        Check(row.EnumerateObject().Select(property => property.Name).Order().SequenceEqual(["coverHash", "id", "kind", "readerPath", "title", "updatedAt"])
+        Check(row.EnumerateObject().Select(property => property.Name).Order().SequenceEqual(["coverHash", "id", "imageCount", "kind", "pageCount", "readerPath", "title", "updatedAt"])
             && row.GetProperty("id").GetInt32() == catalog.Id
             && row.GetProperty("title").GetString() == "Zulu %_ Edition"
+            && row.GetProperty("pageCount").GetInt32() == 2
+            && row.GetProperty("imageCount").ValueKind == JsonValueKind.Null
             && row.GetProperty("coverHash").GetString() == "cover"
             && row.GetProperty("updatedAt").GetDateTimeOffset() == catalog.LastSyncedAt
             && row.GetProperty("readerPath").GetString() == $"read/{catalog.Id}/{chapterId}/2",
@@ -339,6 +341,8 @@ internal static class Program
         var setRow = payload.RootElement.EnumerateArray().Single(item => item.GetProperty("kind").GetString() == "Imageset");
         Check(setRow.GetProperty("id").GetInt32() == imagesetCatalog.Id
             && setRow.GetProperty("title").GetString() == "original"
+            && setRow.GetProperty("pageCount").ValueKind == JsonValueKind.Null
+            && setRow.GetProperty("imageCount").GetInt32() == 3
             && setRow.GetProperty("coverHash").GetString() == "first-image"
             && setRow.GetProperty("readerPath").GetString() == $"collection/{imagesetCatalog.Id}/image/first-image",
             "manager imageset payload uses gallery order and falls back to the first image when no cover is cached");

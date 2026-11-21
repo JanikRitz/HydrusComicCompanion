@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace HydrusComicCompanion.Services;
 
 public sealed record ManagerComic(int Id, string Title, string? CoverHash, DateTimeOffset? UpdatedAt,
-    string Kind, string? ReaderPath);
+    string Kind, string? ReaderPath, int? PageCount, int? ImageCount);
 
 public enum ManagerComicSort
 {
@@ -76,6 +76,17 @@ public sealed class ManagerComicCatalog(IDbContextFactory<SettingsDbContext> dbC
                    COALESCE(NULLIF(TRIM(series.CoverFileHash), ''), firstFile.FileHash) AS CoverHash,
                    series.LastSyncedAt AS UpdatedAt,
                    CASE WHEN series.Kind = @comicKind THEN 'Comic' ELSE 'Imageset' END AS Kind,
+                   CASE WHEN series.Kind = @comicKind THEN (
+                       SELECT COUNT(*) FROM Pages AS page
+                       JOIN Chapters AS chapter ON chapter.Id = page.ChapterId
+                       WHERE chapter.SeriesId = series.Id
+                   ) END AS PageCount,
+                   CASE WHEN series.Kind = @imagesetKind THEN (
+                       SELECT COUNT(*) FROM PageVariants AS image
+                       JOIN Pages AS page ON page.Id = image.PageId
+                       JOIN Chapters AS chapter ON chapter.Id = page.ChapterId
+                       WHERE chapter.SeriesId = series.Id
+                   ) END AS ImageCount,
                    CASE
                        WHEN firstFile.Id IS NULL THEN NULL
                        WHEN series.Kind = @imagesetKind THEN 'collection/' || series.Id || '/image/' || firstFile.FileHash

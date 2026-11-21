@@ -4,12 +4,13 @@
 
 ```json
 [
-	{ "id": 42, "title": "Example comic", "kind": "Comic", "readerPath": "read/42/17/1", "coverHash": "abc123", "updatedAt": "2026-11-21T14:00:00+00:00" },
-	{ "id": 43, "title": "Example album", "kind": "Imageset", "readerPath": "collection/43/image/def456", "coverHash": "def456", "updatedAt": "2026-11-21T14:00:00+00:00" }
+	{ "id": 42, "title": "Example comic", "kind": "Comic", "pageCount": 28, "imageCount": null, "readerPath": "read/42/17/1", "coverHash": "abc123", "updatedAt": "2026-11-21T14:00:00+00:00" },
+	{ "id": 43, "title": "Example album", "kind": "Imageset", "pageCount": null, "imageCount": 12, "readerPath": "collection/43/image/def456", "coverHash": "def456", "updatedAt": "2026-11-21T14:00:00+00:00" }
 ]
 ```
 
 - `kind` is `Comic` or `Imageset`. `readerPath` is relative to the Companion base URL, without a leading slash. It points to the first readable comic page (using its one-based position in its chapter) or the first readable image in gallery order. It does not use reading progress. It is null if there is no cached readable file; the details page is available at `/collection/{id}` for either kind.
+- `pageCount` is the number of logical pages in a comic, and `imageCount` is the number of image variants in an imageset. The count for the other kind is null.
 - `coverHash` prefers the cached cover, then the first readable file. When present, use `/media/thumbnail/{coverHash}`.
 - `q` omitted, empty, or whitespace-only browses the cache. Other queries match a case-insensitive literal substring of the title or display title, an exact current page tag across Hydrus services, or a case-insensitive literal substring of the configured OCR note on any cached page variant. An unqualified tag matches the value after the first colon (or the whole bare tag); a qualified tag must match the entire tag.
 - `limit` defaults to 50 and is capped at 200. Non-positive and non-integer values return HTTP 400.
