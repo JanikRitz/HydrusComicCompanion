@@ -48,6 +48,9 @@ namespace HydrusComicCompanion.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("CachedPageTagsJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Comment")
                         .HasColumnType("TEXT");
 

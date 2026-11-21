@@ -16,6 +16,8 @@ public sealed class ComicsRecord
 
     public string? CoverFileHash { get; set; }
 
+    public string? CachedPageTagsJson { get; set; }
+
     public DateTimeOffset? LastSyncedAt { get; set; }
 
     public ICollection<ChapterRecord> Chapters { get; set; } = [];

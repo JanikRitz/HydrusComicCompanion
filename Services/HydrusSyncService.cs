@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HydrusComicCompanion.Data;
 using HydrusComicCompanion.Models;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,7 @@ namespace HydrusComicCompanion.Services;
 
 public class HydrusSyncService : IHydrusSyncService
 {
+    private static readonly SemaphoreSlim SyncGate = new(1, 1);
     private readonly IHydrusApiService _apiService;
     private readonly IDbContextFactory<SettingsDbContext> _dbContextFactory;
     private readonly IHydrusSettingsService _settingsService;
@@ -27,7 +29,10 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Performs a full library sync: discovers titles and syncs their chapter/page structure
     /// </summary>
-    public async Task<int> SyncLibraryAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+    public Task<int> SyncLibraryAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+        => RunExclusiveAsync(() => SyncLibraryCoreAsync(progress, cancellationToken), cancellationToken);
+
+    private async Task<int> SyncLibraryCoreAsync(IProgress<SyncProgressUpdate>? progress, CancellationToken cancellationToken)
     {
         var syncedCount = 0;
 
@@ -56,7 +61,7 @@ public class HydrusSyncService : IHydrusSyncService
 
                 try
                 {
-                    var comicId = await SyncCollectionAsync(comicTitle.Title, comicTitle.Kind, cancellationToken);
+                    var comicId = await SyncCollectionCoreAsync(comicTitle.Title, comicTitle.Kind, cancellationToken);
                     if (comicId.HasValue)
                     {
                         syncedCount++;
@@ -88,7 +93,10 @@ public class HydrusSyncService : IHydrusSyncService
         return syncedCount;
     }
 
-    public async Task<int> ImportNewCollectionsAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+    public Task<int> ImportNewCollectionsAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+        => RunExclusiveAsync(() => ImportNewCollectionsCoreAsync(progress, cancellationToken), cancellationToken);
+
+    private async Task<int> ImportNewCollectionsCoreAsync(IProgress<SyncProgressUpdate>? progress, CancellationToken cancellationToken)
     {
         var importedCount = 0;
         try
@@ -114,7 +122,7 @@ public class HydrusSyncService : IHydrusSyncService
                     CurrentTitle = collection.Title
                 });
 
-                var id = await SyncCollectionAsync(collection.Title, collection.Kind, cancellationToken);
+                var id = await SyncCollectionCoreAsync(collection.Title, collection.Kind, cancellationToken);
                 if (!id.HasValue)
                 {
                     throw new InvalidOperationException($"No Hydrus files were found for {collection.Kind} '{collection.Title}'. Run import again to retry remaining titles.");
@@ -140,7 +148,10 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Syncs only titles that already exist in the local cache database.
     /// </summary>
-    public async Task<int> SyncExistingLibrariesAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+    public Task<int> SyncExistingLibrariesAsync(IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+        => RunExclusiveAsync(() => SyncExistingLibrariesCoreAsync(progress, cancellationToken), cancellationToken);
+
+    private async Task<int> SyncExistingLibrariesCoreAsync(IProgress<SyncProgressUpdate>? progress, CancellationToken cancellationToken)
     {
         var syncedCount = 0;
 
@@ -174,7 +185,7 @@ public class HydrusSyncService : IHydrusSyncService
 
                 try
                 {
-                    var comicId = await SyncCollectionAsync(comicTitle.Title, comicTitle.Kind, cancellationToken);
+                    var comicId = await SyncCollectionCoreAsync(comicTitle.Title, comicTitle.Kind, cancellationToken);
                     if (comicId.HasValue)
                     {
                         syncedCount++;
@@ -209,7 +220,10 @@ public class HydrusSyncService : IHydrusSyncService
     /// <summary>
     /// Syncs only titles that already exist in the local cache database.
     /// </summary>
-    public async Task<int> SyncOcrOnExistingLibrariesAsync(IOcrReader ocrReader, IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+    public Task<int> SyncOcrOnExistingLibrariesAsync(IOcrReader ocrReader, IProgress<SyncProgressUpdate>? progress = null, CancellationToken cancellationToken = default)
+        => RunExclusiveAsync(() => SyncOcrOnExistingLibrariesCoreAsync(ocrReader, progress, cancellationToken), cancellationToken);
+
+    private async Task<int> SyncOcrOnExistingLibrariesCoreAsync(IOcrReader ocrReader, IProgress<SyncProgressUpdate>? progress, CancellationToken cancellationToken)
     {
         var syncedCount = 0;
 
@@ -531,7 +545,23 @@ public class HydrusSyncService : IHydrusSyncService
     public Task<int?> SyncComicAsync(string comicTitle, CancellationToken cancellationToken = default)
         => SyncCollectionAsync(comicTitle, CollectionKind.Comic, cancellationToken);
 
-    public async Task<int?> SyncCollectionAsync(string comicTitle, CollectionKind kind, CancellationToken cancellationToken = default)
+    public Task<int?> SyncCollectionAsync(string comicTitle, CollectionKind kind, CancellationToken cancellationToken = default)
+        => RunExclusiveAsync(() => SyncCollectionCoreAsync(comicTitle, kind, cancellationToken), cancellationToken);
+
+    private static async Task<TResult> RunExclusiveAsync<TResult>(Func<Task<TResult>> operation, CancellationToken cancellationToken)
+    {
+        await SyncGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            SyncGate.Release();
+        }
+    }
+
+    private async Task<int?> SyncCollectionCoreAsync(string comicTitle, CollectionKind kind, CancellationToken cancellationToken)
     {
         var settings = await _settingsService.GetSettingsAsync(cancellationToken);
         if (kind == CollectionKind.Imageset)
@@ -1515,6 +1545,9 @@ public class HydrusSyncService : IHydrusSyncService
 
         // Update comic metadata (creators, genres, etc.)
         UpdateComicMetadata(comic, allFileMetadata, settings);
+        comic.CachedPageTagsJson = JsonSerializer.Serialize(allFileMetadata
+            .SelectMany(file => file.GetAllStorageTags())
+            .Distinct(StringComparer.OrdinalIgnoreCase));
 
         // Set cover to configured cover tag file, or fallback to the lowest page number.
         comic.CoverFileHash = ResolveCoverFileHash(chapters, allFileMetadata, settings);

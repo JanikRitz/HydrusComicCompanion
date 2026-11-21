@@ -5,10 +5,14 @@ using HydrusComicCompanion.Components.ImportWizard.State;
 using HydrusComicCompanion.Data;
 using HydrusComicCompanion.Models;
 using HydrusComicCompanion.Services;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -205,8 +209,170 @@ internal static class Program
         }
         await CheckDuplicateRecoveryAsync(factory);
         await CheckNewCollectionImportAsync();
+        await CheckManagerCatalogAsync();
         CheckReaderVariantPinning();
         Console.WriteLine($"PASS: {_checks} collection regression checks.");
+    }
+
+    private static async Task CheckManagerCatalogAsync()
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var factory = new CacheFactory(new DbContextOptionsBuilder<SettingsDbContext>().UseSqlite(connection).Options);
+        await using (var db = factory.CreateDbContext())
+            await db.Database.MigrateAsync();
+
+        var settings = new TestSettings();
+        using var handler = new HydrusHandler();
+        var alternate = File(2, "alternate", "comic:original", "page:1", "variant:alternate", "creator:Bjork", "standalone");
+        alternate.Notes[settings.Value.OcrTextNoteName] = "Grüße 100%_[literal]";
+        var cover = File(1, "cover", "comic:original", "page:1", "variant:default");
+        cover.Notes[settings.Value.FullTitleNoteName] = "Zulu %_ Edition";
+        var setFile = File(4, "set", "set:original", "index:2");
+        setFile.Tags["other"] = new ServiceTagBucket { StorageTags = new() { ["0"] = ["theme:set-exclusive"] } };
+        setFile.Notes[settings.Value.OcrTextNoteName] = "Collection OCR 100%";
+        handler.Files.AddRange([cover, alternate, File(3, "alpha", "comic:alpha", "page:1"), setFile,
+            File(5, "first-image", "set:original", "index:2"), File(6, "a-unnumbered", "set:original", "page:1")]);
+        using var hydrusHttp = new HttpClient(handler);
+        var api = new HydrusApiService(hydrusHttp, settings, NullLogger<HydrusApiService>.Instance);
+        var sync = new HydrusSyncService(api, factory, settings, NullLogger<HydrusSyncService>.Instance);
+
+        Check(new string?[] { null, "", "0", "-1", "1.5", "2147483648" }.All(value => ManagerComicSync.ParseInterval(value) is null)
+            && ManagerComicSync.ParseInterval("2") == TimeSpan.FromMinutes(2), "only a positive integer enables scheduled sync");
+
+        await using var services = new ServiceCollection()
+            .AddScoped<IHydrusSyncService>(_ => new HydrusSyncService(api, factory, settings, NullLogger<HydrusSyncService>.Instance))
+            .BuildServiceProvider();
+        using var worker = new ManagerComicSync(services.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<ManagerComicSync>.Instance, TimeSpan.FromMilliseconds(25));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ranAgain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var discoveries = 0;
+        handler.BeforeSearchAsync = async (raw, token) =>
+        {
+            if (!raw.Contains("comic:*", StringComparison.Ordinal) || !raw.Contains("page:*", StringComparison.Ordinal))
+                return;
+
+            if (Interlocked.Increment(ref discoveries) == 1)
+            {
+                started.SetResult();
+                await release.Task.WaitAsync(token);
+            }
+            else
+            {
+                ranAgain.TrySetResult();
+            }
+        };
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await worker.StartAsync(timeout.Token);
+        try
+        {
+            await started.Task.WaitAsync(timeout.Token);
+            using var queuedCancellation = new CancellationTokenSource();
+            var manual = sync.SyncComicAsync("original", queuedCancellation.Token);
+            Check(!manual.IsCompleted && handler.Searches.Count == 1, "startup sync holds the gate across scopes before manual sync contacts Hydrus");
+            await queuedCancellation.CancelAsync();
+            try
+            {
+                await manual;
+                Check(false, "queued manual sync can be canceled");
+            }
+            catch (OperationCanceledException)
+            {
+                Check(true, "queued manual sync can be canceled");
+            }
+            release.SetResult();
+            await ranAgain.Task.WaitAsync(timeout.Token);
+        }
+        finally
+        {
+            await worker.StopAsync(timeout.Token);
+        }
+        Check(discoveries >= 2 && handler.Posts == 0 && handler.NotesMetadataReads > 0,
+            "scheduled sync runs at startup and on interval, requests notes, and sends no Hydrus writes");
+
+        var catalog = await ReadCollection(factory, "original", CollectionKind.Comic);
+        var imagesetCatalog = await ReadCollection(factory, "original", CollectionKind.Imageset);
+        var chapterId = catalog.Chapters.Single().Id;
+        Check(imagesetCatalog.CoverFileHash == "first-image", "sync falls back to the first ordered imageset image for the cover");
+        await using (var db = factory.CreateDbContext())
+        {
+            (await db.Comic.SingleAsync(comic => comic.Title == "alpha")).LastSyncedAt = DateTimeOffset.UnixEpoch;
+            var cachedImageset = await db.Comic.SingleAsync(collection => collection.Id == imagesetCatalog.Id);
+            cachedImageset.LastSyncedAt = DateTimeOffset.UnixEpoch.AddSeconds(1);
+            cachedImageset.CoverFileHash = null;
+            var cachedPage = await db.Set<PageRecord>().SingleAsync(page => page.ChapterId == chapterId);
+            cachedPage.PageNumber = 8;
+            db.Set<PageRecord>().Add(new PageRecord { ChapterId = chapterId, PageNumber = 4 });
+            db.Comic.Add(new ComicsRecord { Title = "middle", Kind = CollectionKind.Comic });
+            await db.SaveChangesAsync();
+        }
+
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
+        builder.Logging.ClearProviders();
+        builder.Logging.AddSimpleConsole().SetMinimumLevel(LogLevel.Error);
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddSingleton<IDbContextFactory<SettingsDbContext>>(factory);
+        builder.Services.AddScoped<ManagerComicCatalog>();
+        await using var app = builder.Build();
+        ManagerComicCatalog.MapEndpoint(app);
+        await app.StartAsync(timeout.Token);
+        using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+        const string route = "/api/manager/comics";
+
+        async Task<string[]> TitlesAsync(string parameters)
+        {
+            using var json = JsonDocument.Parse(await client.GetStringAsync(route + parameters, timeout.Token));
+            return json.RootElement.EnumerateArray().Select(item => item.GetProperty("title").GetString()!).ToArray();
+        }
+
+        using var payload = JsonDocument.Parse(await client.GetStringAsync(route + "?q=oRiGiN", timeout.Token));
+        var row = payload.RootElement.EnumerateArray().Single(item => item.GetProperty("kind").GetString() == "Comic");
+        Check(row.EnumerateObject().Select(property => property.Name).Order().SequenceEqual(["coverHash", "id", "kind", "readerPath", "title", "updatedAt"])
+            && row.GetProperty("id").GetInt32() == catalog.Id
+            && row.GetProperty("title").GetString() == "Zulu %_ Edition"
+            && row.GetProperty("coverHash").GetString() == "cover"
+            && row.GetProperty("updatedAt").GetDateTimeOffset() == catalog.LastSyncedAt
+            && row.GetProperty("readerPath").GetString() == $"read/{catalog.Id}/{chapterId}/2",
+            "manager comic payload preserves fields and uses the first readable page's position, not its cached number");
+        var setRow = payload.RootElement.EnumerateArray().Single(item => item.GetProperty("kind").GetString() == "Imageset");
+        Check(setRow.GetProperty("id").GetInt32() == imagesetCatalog.Id
+            && setRow.GetProperty("title").GetString() == "original"
+            && setRow.GetProperty("coverHash").GetString() == "first-image"
+            && setRow.GetProperty("readerPath").GetString() == $"collection/{imagesetCatalog.Id}/image/first-image",
+            "manager imageset payload uses gallery order and falls back to the first image when no cover is cached");
+
+        Check((await TitlesAsync("?q=%25_")).SequenceEqual(["Zulu %_ Edition"]), "display title search treats wildcard characters literally");
+        Check((await TitlesAsync("?q=bJORK")).Length == 1 && (await TitlesAsync("?q=CREATOR%3Abjork")).Length == 1
+            && (await TitlesAsync("?q=standalone")).Length == 1, "exact unqualified, qualified and bare tags match on an alternate page");
+        Check((await TitlesAsync("?q=bjor")).Length == 0 && (await TitlesAsync("?q=other%3Abjork")).Length == 0
+            && (await TitlesAsync("?q=set-exclus")).Length == 0, "partial tags and wrong namespaces do not match");
+        Check((await TitlesAsync("?q=set-exclusive")).SequenceEqual(["original"])
+            && (await TitlesAsync("?q=THEME%3Aset-exclusive")).SequenceEqual(["original"]), "imageset tags match across services");
+        Check((await TitlesAsync("?q=" + Uri.EscapeDataString("GRÜßE 100%_[LITERAL]"))).Length == 1,
+            "case-insensitive literal OCR search includes alternate variants");
+        Check((await TitlesAsync("?q=collection%20ocr%20100%25")).SequenceEqual(["original"]), "imageset OCR matches on images other than the reader entry");
+        Check((await TitlesAsync("?q=")).SequenceEqual(["alpha", "middle", "original", "Zulu %_ Edition"])
+            && (await TitlesAsync("?sort=TitleAscending&limit=1")).SequenceEqual(["alpha"])
+            && (await TitlesAsync("?sort=TitleDescending&limit=1")).SequenceEqual(["Zulu %_ Edition"])
+            && (await TitlesAsync("?sort=DateNewest")).SequenceEqual(["Zulu %_ Edition", "original", "alpha", "middle"])
+            && (await TitlesAsync("?sort=DateOldest")).SequenceEqual(["alpha", "original", "Zulu %_ Edition", "middle"])
+            && (await TitlesAsync("?sort=random&limit=2")).Distinct().Count() == 2, "browse, all sort modes and result limits work across both kinds");
+        Check((await TitlesAsync("?q=origin&sort=TitleAscending&limit=1")).SequenceEqual(["original"])
+            && (await TitlesAsync("?q=origin&sort=TitleAscending&limit=1&kind=cOmIc")).SequenceEqual(["Zulu %_ Edition"])
+            && (await TitlesAsync("?q=origin&sort=TitleDescending&limit=1&kind=Imageset")).SequenceEqual(["original"])
+            && (await TitlesAsync("?q=middle&kind=Imageset")).Length == 0,
+            "kind filters matching collections before applying the limit, while omission keeps the combined results");
+        using var nullable = JsonDocument.Parse(await client.GetStringAsync(route + "?q=middle", timeout.Token));
+        Check(nullable.RootElement[0].GetProperty("coverHash").ValueKind == JsonValueKind.Null
+            && nullable.RootElement[0].GetProperty("updatedAt").ValueKind == JsonValueKind.Null
+            && nullable.RootElement[0].GetProperty("readerPath").ValueKind == JsonValueKind.Null, "missing cover, timestamp and readable files serialize as null");
+        foreach (var invalid in new[] { "?limit=0", "?limit=bad", "?sort=1", "?sort=unknown", "?kind=", "?kind=1", "?kind=unknown", "?kind=Comic,Imageset" })
+        {
+            using var response = await client.GetAsync(route + invalid, timeout.Token);
+            Check(response.StatusCode == HttpStatusCode.BadRequest, $"manager rejects {invalid}");
+        }
     }
 
     private static void CheckReaderVariantPinning()
@@ -564,7 +730,10 @@ internal sealed class HydrusHandler : HttpMessageHandler
     public List<FileMetadata> Files { get; } = [];
     public List<string> Searches { get; } = [];
     public string? FailingSearchTag { get; set; }
+    public Func<string, CancellationToken, Task>? BeforeSearchAsync { get; set; }
     public int Writes { get; private set; }
+    public int Posts { get; private set; }
+    public int NotesMetadataReads { get; private set; }
     public Dictionary<string, object> Relationships { get; } = [];
     public HttpStatusCode RelationshipStatus { get; set; } = HttpStatusCode.OK;
     public List<Uri> RelationshipRequests { get; } = [];
@@ -576,6 +745,7 @@ internal sealed class HydrusHandler : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (request.Method == HttpMethod.Post) Posts++;
         var query = QueryHelpers.ParseQuery(request.RequestUri!.Query);
         switch (request.RequestUri.AbsolutePath)
         {
@@ -607,6 +777,8 @@ internal sealed class HydrusHandler : HttpMessageHandler
             case "/get_files/search_files":
                 var raw = query["tags"].ToString();
                 Searches.Add(raw);
+                if (BeforeSearchAsync is not null)
+                    await BeforeSearchAsync(raw, cancellationToken);
                 if (FailingSearchTag is not null && raw == JsonSerializer.Serialize(new[] { FailingSearchTag }))
                     return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
                 using (var predicates = JsonDocument.Parse(raw))
@@ -615,6 +787,7 @@ internal sealed class HydrusHandler : HttpMessageHandler
                     return Json(new { file_ids = matching.Select(file => file.FileId).ToArray() });
                 }
             case "/get_files/file_metadata":
+                if (query["include_notes"] == "true") NotesMetadataReads++;
                 IEnumerable<FileMetadata> selected;
                 if (query.TryGetValue("file_ids", out var ids))
                 {

@@ -8,6 +8,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.UseStaticWebAssets();
 
 // Add MudBlazor services
 builder.Services.AddMudServices();
@@ -44,6 +45,13 @@ builder.Services.AddScoped<IHydrusSyncService, HydrusSyncService>();
 builder.Services.AddScoped<IHydrusMediaService, HydrusMediaService>();
 builder.Services.AddScoped<IComicImportService, ComicImportService>();
 builder.Services.AddScoped<ICalibreService, CalibreService>();
+builder.Services.AddScoped<ManagerComicCatalog>();
+if (ManagerComicSync.ParseInterval(Environment.GetEnvironmentVariable("PSM_COMIC_SYNC_MINUTES")) is { } syncInterval)
+{
+    builder.Services.AddHostedService(services => new ManagerComicSync(
+        services.GetRequiredService<IServiceScopeFactory>(),
+        services.GetRequiredService<ILogger<ManagerComicSync>>(), syncInterval));
+}
 
 // OCR service
 builder.Services.AddScoped<IOcrReader, OcrReader>();
@@ -100,6 +108,7 @@ app.UseHttpsRedirection();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+ManagerComicCatalog.MapEndpoint(app);
 
 // Add API endpoints for Hydrus sync operations
 app.MapPost("/api/sync/test-connection", async (IHydrusApiService apiService) =>
