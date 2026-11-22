@@ -12,6 +12,7 @@ builder.WebHost.UseStaticWebAssets();
 
 // Add MudBlazor services
 builder.Services.AddMudServices();
+builder.Services.AddHttpContextAccessor();
 
 var appDataDirectory = Path.Combine(builder.Environment.ContentRootPath, "App_Data");
 Directory.CreateDirectory(appDataDirectory);
@@ -62,6 +63,13 @@ builder.Services.AddRazorComponents()
 
 var app = builder.Build();
 
+var pathBase = Environment.GetEnvironmentVariable("PSM_COMIC_PATH_BASE")?.Trim().TrimEnd('/');
+if (!string.IsNullOrEmpty(pathBase))
+{
+    app.UsePathBase(pathBase);
+}
+app.UseRouting();
+
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var dbContextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<SettingsDbContext>>();
@@ -98,11 +106,11 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.UseHsts();
+    if (string.IsNullOrEmpty(pathBase)) app.UseHsts();
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 
-app.UseHttpsRedirection();
+if (string.IsNullOrEmpty(pathBase)) app.UseHttpsRedirection();
 
 
 app.UseAntiforgery();

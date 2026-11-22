@@ -14,7 +14,7 @@ else
         {
             <MudItem xs="12" sm="6" md="4" lg="3" @key="image.File.FileHash">
                 <MudPaper Outlined="true" Class="pa-2">
-                    <a href="@($"/collection/{Collection.Id}/image/{image.File.FileHash}")" aria-label="@($"Open {image.IndexLabel}")">
+                    <a href="@($"collection/{Collection.Id}/image/{image.File.FileHash}")" aria-label="@($"Open {image.IndexLabel}")">
                         <HydrusImage Src="@MediaService.BuildRenderUrl(image.File.FileHash, width: 480, height: 480)"
                                      Alt="@($"{Collection.Title} · {image.IndexLabel}")"
                                      ShowHoverPreview="false" Loading="lazy"

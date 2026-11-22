@@ -496,17 +496,17 @@ else if (_series is not null && _chapter is not null && _currentPage is not null
 
     private void GoBackToComic()
     {
-        NavigationManager.NavigateTo($"/comic/{ComicId}");
+        NavigationManager.NavigateTo($"comic/{ComicId}");
     }
 
     private void GoBackHome()
     {
-        NavigationManager.NavigateTo($"/");
+        NavigationManager.NavigateTo(NavigationManager.BaseUri);
     }
 
     private static string BuildReaderUrl(int seriesId, int chapterId, int pageNumber)
     {
-        return $"/read/{seriesId}/{chapterId}/{pageNumber}";
+        return $"read/{seriesId}/{chapterId}/{pageNumber}";
     }
 
     private string GetVariantDisplayName(PageVariantRecord variant)

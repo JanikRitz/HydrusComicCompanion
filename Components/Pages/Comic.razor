@@ -593,7 +593,7 @@ else
             Snackbar.Add($"Deleted '{_comic.Title}' from cache.", Severity.Success);
         }
 
-        NavigationManager.NavigateTo("/");
+        NavigationManager.NavigateTo(NavigationManager.BaseUri);
     }
 
     private Task OnChapterPageChanged(int page)
@@ -609,11 +609,11 @@ else
 
     private void GoHome()
     {
-        NavigationManager.NavigateTo("/");
+        NavigationManager.NavigateTo(NavigationManager.BaseUri);
     }
 
     private void OpenReader(int chapterId)
     {
-        NavigationManager.NavigateTo($"/read/{ComicId}/{chapterId}/1");
+        NavigationManager.NavigateTo($"read/{ComicId}/{chapterId}/1");
     }
 }

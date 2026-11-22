@@ -14,13 +14,13 @@
 else if (_current is null)
 {
     <MudAlert Severity="Severity.Warning">@(_error ?? "This image is not in the cached imageset.")</MudAlert>
-    <MudButton Href="@($"/collection/{CollectionId}")">Back to collection</MudButton>
+    <MudButton Href="@($"collection/{CollectionId}")">Back to collection</MudButton>
 }
 else
 {
     <div style="display:flex; flex-direction:column; gap:16px;" tabindex="0" @onkeydown="HandleKeyDown" @onwheel="HandleWheelAsync" @onwheel:preventDefault="true">
         <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
-            <MudButton Href="@($"/collection/{CollectionId}")" StartIcon="@Icons.Material.Filled.Collections">Gallery</MudButton>
+            <MudButton Href="@($"collection/{CollectionId}")" StartIcon="@Icons.Material.Filled.Collections">Gallery</MudButton>
             <MudText Typo="Typo.h6">@(_collection!.DisplayTitle ?? _collection.Title)</MudText>
             <MudSpacer />
             <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Disabled="@(_position <= 0)" OnClick="() => Navigate(-1)" aria-label="Previous image" />
@@ -83,7 +83,7 @@ else
         var next = _position + offset;
         if (next >= 0 && next < _images.Count)
         {
-            NavigationManager.NavigateTo($"/collection/{CollectionId}/image/{_images[next].File.FileHash}", replace: true);
+            NavigationManager.NavigateTo($"collection/{CollectionId}/image/{_images[next].File.FileHash}", replace: true);
         }
     }
 

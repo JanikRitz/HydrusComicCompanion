@@ -1,6 +1,9 @@
 using System.Net;
+using System.Net.Sockets;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using HydrusComicCompanion.Components.ImportWizard.State;
 using HydrusComicCompanion.Data;
 using HydrusComicCompanion.Models;
@@ -211,7 +214,141 @@ internal static class Program
         await CheckNewCollectionImportAsync();
         await CheckManagerCatalogAsync();
         CheckReaderVariantPinning();
+        var mediaUrls = new HydrusMediaService(api);
+        Check(mediaUrls.BuildThumbnailUrl("a/b") == "media/thumbnail/a%2Fb"
+            && mediaUrls.BuildRenderUrl("abc", 100, 200) == "media/render/abc?width=100&height=200"
+            && mediaUrls.BuildOriginalFileUrl("abc", true) == "media/file/abc?download=true",
+            "media URLs are escaped and relative to the application base");
+        await CheckPathBaseAsync(null);
+        await CheckPathBaseAsync(null, httpsRedirect: true);
+        await CheckPathBaseAsync("/managed/comiccompanion/test");
+        await CheckPathBaseAsync("/managed/comiccompanion/test", httpsRedirect: true);
         Console.WriteLine($"PASS: {_checks} collection regression checks.");
+    }
+
+    private static async Task CheckPathBaseAsync(string? pathBase, bool httpsRedirect = false)
+    {
+        var contentRoot = Path.Combine(Path.GetTempPath(), "comic-pathbase-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(contentRoot);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+
+        var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true };
+        start.ArgumentList.Add(typeof(HydrusMediaService).Assembly.Location);
+        start.ArgumentList.Add("--contentRoot");
+        start.ArgumentList.Add(contentRoot);
+        start.ArgumentList.Add("--urls");
+        start.ArgumentList.Add($"http://127.0.0.1:{port}");
+        start.Environment["ASPNETCORE_ENVIRONMENT"] = httpsRedirect ? "Production" : "Development";
+        start.Environment["Logging__LogLevel__Default"] = "Warning";
+        start.Environment["PSM_COMIC_PATH_BASE"] = pathBase ?? "";
+        start.Environment["PSM_COMIC_SYNC_MINUTES"] = "";
+        start.Environment["ASPNETCORE_HTTPS_PORT"] = httpsRedirect ? "5443" : "";
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start companion host.");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+                { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+            var prefix = pathBase ?? "";
+            HttpResponseMessage? response = null;
+            while (response is null)
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                if (process.HasExited)
+                    throw new InvalidOperationException("Companion host exited before accepting requests.");
+                try { response = await client.GetAsync(prefix + "/", timeout.Token); }
+                catch (HttpRequestException) { await Task.Delay(100, timeout.Token); }
+            }
+            using (response)
+            {
+                if (httpsRedirect && pathBase is null)
+                {
+                    Check(response.StatusCode == HttpStatusCode.TemporaryRedirect
+                        && response.Headers.Location?.ToString() == $"https://127.0.0.1:5443{prefix}/",
+                        "standalone HTTPS redirect remains enabled");
+                    return;
+                }
+                if (httpsRedirect)
+                    Check(response.IsSuccessStatusCode && !response.Headers.Contains("Strict-Transport-Security"),
+                        "managed hosting does not redirect to the upstream HTTPS port or set HSTS");
+                var html = await response.Content.ReadAsStringAsync(timeout.Token);
+                Check(response.IsSuccessStatusCode && html.Contains($"<base href=\"{prefix}/\"", StringComparison.Ordinal),
+                    $"{prefix}/ serves the correct document base");
+                var assets = Regex.Matches(html, "(?:src|href)=\"([^\"]+)\"")
+                    .Select(match => WebUtility.HtmlDecode(match.Groups[1].Value))
+                    .Where(value => value.Contains("blazor.web.") || value.Contains("MudBlazor.min.") || value.Contains("ReconnectModal."))
+                    .ToArray();
+                Check(assets.Length >= 4, $"{prefix}/ emits framework, MudBlazor, and reconnect assets");
+                foreach (var asset in assets)
+                {
+                    using var assetResponse = await client.GetAsync(prefix + "/" + asset, timeout.Token);
+                    Check(assetResponse.IsSuccessStatusCode, $"{prefix}/ serves {asset}");
+                }
+            }
+
+            using var spoofed = new HttpRequestMessage(HttpMethod.Get, prefix + "/settings");
+            spoofed.Headers.Add("X-Forwarded-Prefix", "/untrusted");
+            using var spoofedResponse = await client.SendAsync(spoofed, timeout.Token);
+            Check((await spoofedResponse.Content.ReadAsStringAsync(timeout.Token)).Contains($"<base href=\"{prefix}/\"", StringComparison.Ordinal),
+                $"{prefix}/ ignores an untrusted forwarded prefix");
+            using var negotiate = await client.PostAsync(prefix + "/_blazor/negotiate?negotiateVersion=1", null, timeout.Token);
+            Check(negotiate.IsSuccessStatusCode, $"{prefix}/ routes interactive SignalR negotiation");
+            using var catalog = await client.GetAsync(prefix + "/api/manager/comics", timeout.Token);
+            Check(catalog.IsSuccessStatusCode, $"{prefix}/ routes the manager API");
+            using var thumbnail = new HttpRequestMessage(HttpMethod.Get, prefix + "/media/thumbnail/abc");
+            thumbnail.Headers.TryAddWithoutValidation("If-None-Match", "\"thumb-abc\"");
+            using var thumbnailResponse = await client.SendAsync(thumbnail, timeout.Token);
+            Check(thumbnailResponse.StatusCode == HttpStatusCode.NotModified, $"{prefix}/ routes media requests");
+
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = Path.Combine(contentRoot, "App_Data", "settings.db"),
+                Pooling = false
+            }.ToString();
+            var options = new DbContextOptionsBuilder<SettingsDbContext>().UseSqlite(connectionString).Options;
+            int imagesetId;
+            await using (var db = new SettingsDbContext(options))
+            {
+                var imageset = new ComicsRecord
+                {
+                    Kind = CollectionKind.Imageset,
+                    Title = "Path base imageset",
+                    Chapters = [new ChapterRecord { Pages = [new PageRecord
+                    {
+                        PageNumber = 1,
+                        Variants = [new PageVariantRecord { FileHash = "fixturehash", ImageIndex = 1, IsDefault = true }]
+                    }] }]
+                };
+                db.Comic.Add(imageset);
+                await db.SaveChangesAsync(timeout.Token);
+                imagesetId = imageset.Id;
+            }
+            var gallery = await client.GetStringAsync(prefix + $"/collection/{imagesetId}", timeout.Token);
+            Check(gallery.Contains($"href=\"collection/{imagesetId}/image/fixturehash\"", StringComparison.Ordinal)
+                && gallery.Contains("media/render/fixturehash", StringComparison.Ordinal),
+                $"{prefix}/ renders base-relative gallery and media links");
+            var reader = await client.GetStringAsync(prefix + $"/collection/{imagesetId}/image/fixturehash", timeout.Token);
+            Check(reader.Contains($"href=\"collection/{imagesetId}\"", StringComparison.Ordinal)
+                && reader.Contains("media/render/fixturehash", StringComparison.Ordinal),
+                $"{prefix}/ renders base-relative imageset reader links");
+            using var notFound = await client.GetAsync(prefix + "/not-found", timeout.Token);
+            Check((await notFound.Content.ReadAsStringAsync(timeout.Token)).Contains($"<base href=\"{prefix}/\"", StringComparison.Ordinal),
+                $"{prefix}/ renders not-found navigation with the correct base");
+        }
+        finally
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            await Task.WhenAll(stdout, stderr);
+            Directory.Delete(contentRoot, recursive: true);
+        }
     }
 
     private static async Task CheckManagerCatalogAsync()

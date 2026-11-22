@@ -14,7 +14,7 @@ public sealed class HydrusMediaService : IHydrusMediaService
 
     public string BuildThumbnailUrl(string hash)
     {
-        return $"/media/thumbnail/{Uri.EscapeDataString(hash)}";
+        return $"media/thumbnail/{Uri.EscapeDataString(hash)}";
     }
 
     public string BuildRenderUrl(
@@ -24,14 +24,14 @@ public sealed class HydrusMediaService : IHydrusMediaService
         int? renderFormat = null,
         int? renderQuality = null)
     {
-        var basePath = $"/media/render/{Uri.EscapeDataString(hash)}";
+        var basePath = $"media/render/{Uri.EscapeDataString(hash)}";
         var query = BuildRenderQuery(width, height, renderFormat, renderQuality);
         return string.IsNullOrWhiteSpace(query) ? basePath : $"{basePath}?{query}";
     }
 
     public string BuildOriginalFileUrl(string hash, bool download = false)
     {
-        var basePath = $"/media/file/{Uri.EscapeDataString(hash)}";
+        var basePath = $"media/file/{Uri.EscapeDataString(hash)}";
         return download ? $"{basePath}?download=true" : basePath;
     }
 
