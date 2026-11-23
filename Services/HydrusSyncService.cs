@@ -77,7 +77,11 @@ public class HydrusSyncService : IHydrusSyncService
                 }
             }
 
-            _logger.LogInformation("Completed library sync: {SyncedCount} titles synchronized", syncedCount);
+            var removedCount = await RemoveCollectionsMissingFromHydrusAsync(comicTitles, cancellationToken);
+            _logger.LogInformation(
+                "Completed library sync: {SyncedCount} titles synchronized, {RemovedCount} stale collections removed",
+                syncedCount,
+                removedCount);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -159,13 +163,17 @@ public class HydrusSyncService : IHydrusSyncService
         {
             _logger.LogInformation("Starting existing libraries sync");
 
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            var existingComicTitles = await dbContext.Comic
-                .AsNoTracking()
-                .Where(s => s.Title != "")
-                .Select(s => new CollectionIdentity(s.Title, s.Kind))
-                .Distinct()
-                .ToListAsync(cancellationToken);
+            var discoveredCollections = await _apiService.DiscoverCollectionsAsync(cancellationToken);
+            List<CollectionIdentity> existingComicTitles;
+            await using (var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
+            {
+                existingComicTitles = await dbContext.Comic
+                    .AsNoTracking()
+                    .Where(s => s.Title != "")
+                    .Select(s => new CollectionIdentity(s.Title, s.Kind))
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+            }
 
             _logger.LogInformation("Found {Count} existing titles in local cache", existingComicTitles.Count);
 
@@ -201,7 +209,11 @@ public class HydrusSyncService : IHydrusSyncService
                 }
             }
 
-            _logger.LogInformation("Completed existing libraries sync: {SyncedCount} titles synchronized", syncedCount);
+            var removedCount = await RemoveCollectionsMissingFromHydrusAsync(discoveredCollections, cancellationToken);
+            _logger.LogInformation(
+                "Completed existing libraries sync: {SyncedCount} titles synchronized, {RemovedCount} stale collections removed",
+                syncedCount,
+                removedCount);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -620,6 +632,35 @@ public class HydrusSyncService : IHydrusSyncService
         }
     }
     
+    private async Task<int> RemoveCollectionsMissingFromHydrusAsync(
+        IReadOnlyCollection<CollectionIdentity> discoveredCollections,
+        CancellationToken cancellationToken)
+    {
+        var discoveredTitlesByKind = discoveredCollections
+            .GroupBy(collection => collection.Kind)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(collection => collection.Title).ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        var cachedCollections = await dbContext.Comic.ToListAsync(cancellationToken);
+        var obsoleteCollections = cachedCollections
+            .Where(collection => !discoveredTitlesByKind.TryGetValue(collection.Kind, out var titles)
+                || !titles.Contains(collection.Title))
+            .ToList();
+
+        if (obsoleteCollections.Count == 0)
+        {
+            return 0;
+        }
+
+        dbContext.Comic.RemoveRange(obsoleteCollections);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Removed {Count} cached collections no longer found in Hydrus", obsoleteCollections.Count);
+        return obsoleteCollections.Count;
+    }
+
     /// <summary>
     /// Gets the count of unsynced titles
     /// </summary>

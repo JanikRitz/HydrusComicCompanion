@@ -809,6 +809,32 @@ internal static class Program
         {
             Check(true, "relationship lookup honors cancellation");
         }
+
+        handler.Files.RemoveAll(file => file.Hash == "d");
+        await using (var db = factory.CreateDbContext())
+        {
+            db.Comic.Add(new ComicsRecord { Title = "removed by partial sync", Kind = CollectionKind.Comic });
+            await db.SaveChangesAsync();
+        }
+        await sync.SyncExistingLibrariesAsync();
+        await using (var db = factory.CreateDbContext())
+        {
+            Check(!await db.Comic.AnyAsync(comic => comic.Title == "index-only" && comic.Kind == CollectionKind.Comic)
+                && !await db.Comic.AnyAsync(comic => comic.Title == "removed by partial sync"),
+                "partial sync removes collections no longer discovered in Hydrus");
+        }
+
+        await using (var db = factory.CreateDbContext())
+        {
+            db.Comic.Add(new ComicsRecord { Title = "removed by full sync", Kind = CollectionKind.Imageset });
+            await db.SaveChangesAsync();
+        }
+        await sync.SyncLibraryAsync();
+        await using (var db = factory.CreateDbContext())
+        {
+            Check(!await db.Comic.AnyAsync(comic => comic.Title == "removed by full sync"),
+                "full sync removes cached collections no longer discovered in Hydrus");
+        }
     }
 
     private static FileMetadata File(long id, string hash, params string[] tags) => new()
